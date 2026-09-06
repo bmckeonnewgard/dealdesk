@@ -647,6 +647,19 @@
   .om-url-row{ display:flex; gap:8px; }
   .om-url-row input[type=url]{ flex:1; min-width:0; }
 
+  /* ---------- generic tag-input (broker markets, etc.) ---------- */
+  .tag-input-wrap{
+    display:flex; flex-wrap:wrap; gap:6px; align-items:center; border:1px solid var(--border);
+    background:var(--surface-2); border-radius:8px; padding:6px 8px; min-height:34px;
+  }
+  .tag-input-wrap .tag-pill{ display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+  .tag-pill-remove{ cursor:pointer; font-weight:800; opacity:.6; }
+  .tag-pill-remove:hover{ opacity:1; }
+  .field .tag-input-wrap input{
+    border:none; background:transparent; padding:4px 2px; flex:1; min-width:110px; width:auto;
+  }
+  .field .tag-input-wrap input:focus{ outline:none; }
+
   /* ---------- category manager (product line / property type) ---------- */
   .catmgr-list{ display:flex; flex-direction:column; gap:5px; max-height:260px; overflow-y:auto; }
   .catmgr-row{
@@ -1396,6 +1409,7 @@
   .broker-card-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .broker-card-name{ font-weight:800; font-size:13.5px; color:var(--ink); }
   .broker-card-firm{ font-size:11.5px; color:var(--ink-soft); margin-top:-6px; }
+  .broker-card-markets{ display:flex; flex-wrap:wrap; gap:4px; }
   .broker-card-contact{ display:flex; flex-direction:column; gap:2px; font-size:11px; color:var(--ink-soft); }
   .broker-card-nocontact{ color:var(--ink-faint); font-style:italic; }
   .broker-card-stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; border-top:1px solid var(--border); padding-top:8px; margin-top:2px; }
@@ -1419,6 +1433,18 @@
     font-size:11.5px; border:1px solid var(--border); background:var(--surface-2); border-radius:6px; padding:5px 8px; color:var(--ink-soft);
   }
   @media (max-width:560px){ .broker-log-row{ grid-template-columns:1fr; } }
+  .broker-log-attach-area{ grid-column:1 / -1; display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin-top:1px; }
+  .broker-log-attachments{ display:flex; flex-wrap:wrap; gap:6px; }
+  .broker-log-attachment-open{ cursor:pointer; }
+  .broker-log-attachment-open:hover{ text-decoration:underline; }
+  .broker-log-file-label{
+    display:inline-flex; align-items:center; gap:5px; cursor:pointer; font-size:11px; font-weight:600;
+    color:var(--ink-soft); border:1px dashed var(--border); border-radius:6px; padding:4px 9px;
+  }
+  .broker-log-file-label:hover{ border-color:var(--accent); color:var(--ink); }
+  .broker-log-file-label input[type=file]{ display:none; }
+  .broker-log-attach-status{ font-size:11px; color:var(--ink-faint); }
+  .broker-log-attach-status.warn{ color:var(--warn); }
   .broker-deal-list{ display:flex; flex-direction:column; }
   .broker-deal-row{
     display:flex; align-items:center; gap:10px; padding:8px 4px; border-top:1px solid var(--border);
@@ -6912,10 +6938,67 @@ async function runScreen(){
   }
 }
 
+/* Overall score for a not-yet-created deal, computed the exact same way as recomputeIcCriteria's
+   icScore (average of every numeric per-criterion rating, rounded to one decimal) — so the number
+   shown here in the Screen result matches what the deal will show once it's actually added and
+   its screening-criteria section takes over. */
+function screenScoreFromRatings(criteria, ratings){
+  let sum=0, count=0;
+  (criteria||[]).forEach(c=>{
+    const r = ratings ? ratings[c.key] : undefined;
+    if(typeof r==="number" && !isNaN(r)){ sum += Math.max(0, Math.min(10, r)); count++; }
+  });
+  return count ? {score: Math.round((sum/count)*10)/10, count} : {score:null, count:0};
+}
+/* Read-only per-criterion breakdown for the Screen result modal — same rating scale/coloring as
+   the deal-detail screening-criteria section (buildIcCriteriaList), but simplified to a label +
+   rating pill + optional note since nothing is editable yet (the deal doesn't exist until the
+   analyst confirms "Add to Prospecting pipeline"). */
+function screenCriteriaBreakdownHtml(criteria, ratings, notesMap){
+  const rated = (criteria||[]).filter(c=> typeof (ratings||{})[c.key]==="number" && !isNaN(ratings[c.key]));
+  if(!rated.length) return "";
+  const rows = rated.map(c=>{
+    const r = Math.max(0, Math.min(10, ratings[c.key]));
+    const cls = r>=7.5 ? "pill-good" : r>=5 ? "pill-warn" : "pill-bad";
+    const ratingLabel = c.type==="binary" ? (r>=5 ? "Meets" : "Doesn't meet") : `${r.toFixed(1)}/10`;
+    const note = (notesMap && notesMap[c.key]) ? `<div class="ic-row-line-label" style="margin-top:2px;">${escapeHtml(notesMap[c.key])}</div>` : "";
+    return `<div class="ic-row" style="padding:7px 0;">
+      <div class="ic-row-top" style="gap:8px;">
+        <span class="ic-row-label" style="flex:1;">${escapeHtml(c.label)}</span>
+        <span class="pill ${cls}">${ratingLabel}</span>
+      </div>
+      ${note}
+    </div>`;
+  }).join("");
+  return `<div style="display:flex;flex-direction:column;gap:0;margin-top:2px;">${rows}</div>`;
+}
+
 function openScreenResultModal(result, answers){
   const existing = document.getElementById("screenResultOverlay");
   if(existing) existing.remove();
   const recMeta = REC_META[result.recommendation];
+  const criteria = lastScreenCriteria || [];
+  const ratings = result.criteriaRatings || {};
+  const notesMap = result.criteriaNotes || {};
+  const {score, count} = screenScoreFromRatings(criteria, ratings);
+  const scoreColor = score==null ? "var(--ink-faint)" : score>=7.5 ? "var(--good)" : score>=5 ? "var(--warn)" : "var(--bad)";
+  const criteriaSectionHtml = !criteria.length ? "" : `
+    <div class="category" style="margin-top:12px;">
+      <div class="ic-criteria-head">
+        <span>Screening criteria${answers.productLine ? ` — ${escapeHtml(answers.productLine)}` : ""}</span>
+        <span style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+          <span class="cat-count" style="margin-left:0;">${count} of ${criteria.length} rated</span>
+        </span>
+      </div>
+      ${count ? screenCriteriaBreakdownHtml(criteria, ratings, notesMap) : `<div class="empty-hint">Not enough info in the OM/fields yet to rate these — add more detail and re-screen, or rate them by hand once the deal is added.</div>`}
+      ${count ? `<div class="dd-summary" style="margin-top:8px;">
+        <div style="flex:1;"></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px;flex:none;">
+          <span class="uw-label">Quality score</span>
+          <span class="num" style="color:${scoreColor};">${score.toFixed(1)}/10</span>
+        </div>
+      </div>` : ""}
+    </div>`;
   const overlay = document.createElement("div");
   overlay.className = "overlay";
   overlay.id = "screenResultOverlay";
@@ -6930,8 +7013,9 @@ function openScreenResultModal(result, answers){
         <p class="ic-memo-exec-text">${escapeHtml(result.summary||"")}</p>
         ${result.risks ? `<div><span class="ic-memo-risks-label">Key risks</span><p class="ic-memo-exec-text">${escapeHtml(result.risks)}</p></div>` : ""}
       </div>
-      ${result.criteriaRatings && Object.keys(result.criteriaRatings).length ? `<p class="locked-note" style="margin-top:10px;">Also rated ${Object.keys(result.criteriaRatings).length} screening criteria — you can review or adjust every rating in the deal's Screening Criteria section once it's added.</p>` : ""}
-      <p class="locked-note" style="margin-top:10px;">This is a quick automated read, not a substitute for full underwriting. Review before presenting to IC.</p>
+      ${criteriaSectionHtml}
+      ${!criteria.length ? `<p class="locked-note" style="margin-top:10px;">No screening criteria are set up yet for ${answers.productLine ? `the "${escapeHtml(answers.productLine)}" product line` : "this product line"} — add some in the Criteria tab to get a scored breakdown here next time.</p>` : `<p class="locked-note" style="margin-top:10px;">You can review or adjust every rating in the deal's Screening Criteria section once it's added.</p>`}
+      <p class="locked-note" style="margin-top:6px;">This is a quick automated read, not a substitute for full underwriting. Review before presenting to IC.</p>
     </div>
     <div class="modal-foot">
       <button type="button" class="btn" id="screenResultCancelBtn">Cancel</button>
@@ -9059,7 +9143,7 @@ function renderBrokersView(){
   if(!wrap) return;
   const q = (document.getElementById("searchInput").value||"").trim().toLowerCase();
   let list = [...brokers.entries()];
-  if(q) list = list.filter(([id,b])=> matchesFilter([b.name,b.firm,b.phone,b.email,b.notes].join(" "), q));
+  if(q) list = list.filter(([id,b])=> matchesFilter([b.name,b.firm,b.phone,b.email,b.notes,(b.markets||[]).join(" ")].join(" "), q));
   list.sort((a,b)=> brokerLabel(a[1]).localeCompare(brokerLabel(b[1])));
 
   if(!brokers.size){
@@ -9086,6 +9170,7 @@ function renderBrokersView(){
         <span class="pill ${tier.cls}">${tier.label}</span>
       </div>
       ${b.firm ? `<div class="broker-card-firm">${escapeHtml(b.firm)}</div>` : ""}
+      ${(b.markets && b.markets.length) ? `<div class="broker-card-markets">${b.markets.map(m=>`<span class="pill pill-neutral">${escapeHtml(m)}</span>`).join("")}</div>` : ""}
       <div class="broker-card-contact">
         ${b.phone ? `<span>${escapeHtml(b.phone)}</span>` : ""}
         ${b.email ? `<span>${escapeHtml(b.email)}</span>` : ""}
@@ -9147,6 +9232,13 @@ function openBrokerModal(id, opts){
         </div>
         <div class="field"><label for="brNotes">Relationship notes</label><textarea id="brNotes" placeholder="Standing notes — e.g. 'good on off-market land', 'slow to respond'…"></textarea></div>
         ${!isNew ? `
+        <div class="field">
+          <label for="brMarketInput">Markets</label>
+          <div class="tag-input-wrap">
+            <span class="tag-pills-list" id="brMarketsPillsList"></span>
+            <input type="text" id="brMarketInput" placeholder="Type a market, press Enter…">
+          </div>
+        </div>
         <div>
           <div class="deposit-extra-head"><h4 class="section-label" style="margin:0;">Call / activity log</h4><button type="button" class="btn-icon" id="brAddLogBtn">+ Add note</button></div>
           <div id="brokerActivityLog"></div>
@@ -9202,25 +9294,144 @@ function openBrokerModal(id, opts){
     document.getElementById("brNotes").addEventListener("change", e=> save({notes: e.target.value.trim()}));
     document.getElementById("brAddLogBtn").addEventListener("click", ()=>{
       const cur = brokers.get(id) || {};
-      const next = (cur.activityLog||[]).concat([{date: new Date().toISOString().slice(0,10), note:"", link:"", author: whoName()||""}]);
+      const next = (cur.activityLog||[]).concat([{date: new Date().toISOString().slice(0,10), note:"", link:"", author: whoName()||"", attachments:[]}]);
       updateBroker(id, {activityLog: next});
     });
     document.getElementById("brokerDeleteBtn").addEventListener("click", ()=>{
       openConfirm(`Delete <strong>${escapeHtml(b.name||"this broker")}</strong>? Deals already linked to them keep their history, but the link will be cleared. This can't be undone.`,
         ()=>{ deleteBroker(id); close(); });
     });
+    const marketInput = document.getElementById("brMarketInput");
+    marketInput.addEventListener("keydown", e=>{
+      if(e.key==="Enter" || e.key===","){
+        e.preventDefault();
+        addBrokerMarket(marketInput.value);
+        marketInput.value = "";
+      }
+    });
+    marketInput.addEventListener("blur", ()=>{
+      if(marketInput.value.trim()){ addBrokerMarket(marketInput.value); marketInput.value = ""; }
+    });
+    renderBrokerMarketsPills();
     renderBrokerActivityLog();
     renderBrokerLinkedDeals();
   }
 }
 
 /* Called on open (edit mode) and again whenever brokers/deals data changes underneath an open
-   broker modal — refreshes only the derived, read-mostly sections (activity log, linked deals),
-   never the top contact fields, so a teammate's edit elsewhere can't blow away what's being typed. */
+   broker modal — refreshes only the derived, read-mostly sections (markets, activity log, linked
+   deals), never the top contact fields or the market/note text still being typed, so a teammate's
+   edit elsewhere can't blow away what's mid-edit locally. */
 function renderBrokerModalContent(){
   if(!openBrokerId || !document.getElementById("brokerOverlay")) return;
+  renderBrokerMarketsPills();
   renderBrokerActivityLog();
   renderBrokerLinkedDeals();
+}
+
+function addBrokerMarket(value){
+  const v = (value||"").trim();
+  if(!v || !openBrokerId) return;
+  const cur = brokers.get(openBrokerId) || {};
+  const markets = cur.markets || [];
+  if(markets.some(m=>m.toLowerCase()===v.toLowerCase())) return; // no duplicates
+  updateBroker(openBrokerId, {markets: markets.concat([v])});
+}
+function removeBrokerMarket(idx){
+  if(!openBrokerId) return;
+  const cur = brokers.get(openBrokerId) || {};
+  updateBroker(openBrokerId, {markets: (cur.markets||[]).filter((_,i)=>i!==idx)});
+}
+function renderBrokerMarketsPills(){
+  const holder = document.getElementById("brMarketsPillsList");
+  if(!holder || !openBrokerId) return;
+  const b = brokers.get(openBrokerId) || {};
+  const markets = b.markets || [];
+  holder.innerHTML = markets.map((m,i)=>
+    `<span class="pill pill-neutral tag-pill">${escapeHtml(m)}<span class="tag-pill-remove" data-idx="${i}" title="Remove market">✕</span></span>`
+  ).join("");
+  holder.querySelectorAll(".tag-pill-remove").forEach(btn=>{
+    btn.addEventListener("click", ()=> removeBrokerMarket(Number(btn.getAttribute("data-idx"))));
+  });
+}
+
+function fmtFileSize(bytes){
+  if(bytes==null) return "";
+  if(bytes < 1024) return bytes + " B";
+  if(bytes < 1024*1024) return (bytes/1024).toFixed(1) + " KB";
+  return (bytes/(1024*1024)).toFixed(1) + " MB";
+}
+
+/* Attachments live in Supabase Storage (bucket "broker-attachments", set up by supabase.sql),
+   not in the docs table — only the {path,name,size,uploadedAt} pointer is stored on the log entry
+   itself. The bucket is private, so opening a file means asking Storage for a fresh short-lived
+   signed URL each time rather than storing a permanent one. `sb` is the raw supabase-js client
+   (set up alongside `supabaseDb` near the top of this file) — Storage isn't part of the
+   collection()/doc() adapter, so this talks to it directly. */
+async function openBrokerLogAttachment(path){
+  if(!sb){ showToast("File storage isn't connected", "bad"); return; }
+  try{
+    const { data, error } = await sb.storage.from("broker-attachments").createSignedUrl(path, 3600);
+    if(error) throw error;
+    window.open(data.signedUrl, "_blank", "noopener");
+  }catch(err){
+    console.error("Couldn't open attachment:", err);
+    showToast("Couldn't open that file", "bad");
+  }
+}
+async function removeBrokerLogAttachment(entryIdx, attIdx){
+  const cur = brokers.get(openBrokerId);
+  if(!cur) return;
+  const list = (cur.activityLog||[]).slice();
+  const entry = Object.assign({}, list[entryIdx]);
+  const atts = (entry.attachments||[]).slice();
+  const [removed] = atts.splice(attIdx,1);
+  entry.attachments = atts;
+  list[entryIdx] = entry;
+  await updateBroker(openBrokerId, {activityLog: list});
+  if(removed && sb){
+    try{ await sb.storage.from("broker-attachments").remove([removed.path]); }
+    catch(e){ console.error("Storage cleanup failed (file may be orphaned, harmless):", e); }
+  }
+  renderBrokerActivityLog();
+}
+async function handleBrokerLogFileUpload(entryIdx, fileList, statusEl){
+  if(!sb){
+    if(statusEl){ statusEl.textContent = "File storage isn't connected."; statusEl.classList.add("warn"); }
+    return;
+  }
+  const brokerId = openBrokerId;
+  const files = Array.from(fileList||[]);
+  if(!files.length || !brokerId) return;
+  for(const file of files){
+    if(file.size > 50*1024*1024){
+      if(statusEl){ statusEl.textContent = file.name + " is over the 50MB limit — try a smaller file."; statusEl.classList.add("warn"); }
+      continue;
+    }
+    if(statusEl){ statusEl.textContent = "Uploading " + file.name + "…"; statusEl.classList.remove("warn"); }
+    try{
+      const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+      const path = brokerId + "/" + Date.now() + "_" + Math.random().toString(36).slice(2,8) + "_" + safeName;
+      const { error } = await sb.storage.from("broker-attachments").upload(path, file);
+      if(error) throw error;
+      const cur = brokers.get(brokerId);
+      if(!cur) return;
+      const list = (cur.activityLog||[]).slice();
+      const entry = Object.assign({}, list[entryIdx]);
+      entry.attachments = (entry.attachments||[]).concat([{path, name: file.name, size: file.size, uploadedAt: new Date().toISOString()}]);
+      list[entryIdx] = entry;
+      await updateBroker(brokerId, {activityLog: list});
+    }catch(err){
+      console.error("Attachment upload failed:", err);
+      if(statusEl){
+        statusEl.textContent = "Couldn't upload " + file.name + " — " + ((err && err.message) || "try again");
+        statusEl.classList.add("warn");
+      }
+      return;
+    }
+  }
+  if(statusEl){ statusEl.textContent = ""; statusEl.classList.remove("warn"); }
+  renderBrokerActivityLog();
 }
 
 function renderBrokerActivityLog(){
@@ -9241,7 +9452,12 @@ function renderBrokerActivityLog(){
       <input class="broker-log-date" type="date">
       <textarea class="broker-log-note" placeholder="What happened…"></textarea>
       <input class="broker-log-link" type="text" placeholder="Link (optional) — email, doc, recording…">
-      <button type="button" class="btn-icon broker-log-remove" title="Remove note">✕</button>`;
+      <button type="button" class="btn-icon broker-log-remove" title="Remove note">✕</button>
+      <div class="broker-log-attach-area">
+        <div class="broker-log-attachments"></div>
+        <label class="broker-log-file-label">📎 Attach file(s)<input type="file" class="broker-log-file-input" multiple></label>
+        <span class="broker-log-attach-status"></span>
+      </div>`;
     row.querySelector(".broker-log-date").value = entry.date||"";
     row.querySelector(".broker-log-note").value = entry.note||"";
     row.querySelector(".broker-log-link").value = entry.link||"";
@@ -9266,6 +9482,27 @@ function renderBrokerActivityLog(){
       updateBroker(openBrokerId, {activityLog: next});
       renderBrokerActivityLog();
     });
+
+    const atts = entry.attachments || [];
+    const attachHolder = row.querySelector(".broker-log-attachments");
+    attachHolder.innerHTML = atts.map((att,ai)=>
+      `<span class="pill pill-neutral tag-pill">
+        <span class="broker-log-attachment-open" data-ai="${ai}">📎 ${escapeHtml(att.name)}${att.size!=null?` (${fmtFileSize(att.size)})`:""}</span>
+        <span class="tag-pill-remove" data-ai="${ai}" title="Remove attachment">✕</span>
+      </span>`
+    ).join("");
+    attachHolder.querySelectorAll(".broker-log-attachment-open").forEach(el=>{
+      el.addEventListener("click", ()=> openBrokerLogAttachment(atts[Number(el.getAttribute("data-ai"))].path));
+    });
+    attachHolder.querySelectorAll(".tag-pill-remove").forEach(el=>{
+      el.addEventListener("click", ()=> removeBrokerLogAttachment(i, Number(el.getAttribute("data-ai"))));
+    });
+    row.querySelector(".broker-log-file-input").addEventListener("change", (e)=>{
+      const statusEl = row.querySelector(".broker-log-attach-status");
+      handleBrokerLogFileUpload(i, e.target.files, statusEl);
+      e.target.value = "";
+    });
+
     wrap.appendChild(row);
   });
 }
