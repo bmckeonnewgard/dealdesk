@@ -1090,6 +1090,16 @@
     display:flex; align-items:center; justify-content:center; color:var(--ink-faint); font-size:12px; font-style:italic;
   }
   .deal-location-map{ width:100%; height:200px; border-radius:8px; border:1px solid var(--border); isolation:isolate; }
+  /* Flashed by attachCtrlScrollZoom over any of the three Leaflet maps when someone scrolls
+     without holding Ctrl/Cmd — same convention Google Maps embeds use, since a plain scroll is
+     left alone to scroll the page instead of zooming the map. z-index:1000 only has to beat this
+     one map's own panes (max 700) since isolation:isolate above scopes it to this element. */
+  .map-scroll-hint{
+    position:absolute; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center;
+    background:rgba(16,22,29,.5); color:#fff; font-size:12.5px; font-weight:700; text-align:center;
+    padding:12px; opacity:0; pointer-events:none; transition:opacity .18s ease;
+  }
+  .map-scroll-hint.visible{ opacity:1; }
   .map-empty{
     display:flex; align-items:center; justify-content:center; text-align:center; color:var(--ink-faint);
     font-size:12.5px; aspect-ratio:960/440; border:1.5px dashed var(--border-strong); border-radius:10px; padding:20px;
@@ -4890,6 +4900,7 @@ function openIcMemoModal(id){
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
       }).addTo(map);
       L.marker([hit.lat, hit.lon]).addTo(map);
+      attachCtrlScrollZoom(map, slot);
     })();
   }
 }
@@ -5738,12 +5749,49 @@ async function renderDealLocationMap(dealId, addr){
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
   }).addTo(map);
   L.marker([hit.lat, hit.lon]).addTo(map);
+  attachCtrlScrollZoom(map, slot);
 }
 function cssVar(name, fallback){
   try{
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return v || fallback;
   }catch(e){ return fallback; }
+}
+/* All three Leaflet maps in the app (pipeline map, deal detail map, IC memo map) are created with
+   scrollWheelZoom:false so a plain scroll over one of them scrolls the page like anything else on
+   it, rather than hijacking the scroll to zoom. This adds back a deliberate way to zoom by wheel —
+   hold Ctrl (or Cmd on Mac) while scrolling, the same convention Google Maps embeds use — without
+   touching Leaflet's own scroll handling at all: we do the zoom ourselves only when that modifier
+   is held, and otherwise leave the event alone so the page scrolls normally. Wheel deltas are
+   accumulated and converted to whole zoom levels using the same 60px-per-level Leaflet's own
+   handler defaults to, so a trackpad's stream of small events doesn't zoom far faster than a mouse
+   wheel's few large ones. A plain scroll (no modifier) briefly flashes a hint over the map instead
+   of silently doing nothing, so the gesture is discoverable the first time someone tries it. */
+function attachCtrlScrollZoom(map, el){
+  const PX_PER_ZOOM_LEVEL = 60;
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform||navigator.userAgent||"");
+  let accum = 0, hintEl = null, hintTimer = null;
+  const flashHint = ()=>{
+    if(!hintEl){
+      hintEl = document.createElement("div");
+      hintEl.className = "map-scroll-hint";
+      hintEl.textContent = isMac ? "Use ⌘ + scroll to zoom the map" : "Use ctrl + scroll to zoom the map";
+      el.appendChild(hintEl);
+    }
+    hintEl.classList.add("visible");
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(()=>{ if(hintEl) hintEl.classList.remove("visible"); }, 900);
+  };
+  el.addEventListener("wheel", e=>{
+    if(!(e.ctrlKey || e.metaKey)){ flashHint(); return; } // no modifier — let the page scroll
+    e.preventDefault();
+    accum += e.deltaY;
+    if(Math.abs(accum) < PX_PER_ZOOM_LEVEL) return;
+    const steps = Math.trunc(accum / PX_PER_ZOOM_LEVEL);
+    accum -= steps * PX_PER_ZOOM_LEVEL;
+    const point = map.mouseEventToContainerPoint(e);
+    map.setZoomAround(point, map.getZoom() - steps);
+  }, { passive:false });
 }
 /* Builds the drill-down popup shown when a state/market dot is clicked: a scrollable list of
    compact deal cards (name, stage, price, lead) plus a "View all in pipeline" footer link. Cards
@@ -5797,6 +5845,7 @@ function renderPipelineMap(byState, byMarket){
     maxZoom: 18,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
   }).addTo(map);
+  attachCtrlScrollZoom(map, el);
 
   // One delegated listener handles every popup this map ever opens (each dot's popup content is
   // freshly rendered by Leaflet on open, so listeners can't be attached until then).
