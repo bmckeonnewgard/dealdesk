@@ -1049,7 +1049,12 @@
   .map-bubble:hover .bubble-circle{ stroke-width:2.5px; }
   .bubble-label{ font-family:var(--font-mono); font-size:9px; font-weight:700; fill:var(--accent-strong); text-anchor:middle; pointer-events:none; }
   .map-bubble:has(.bubble-circle-market) .bubble-label{ fill:var(--brass-ink); font-size:7.5px; }
-  #pipelineMap{ width:100%; aspect-ratio:960/440; border-radius:10px; overflow:hidden; border:1px solid var(--border); background:var(--surface-2); }
+  /* isolation:isolate contains Leaflet's own internal pane z-indices (its tile/marker/popup panes
+     go up to z-index:700) inside this map's own stacking context, so they can never bleed out and
+     render on top of a later-opened modal/slideover — those sit at z-index:90-100, which would
+     otherwise lose to Leaflet's panes since neither this element nor its ancestors previously
+     established a stacking context of their own. */
+  #pipelineMap{ width:100%; aspect-ratio:960/440; border-radius:10px; overflow:hidden; border:1px solid var(--border); background:var(--surface-2); isolation:isolate; }
   #pipelineMap .leaflet-popup-content-wrapper, #pipelineMap .leaflet-popup-tip{ background:var(--surface); color:var(--ink); }
   #pipelineMap .leaflet-popup-content{ font-size:12px; margin:11px 14px; }
   /* Pipeline map drill-down popup: clicking a state/market dot opens this instead of jumping
@@ -1073,7 +1078,7 @@
     background:none; font-family:inherit; font-size:11px; font-weight:700; color:var(--accent); cursor:pointer; text-align:left;
   }
   .pipeline-popup-viewall:hover{ text-decoration:underline; }
-  .ic-memo-map-leaflet{ width:100%; height:160px; border-radius:6px; }
+  .ic-memo-map-leaflet{ width:100%; height:160px; border-radius:6px; isolation:isolate; }
   .ic-memo-map-loading{ padding:14px 9px; font-size:12px; color:var(--ink-faint); font-style:italic; }
   /* Live location map near the top of a deal's detail panel (slideover) — separate from the
      printable IC memo's own map (.ic-memo-map-leaflet) since the two live in different DOM trees
@@ -1084,7 +1089,7 @@
     width:100%; height:200px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2);
     display:flex; align-items:center; justify-content:center; color:var(--ink-faint); font-size:12px; font-style:italic;
   }
-  .deal-location-map{ width:100%; height:200px; border-radius:8px; border:1px solid var(--border); }
+  .deal-location-map{ width:100%; height:200px; border-radius:8px; border:1px solid var(--border); isolation:isolate; }
   .map-empty{
     display:flex; align-items:center; justify-content:center; text-align:center; color:var(--ink-faint);
     font-size:12.5px; aspect-ratio:960/440; border:1.5px dashed var(--border-strong); border-radius:10px; padding:20px;
