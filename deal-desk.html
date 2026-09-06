@@ -644,6 +644,8 @@
   .om-status{ font-size:11.5px; color:var(--ink-soft); min-height:14px; }
   .om-status.warn{ color:var(--warn); }
   .om-file-row input[type=file]{ font-size:12px; color:var(--ink-soft); width:100%; }
+  .om-url-row{ display:flex; gap:8px; }
+  .om-url-row input[type=url]{ flex:1; min-width:0; }
 
   /* ---------- category manager (product line / property type) ---------- */
   .catmgr-list{ display:flex; flex-direction:column; gap:5px; max-height:260px; overflow-y:auto; }
@@ -2947,13 +2949,26 @@ async function seedIfNeeded(){
 /* AI sampler ("sample" capability replacement) — proxies through this site's own /api/sample
    serverless function so the Anthropic API key never reaches the browser. Matches the shape the
    rest of the app already calls: sample(prompt, opts) -> {text}, sample.json(prompt, opts) -> parsed object. */
+/* Builds a readable message from a failed server-endpoint response (/api/sample or /api/fetch-
+   listing), and stows the raw detail on the thrown Error so callers can show it (rather than a
+   generic "something went wrong") — this is what actually points at *why* a screening/extraction/
+   fetch call failed (missing API key, a bad model name, a rate limit, a site blocking the fetch,
+   etc.) instead of hiding it. */
+async function apiError(res){
+  let body = null;
+  try{ body = await res.json(); }catch(e){}
+  const detail = (body && (body.detail || body.error)) || ("HTTP " + res.status);
+  const err = new Error("Request failed: " + detail);
+  err.detail = detail;
+  return err;
+}
 async function sampleApi(prompt, opts){
   const res = await fetch("/api/sample", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt, modelTier: (opts && opts.modelTier) || "default" }),
   });
-  if(!res.ok) throw new Error("AI request failed (" + res.status + ")");
+  if(!res.ok) throw await apiError(res);
   const data = await res.json();
   return { text: (data.text || "").trim() };
 }
@@ -2963,10 +2978,26 @@ sampleApi.json = async function(prompt, opts){
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt, json: true, modelTier: (opts && opts.modelTier) || "default" }),
   });
-  if(!res.ok) throw new Error("AI request failed (" + res.status + ")");
+  if(!res.ok) throw await apiError(res);
   const data = await res.json();
   return data.result;
 };
+
+/* Server-side fetch of a listing URL (Crexi, LoopNet, a brokerage page, etc.), routed through
+   /api/fetch-listing so the browser doesn't hit that site's CORS restrictions directly. Many CRE
+   listing sites block automated requests outright or render their content with JavaScript (so the
+   raw HTML has no useful text) — this is best-effort, and callers are expected to show whatever
+   specific reason comes back rather than a generic failure. */
+async function fetchListingText(url){
+  const res = await fetch("/api/fetch-listing", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  if(!res.ok) throw await apiError(res);
+  const data = await res.json();
+  return data.text || "";
+}
 
 /* downloads capability replacement — a plain Blob + <a download> click, no capability needed in a browser. */
 async function ensureDownloadsCap(){
@@ -6500,6 +6531,28 @@ async function handleOmFile(e){
   }
 }
 
+async function handleOmUrl(){
+  const url = (document.getElementById("omUrl").value||"").trim();
+  if(!url){ omStatus("Paste a listing URL first.", true); return; }
+  const btn = document.getElementById("omUrlBtn");
+  btn.disabled = true;
+  omStatus("Fetching page…");
+  try{
+    const text = await fetchListingText(url);
+    if(!text.trim()){
+      omStatus("Fetched the page, but couldn't find readable text on it (it may be JavaScript-rendered) — try downloading a PDF or pasting the text instead.", true);
+      return;
+    }
+    document.getElementById("omPaste").value = text;
+    omStatus('Pulled text from the page — click "Extract details" below.');
+  }catch(err){
+    console.error("Listing fetch failed:", err);
+    omStatus("Couldn't fetch that page" + (err && err.detail ? " — " + err.detail : " automatically") + " — try downloading it and uploading/pasting instead.", true);
+  }finally{
+    btn.disabled = false;
+  }
+}
+
 async function extractOm(){
   const text = (document.getElementById("omPaste").value||"").trim();
   if(!text){ omStatus("Paste some text first (or upload a PDF/.txt/.csv file).", true); return; }
@@ -6535,7 +6588,8 @@ async function extractOm(){
     if(omExtractedBroker) extras.push(`broker contact (${omExtractedBroker.name}${omExtractedBroker.firm?" — "+omExtractedBroker.firm:""} — will be added to Brokers on save)`);
     omStatus("Pulled what I could find" + (extras.length? " — also captured "+extras.join(", ")+"." : ".") + " Check the fields below before adding.");
   }catch(err){
-    omStatus("Couldn't extract automatically. Fill in the fields below manually.", true);
+    console.error("OM extraction failed:", err);
+    omStatus("Couldn't extract automatically" + (err && err.detail ? " — " + err.detail : ".") + " Fill in the fields below manually.", true);
   } finally {
     btn.disabled = false;
   }
@@ -6553,6 +6607,7 @@ function openEditDealModal(){
             <summary>📄 Start from an OM or listing (optional)</summary>
             <div class="om-body">
               <div class="om-file-row"><input type="file" id="omFile" accept=".txt,.md,.csv,text/plain,text/csv,text/markdown,application/pdf"></div>
+              <div class="om-url-row"><input type="url" id="omUrl" placeholder="…or paste a listing URL (Crexi, LoopNet, etc.)"><button class="btn" id="omUrlBtn" type="button">Fetch</button></div>
               <textarea id="omPaste" placeholder="Paste text from the OM, listing, or email… (or upload a .txt/.csv above)" style="min-height:80px;"></textarea>
               <button class="btn" id="omExtractBtn" type="button" style="align-self:flex-start">✨ Extract details</button>
               <div class="om-status" id="omStatus"></div>
@@ -6596,6 +6651,7 @@ function openEditDealModal(){
     </div>`;
   document.getElementById("dLead").value = whoName();
   document.getElementById("omFile").addEventListener("change", handleOmFile);
+  document.getElementById("omUrlBtn").addEventListener("click", handleOmUrl);
   document.getElementById("omExtractBtn").addEventListener("click", extractOm);
   const close = ()=>{ root.innerHTML=""; };
   document.getElementById("dealOverlay").addEventListener("click", e=>{ if(e.target.id==="dealOverlay") close(); });
@@ -6684,6 +6740,7 @@ function renderScreenView(){
         <summary>📄 Paste or upload an OM / listing</summary>
         <div class="om-body">
           <div class="om-file-row"><input type="file" id="screenOmFile" accept=".txt,.md,.csv,text/plain,text/csv,text/markdown,application/pdf"></div>
+          <div class="om-url-row"><input type="url" id="screenOmUrl" placeholder="…or paste a listing URL (Crexi, LoopNet, etc.)"><button class="btn" id="screenOmUrlBtn" type="button">Fetch</button></div>
           <textarea id="screenOmPaste" placeholder="Paste text from the OM, listing, or email… (or upload a .txt/.csv/.pdf above)" style="min-height:120px;"></textarea>
           <div class="om-status" id="screenOmStatus"></div>
         </div>
@@ -6718,6 +6775,7 @@ function renderScreenView(){
     </div>
   `;
   document.getElementById("screenOmFile").addEventListener("change", handleScreenOmFile);
+  document.getElementById("screenOmUrlBtn").addEventListener("click", handleScreenOmUrl);
   document.getElementById("screenRunBtn").addEventListener("click", runScreen);
   document.getElementById("screenClearBtn").addEventListener("click", ()=>{ resetScreenForm(); });
   wireCategorySelect(document.getElementById("screenPropType"), "propertyType", ()=>{});
@@ -6754,6 +6812,28 @@ async function handleScreenOmFile(e){
     }
   } else {
     screenStatus(`Can't read .${file.name.split(".").pop()} files directly yet — open it and paste the key details below.`, true);
+  }
+}
+
+async function handleScreenOmUrl(){
+  const url = (document.getElementById("screenOmUrl").value||"").trim();
+  if(!url){ screenStatus("Paste a listing URL first.", true); return; }
+  const btn = document.getElementById("screenOmUrlBtn");
+  btn.disabled = true;
+  screenStatus("Fetching page…");
+  try{
+    const text = await fetchListingText(url);
+    if(!text.trim()){
+      screenStatus("Fetched the page, but couldn't find readable text on it (it may be JavaScript-rendered) — try downloading a PDF or pasting the text instead.", true);
+      return;
+    }
+    document.getElementById("screenOmPaste").value = text;
+    screenStatus('Pulled text from the page — click "Screen this deal" below.');
+  }catch(err){
+    console.error("Listing fetch failed:", err);
+    screenStatus("Couldn't fetch that page" + (err && err.detail ? " — " + err.detail : " automatically") + " — try downloading it and uploading/pasting instead.", true);
+  }finally{
+    btn.disabled = false;
   }
 }
 
@@ -6825,7 +6905,8 @@ async function runScreen(){
     screenStatus("");
     openScreenResultModal(result, answers);
   }catch(err){
-    screenStatus("Screening failed — try again in a moment.", true);
+    console.error("Screening failed:", err);
+    screenStatus("Screening failed" + (err && err.detail ? " — " + err.detail : " — try again in a moment.") , true);
   }finally{
     btn.disabled = false;
   }
@@ -8455,6 +8536,7 @@ async function aiDraftField(dealId, kind){
     if(openDealId===dealId) refreshMarketFieldInputs();
     showToast("Draft added — please verify", "good");
   }catch(e){
+    console.error("AI draft failed:", e);
     showToast("Couldn't draft that right now", "bad");
   }
 }

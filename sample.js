@@ -31,7 +31,7 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
+  const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
   const maxTokens = modelTier === "quick" ? 600 : 1200;
 
   const finalPrompt = json
