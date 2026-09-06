@@ -1051,7 +1051,28 @@
   .map-bubble:has(.bubble-circle-market) .bubble-label{ fill:var(--brass-ink); font-size:7.5px; }
   #pipelineMap{ width:100%; aspect-ratio:960/440; border-radius:10px; overflow:hidden; border:1px solid var(--border); background:var(--surface-2); }
   #pipelineMap .leaflet-popup-content-wrapper, #pipelineMap .leaflet-popup-tip{ background:var(--surface); color:var(--ink); }
-  #pipelineMap .leaflet-popup-content{ font-size:12px; white-space:pre-line; }
+  #pipelineMap .leaflet-popup-content{ font-size:12px; margin:11px 14px; }
+  /* Pipeline map drill-down popup: clicking a state/market dot opens this instead of jumping
+     straight to the filtered Acquisitions board (that jump is now an explicit "View all" click
+     inside the popup) — see renderPipelineMap/pipelinePopupHtml. */
+  .pipeline-popup{ width:222px; font-family:var(--font-body); }
+  .pipeline-popup-head{ font-weight:800; font-size:12.5px; line-height:1.3; }
+  .pipeline-popup-sub{ font-size:10.5px; color:var(--ink-faint); font-family:var(--font-mono); margin:1px 0 7px; }
+  .pipeline-popup-list{ max-height:210px; overflow-y:auto; display:flex; flex-direction:column; gap:5px; margin:0 -2px; padding:1px 2px; }
+  .pipeline-popup-deal{
+    display:block; width:100%; text-align:left; border:1px solid var(--border); background:var(--surface);
+    border-radius:7px; padding:6px 8px; cursor:pointer; font-family:inherit; color:inherit; font-size:11.5px;
+  }
+  .pipeline-popup-deal:hover{ border-color:var(--accent); background:var(--accent-soft); }
+  .pipeline-popup-deal-name{ font-weight:700; display:block; margin-bottom:4px; line-height:1.25; }
+  .pipeline-popup-deal-meta{ display:flex; flex-wrap:wrap; gap:5px; align-items:center; }
+  .pipeline-popup-deal-price{ font-family:var(--font-mono); font-size:10.5px; color:var(--ink-soft); font-weight:600; }
+  .pipeline-popup-deal-lead{ font-size:10px; color:var(--ink-faint); }
+  .pipeline-popup-viewall{
+    display:block; width:100%; margin-top:8px; padding:7px 0 0; border:none; border-top:1px solid var(--border);
+    background:none; font-family:inherit; font-size:11px; font-weight:700; color:var(--accent); cursor:pointer; text-align:left;
+  }
+  .pipeline-popup-viewall:hover{ text-decoration:underline; }
   .ic-memo-map-leaflet{ width:100%; height:160px; border-radius:6px; }
   .ic-memo-map-loading{ padding:14px 9px; font-size:12px; color:var(--ink-faint); font-style:italic; }
   /* Live location map near the top of a deal's detail panel (slideover) — separate from the
@@ -4954,30 +4975,46 @@ function renderDashboard(){
   }).filter(n=>!isNaN(n) && n>=0);
   const avgDaysToClose = closeDurations.length ? Math.round(closeDurations.reduce((a,b)=>a+b,0)/closeDurations.length) : null;
 
+  /* Each state/market bucket now also carries a `deals` list (id + the handful of fields the
+     pipeline map's drill-down popup shows per deal) alongside the existing capital/count rollup
+     and `names` (kept for anything else that still reads it). Built from activeEntries rather than
+     `active` specifically so each deal keeps its id — the popup needs it to open the real deal
+     detail slideover when a card is clicked. */
+  const dealPopupSummary = (id, d) => {
+    const stageMeta = DEAL_STAGES.find(s=>s.key===(d.stage||"prospecting")) || DEAL_STAGES[0];
+    return {
+      id, name: d.name||d.address||"Untitled deal",
+      stageTitle: stageMeta.title, stageColor: stageMeta.color,
+      price: d.purchasePrice ? fmtMoneyShort(d.purchasePrice) : "—",
+      lead: d.lead || "Unassigned",
+    };
+  };
   const byState = new Map();
-  active.forEach(d=>{
+  activeEntries.forEach(([id,d])=>{
     const code = dealStateCode(d);
     if(!code) return;
-    if(!byState.has(code)) byState.set(code, {count:0, capital:0, names:[]});
+    if(!byState.has(code)) byState.set(code, {count:0, capital:0, names:[], deals:[]});
     const s = byState.get(code);
     s.count++;
     const cap = calcCapitalStack(d);
     s.capital += cap ? cap.basis : (Number(d.purchasePrice)||0);
     s.names.push(d.name||d.address||"Untitled deal");
+    s.deals.push(dealPopupSummary(id, d));
   });
   const unmapped = active.filter(d=>!dealStateCode(d));
 
   const byMarket = new Map();
-  active.forEach(d=>{
+  activeEntries.forEach(([id,d])=>{
     const key = dealMarketKey(d);
     const coords = key ? marketCoords(key) : null;
     if(!key || !coords) return;
-    if(!byMarket.has(key)) byMarket.set(key, {count:0, capital:0, names:[], lat:coords.lat, lon:coords.lon});
+    if(!byMarket.has(key)) byMarket.set(key, {count:0, capital:0, names:[], deals:[], lat:coords.lat, lon:coords.lon});
     const s = byMarket.get(key);
     s.count++;
     const cap = calcCapitalStack(d);
     s.capital += cap ? cap.basis : (Number(d.purchasePrice)||0);
     s.names.push(d.name||d.address||"Untitled deal");
+    s.deals.push(dealPopupSummary(id, d));
   });
   const unmappedMarket = active.filter(d=>{
     const key = dealMarketKey(d);
@@ -5703,6 +5740,30 @@ function cssVar(name, fallback){
     return v || fallback;
   }catch(e){ return fallback; }
 }
+/* Builds the drill-down popup shown when a state/market dot is clicked: a scrollable list of
+   compact deal cards (name, stage, price, lead) plus a "View all in pipeline" footer link. Cards
+   are clickable — they open the real deal detail slideover directly, without leaving the
+   Dashboard — and the footer link is the only thing that still jumps to the filtered Acquisitions
+   board, so that jump is now a deliberate choice instead of firing on every dot click. Delegated
+   click handling for both is wired once via the map's "popupopen" event in renderPipelineMap,
+   since this string gets handed to Leaflet's bindPopup rather than inserted with listeners attached. */
+function pipelinePopupHtml(label, s, viewAllState){
+  const dealsHtml = s.deals.map(d=>`
+    <button type="button" class="pipeline-popup-deal" data-deal-id="${escapeAttr(d.id)}">
+      <span class="pipeline-popup-deal-name">${escapeHtml(d.name)}</span>
+      <span class="pipeline-popup-deal-meta">
+        <span class="pill pill-${d.stageColor}">${escapeHtml(d.stageTitle)}</span>
+        <span class="pipeline-popup-deal-price">${d.price}</span>
+        <span class="pipeline-popup-deal-lead">· ${escapeHtml(d.lead)}</span>
+      </span>
+    </button>`).join("");
+  return `<div class="pipeline-popup">
+    <div class="pipeline-popup-head">${escapeHtml(label)}</div>
+    <div class="pipeline-popup-sub">${s.count} deal${s.count>1?"s":""} · ${fmtMoneyShort(s.capital)} capital</div>
+    <div class="pipeline-popup-list">${dealsHtml}</div>
+    <button type="button" class="pipeline-popup-viewall" data-view-all-state="${escapeAttr(viewAllState)}">View all ${s.count} in pipeline →</button>
+  </div>`;
+}
 function renderPipelineMap(byState, byMarket){
   const el = document.getElementById("pipelineMap");
   if(!el || typeof L === "undefined") return;
@@ -5732,11 +5793,26 @@ function renderPipelineMap(byState, byMarket){
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
   }).addTo(map);
 
+  // One delegated listener handles every popup this map ever opens (each dot's popup content is
+  // freshly rendered by Leaflet on open, so listeners can't be attached until then).
+  map.on("popupopen", e=>{
+    const popupEl = e.popup.getElement();
+    if(!popupEl) return;
+    popupEl.querySelectorAll(".pipeline-popup-deal").forEach(btn=>{
+      btn.addEventListener("click", ()=> openDealDetail(btn.dataset.dealId));
+    });
+    const viewAllBtn = popupEl.querySelector(".pipeline-popup-viewall");
+    if(viewAllBtn) viewAllBtn.addEventListener("click", ()=>{
+      const st = viewAllBtn.dataset.viewAllState;
+      dashboardFilters.state = (dashboardFilters.state===st) ? "" : st;
+      setView("pipeline");
+    });
+  });
+
   const markers = [];
-  const addMarker = (lat, lon, r, color, tipHtml, onClick)=>{
+  const addMarker = (lat, lon, r, color, popupHtml)=>{
     const m = L.circleMarker([lat,lon], { radius:r, color, weight:1.5, fillColor:color, fillOpacity:.45 }).addTo(map);
-    m.bindPopup(tipHtml);
-    m.on("click", onClick);
+    m.bindPopup(popupHtml, {maxWidth:240, minWidth:200});
     markers.push(m);
   };
 
@@ -5745,21 +5821,13 @@ function renderPipelineMap(byState, byMarket){
       const s = byState.get(code);
       if(!s) return;
       const r = meta.inset ? Math.min(rFor(s.capital), 12) : rFor(s.capital);
-      const tip = `<strong>${escapeHtml(meta.name)}</strong> — ${s.count} deal${s.count>1?"s":""}<br>${fmtMoneyShort(s.capital)} capital<br>${escapeHtml(s.names.join(", "))}`;
-      addMarker(meta.lat, meta.lon, r, accent, tip, ()=>{
-        dashboardFilters.state = (dashboardFilters.state===code) ? "" : code;
-        setView("pipeline");
-      });
+      addMarker(meta.lat, meta.lon, r, accent, pipelinePopupHtml(meta.name, s, code));
     });
   } else {
     byMarket.forEach((s, key)=>{
       const r = rFor(s.capital);
-      const tip = `<strong>${escapeHtml(key)}</strong> — ${s.count} deal${s.count>1?"s":""}<br>${fmtMoneyShort(s.capital)} capital<br>${escapeHtml(s.names.join(", "))}`;
-      addMarker(s.lat, s.lon, r, brass, tip, ()=>{
-        const st = key.split(",").pop().trim();
-        dashboardFilters.state = (dashboardFilters.state===st) ? "" : st;
-        setView("pipeline");
-      });
+      const st = key.split(",").pop().trim();
+      addMarker(s.lat, s.lon, r, brass, pipelinePopupHtml(key, s, st));
     });
   }
 
