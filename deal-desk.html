@@ -262,8 +262,9 @@
   #compareBtn{ font-weight:600; }
 
   .stage-row-compact{
-    display:grid; grid-template-columns:12px minmax(150px,300px) minmax(76px,1fr) minmax(76px,1fr) minmax(120px,1.3fr) minmax(120px,1.3fr) minmax(64px,1fr) minmax(108px,1.1fr);
-    align-items:center; gap:14px; padding:6px 12px; border-left:3px solid var(--neutral);
+    display:grid;
+    grid-template-columns:12px minmax(140px,240px) minmax(80px,1fr) minmax(70px,0.9fr) minmax(96px,1fr) minmax(70px,0.9fr) minmax(110px,1.2fr) minmax(110px,1.2fr) minmax(64px,1fr) minmax(108px,1.1fr);
+    align-items:center; gap:12px; padding:6px 12px; border-left:3px solid var(--neutral);
     border-bottom:1px solid var(--border); cursor:pointer; font-size:12px;
   }
   .stage-body-compact .stage-row-compact:last-child{ border-bottom:none; }
@@ -284,7 +285,9 @@
   .src-name-wrap{ display:flex; align-items:baseline; gap:7px; min-width:0; }
   .src-name{ font-weight:700; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .src-address{ color:var(--ink-faint); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }
+  .src-market{ color:var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .src-price{ text-align:right; color:var(--ink-soft); font-weight:600; }
+  .src-acres{ text-align:right; color:var(--ink-faint); font-weight:600; white-space:nowrap; }
   .src-ppu{ text-align:right; color:var(--ink-faint); font-weight:600; }
   .src-progress{ display:flex; align-items:center; gap:7px; }
   .src-progress .deal-progress-track{ width:72px; flex:none; }
@@ -2078,6 +2081,12 @@ function dealMarketKey(d){
   const cs = parseCityStateFromAddress(d.address||"");
   return cs ? `${cs.city}, ${cs.state}` : null;
 }
+/* Falls back to just the state when the address doesn't parse into a clean "City, ST" (e.g. a
+   plot name with no city segment) — still better than a blank cell in the pipeline list, and only
+   falls all the way back to "—" when neither is resolvable. */
+function dealMarketLabel(d){
+  return dealMarketKey(d) || (dealStateCode(d) ? (STATE_META[dealStateCode(d)]||{}).name : null) || "—";
+}
 function marketCoords(marketKey){
   if(!marketKey) return null;
   const c = MARKET_COORDS[marketKey.toLowerCase()];
@@ -2725,6 +2734,18 @@ function nextDepositDue(d){
 function pricePerUnit(d){
   if(d.purchasePrice && d.targetUnits) return Number(d.purchasePrice)/Number(d.targetUnits);
   return null;
+}
+/* Combined "4.5 ac · $4.2M/ac" cell used in both pipeline row views, so acreage and its per-acre
+   price read together at a glance without opening the deal — same spirit as the existing $/unit
+   column, just for the acreage-based read of a deal rather than the density-based one. Reuses the
+   existing perAcre/fmtAcres helpers (already relied on by the dashboard basics table) rather than
+   re-deriving the same numbers. */
+function acresSummaryText(d){
+  const ppa = perAcre(d);
+  if(!d.lotSizeAcres && ppa==null) return "—";
+  const acresStr = d.lotSizeAcres ? fmtAcres(d.lotSizeAcres) : "—";
+  const ppaStr = ppa!=null ? fmtMoneyShort(ppa)+"/ac" : "—";
+  return `${acresStr} · ${ppaStr}`;
 }
 
 /* ---- back-of-envelope underwriting ---- */
@@ -3449,7 +3470,9 @@ function setView(v){
 }
 function renderCounts(){
   document.getElementById("tasksCount").textContent = tasks.size;
-  document.getElementById("dealsCount").textContent = deals.size;
+  // Acquisitions nav badge: active pipeline only — a dead/passed deal isn't something still being
+  // pursued, so it shouldn't inflate the count of deals in play.
+  document.getElementById("dealsCount").textContent = [...deals.values()].filter(d=>(d.stage||"prospecting")!=="dead").length;
   const brokersCountEl = document.getElementById("brokersCount");
   if(brokersCountEl) brokersCountEl.textContent = brokers.size;
   const ddCountEl = document.getElementById("ddTasksCount");
@@ -3776,8 +3799,12 @@ function stageHighlightFields(stageKey, d, extra){
     default:
       fields = [];
   }
-  // Purchase price / targeted unit is important across every stage, so it's always the last tile.
+  // Purchase price / targeted unit is important across every stage, so it's always the last tile —
+  // same for market and acreage/$-per-acre, so both read at a glance in every stage's list without
+  // opening the deal.
   fields.push({label:"Price / unit", value: ppuStr});
+  fields.push({label:"Market", value: escapeHtml(dealMarketLabel(d))});
+  fields.push({label:"Acreage", value: escapeHtml(acresSummaryText(d))});
   return fields;
 }
 
@@ -3887,7 +3914,9 @@ function buildStageDealRowCompact(id, d, stage){
       ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}${recPillHtml(d)}
       ${d.address ? `<span class="src-address"></span>` : ""}
     </div>
+    <span class="src-market"></span>
     <span class="src-price mono">${d.purchasePrice?fmtMoneyShort(d.purchasePrice):"—"}</span>
+    <span class="src-acres mono">${escapeHtml(acresSummaryText(d))}</span>
     <span class="src-ppu mono">${pricePerUnit(d)?fmtMoneyShort(pricePerUnit(d))+"/u":"—"}</span>
     <span class="src-progress">${dealProgressBarHtml(d,{size:"sm",showLabel:false})}<span class="src-progress-pct mono" style="color:${progressColorForDeal(d)}">${pct}%</span></span>
     <input class="cdate-input stage-owner-input src-owner-input" type="text" value="${escapeAttr(owner)}" placeholder="Assign…">
@@ -3895,6 +3924,7 @@ function buildStageDealRowCompact(id, d, stage){
     <select class="move-select src-move"></select>`;
   row.querySelector(".src-name").textContent = d.name || "Untitled deal";
   if(d.address) row.querySelector(".src-address").textContent = d.address;
+  row.querySelector(".src-market").textContent = dealMarketLabel(d);
   const sel = row.querySelector(".src-move");
   DEAL_STAGES.forEach(s=>{
     const o = document.createElement("option"); o.value=s.key; o.textContent=s.title;
@@ -3989,7 +4019,7 @@ function renderPipelineStages(){
     if(pipelineDensity==="compact" && list.length){
       const head = document.createElement("div");
       head.className = "stage-row-compact stage-row-compact-head";
-      head.innerHTML = `<span></span><span>Project</span><span class="col-align-right">Price</span><span class="col-align-right">$/Unit</span><span>Progress</span><span>Responsible</span><span>Updated</span><span>Stage</span>`;
+      head.innerHTML = `<span></span><span>Project</span><span>Market</span><span class="col-align-right">Price</span><span class="col-align-right">Acres · $/ac</span><span class="col-align-right">$/Unit</span><span>Progress</span><span>Responsible</span><span>Updated</span><span>Stage</span>`;
       body.appendChild(head);
     }
     if(list.length===0){
