@@ -14,6 +14,11 @@
      artifact). Free, no API key. -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<!-- SheetJS (xlsx) — Community Edition, MIT licensed. Parses an uploaded Excel workbook entirely
+     in the browser so its contents can be turned into a short, readable "gist" via the AI
+     screening endpoint (see extractModelGist below). Nothing about the spreadsheet's bytes ever
+     needs a server-side parser. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --bg:#F6F9F9; --surface:#FFFFFF; --surface-2:#E9F1F2;
@@ -1049,6 +1054,16 @@
   #pipelineMap .leaflet-popup-content{ font-size:12px; white-space:pre-line; }
   .ic-memo-map-leaflet{ width:100%; height:160px; border-radius:6px; }
   .ic-memo-map-loading{ padding:14px 9px; font-size:12px; color:var(--ink-faint); font-style:italic; }
+  /* Live location map near the top of a deal's detail panel (slideover) — separate from the
+     printable IC memo's own map (.ic-memo-map-leaflet) since the two live in different DOM trees
+     and get built at different times (this one when the deal panel opens, that one when an IC
+     memo is generated). */
+  .deal-location-map-wrap{ margin:2px 0 10px; }
+  .deal-location-map-loading{
+    width:100%; height:200px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2);
+    display:flex; align-items:center; justify-content:center; color:var(--ink-faint); font-size:12px; font-style:italic;
+  }
+  .deal-location-map{ width:100%; height:200px; border-radius:8px; border:1px solid var(--border); }
   .map-empty{
     display:flex; align-items:center; justify-content:center; text-align:center; color:var(--ink-faint);
     font-size:12.5px; aspect-ratio:960/440; border:1.5px dashed var(--border-strong); border-radius:10px; padding:20px;
@@ -1460,6 +1475,27 @@
   .broker-log-file-label input[type=file]{ display:none; }
   .broker-log-attach-status{ font-size:11px; color:var(--ink-faint); }
   .broker-log-attach-status.warn{ color:var(--warn); }
+  /* ---------- deal Excel-model upload + AI-extracted "gist" (Financial model / Full model built
+     out) — same visual pattern as the broker call-log's file attachments (upload pill, status
+     line) but scoped to a single file per deal rather than a list, plus a summary panel below. ---------- */
+  .model-file-attach-area{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:2px; }
+  .model-file-open{ cursor:pointer; }
+  .model-file-open:hover{ text-decoration:underline; }
+  .model-file-label{
+    display:inline-flex; align-items:center; gap:5px; cursor:pointer; font-size:11.5px; font-weight:600;
+    color:var(--ink-soft); border:1px dashed var(--border-strong); border-radius:6px; padding:5px 10px;
+  }
+  .model-file-label:hover{ border-color:var(--accent); color:var(--ink); }
+  .model-file-label input[type=file]{ display:none; }
+  .model-file-status{ font-size:11px; color:var(--ink-faint); }
+  .model-file-status.warn{ color:var(--warn); }
+  .model-gist-box{ border:1px solid var(--border-strong); border-radius:8px; padding:12px 14px; margin-top:10px; background:var(--surface-2); }
+  .model-gist-summary{ font-size:12.5px; color:var(--ink); line-height:1.55; margin:0; white-space:pre-wrap; }
+  .model-gist-figures{ display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:8px; margin-top:10px; }
+  .model-gist-figure{ display:flex; flex-direction:column; gap:1px; }
+  .model-gist-figure-label{ font-size:9.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); font-weight:700; }
+  .model-gist-figure-value{ font-size:13px; font-weight:700; color:var(--ink); font-family:var(--font-mono); }
+  .model-gist-meta{ font-size:10.5px; color:var(--ink-faint); margin-top:10px; }
   .broker-deal-list{ display:flex; flex-direction:column; }
   .broker-deal-row{
     display:flex; align-items:center; gap:10px; padding:8px 4px; border-top:1px solid var(--border);
@@ -3104,7 +3140,7 @@ async function boot(){
       renderBoard(); renderCounts();
       if(view==="brokers") renderBrokersView();
       if(openBrokerId) renderBrokerModalContent();
-      if(openDealId){ renderDDSection(); renderUwTiles(deals.get(openDealId)); renderCapTiles(deals.get(openDealId)); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); }
+      if(openDealId){ renderDDSection(); renderUwTiles(deals.get(openDealId)); renderCapTiles(deals.get(openDealId)); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderModelFileSection(); }
     }, ()=>{});
     db.doc("settings/categories").onSnapshot(snap=>{
       const data = snap.data();
@@ -3239,7 +3275,7 @@ async function createDeal(data){
 }
 async function updateDeal(id, data){
   if(db){ logDealActivity(id, deals.get(id), data); await db.doc("deals/"+id).update(data); }
-  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDSection(); renderUwTiles(deals.get(id)); renderCapTiles(deals.get(id)); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); } }
+  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDSection(); renderUwTiles(deals.get(id)); renderCapTiles(deals.get(id)); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderModelFileSection(); } }
 }
 async function deleteDeal(id){
   if(db){ await db.doc("deals/"+id).delete(); }
@@ -4635,7 +4671,10 @@ function openIcMemoModal(id){
     <div class="ic-memo-proforma-tile"><span class="ic-memo-proforma-tile-label">Model last updated</span><span class="ic-memo-proforma-tile-value" style="font-size:13px;">${d.modelLastUpdated?fmtDate(d.modelLastUpdated):"—"}</span></div>
     <div class="ic-memo-proforma-tile"><span class="ic-memo-proforma-tile-label">What changed</span><span class="ic-memo-proforma-tile-value" style="font-size:12px;">${d.modelChangeNote?escapeHtml(d.modelChangeNote):"—"}</span></div>
     ${d.proformaUrl ? `<a class="ic-memo-proforma-link" href="${escapeAttr(normalizeUrl(d.proformaUrl))}" target="_blank" rel="noopener">📈 Open full Excel model →</a>` : `<div class="locked-note" style="margin-top:4px;">No Excel link on file yet.</div>`}
-  </div>` : `${proformaTilesHtml}<div style="margin-top:10px;">${sensitivityTableHtml(d)}</div>`;
+  </div>${d.modelGist && d.modelGist.summary ? `<div class="model-gist-box" style="margin-top:10px;">
+      <p class="model-gist-summary">${escapeHtml(d.modelGist.summary)}</p>
+      ${d.modelGist.keyFigures && d.modelGist.keyFigures.length ? `<div class="model-gist-figures">${d.modelGist.keyFigures.map(f=>`<div class="model-gist-figure"><span class="model-gist-figure-label">${escapeHtml(f.label)}</span><span class="model-gist-figure-value">${escapeHtml(f.value)}</span></div>`).join("")}</div>` : ""}
+    </div>` : ""}` : `${proformaTilesHtml}<div style="margin-top:10px;">${sensitivityTableHtml(d)}</div>`;
   const propertyBasicsRows = [
     ["Purchase price", d.purchasePrice ? fmtMoneyShort(d.purchasePrice) : "—"],
     ["Lot size", d.lotSizeAcres ? d.lotSizeAcres+" ac" : "—"],
@@ -4991,24 +5030,6 @@ function renderDashboard(){
       ${filtersActive ? `<span class="filter-note">Showing ${filtered.length} of ${all.length} deals</span>` : ""}
       <button type="button" class="btn-icon" id="onePagerBtn" style="margin-left:auto;">🖨 One-pager</button>
     </div>
-    ${pageDividerHtml("This week")}
-    ${basicsTableCardHtml(inContractEntries)}
-    ${needsAttentionCardHtml(overdue, decisionEntries, upcoming, stalled)}
-    ${prospectsForReviewCardHtml(prospectingEntries)}
-    ${financingGapsCardHtml(inContractEntries)}
-    ${pageDividerHtml("Pipeline overview")}
-    <div class="kpi-grid">
-      <div class="kpi-tile"><span class="kpi-label">Active deals</span><span class="kpi-value">${active.length}</span><span class="kpi-sub">${filtered.length-active.length} dead / passed</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Purchase price · under contract</span><span class="kpi-value">${fmtMoneyShort(totalPrice)}</span><span class="kpi-sub">${inContractDeals.length} deal${inContractDeals.length===1?"":"s"} signed PSA/DD</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Total capital needed</span><span class="kpi-value">${fmtMoneyShort(totalCapital)}</span><span class="kpi-sub">in contract + LOI w/ firm dates · ${capitalNeedDeals.filter(d=>calcCapitalStack(d)).length} priced deals</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Debt</span><span class="kpi-value">${fmtMoneyShort(totalDebt)}</span><span class="kpi-sub">in contract, pre-close · ${inContractPricedCount} deal${inContractPricedCount===1?"":"s"}</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Equity required</span><span class="kpi-value good">${fmtMoneyShort(totalEquity)}</span><span class="kpi-sub">in contract, pre-close · ${inContractPricedCount} deal${inContractPricedCount===1?"":"s"}</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Meet target criteria</span><span class="kpi-value">${targetCount} / ${active.length}</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Avg days to close</span><span class="kpi-value">${avgDaysToClose!==null?avgDaysToClose:"—"}</span><span class="kpi-sub">${closeDurations.length} closed deal${closeDurations.length===1?"":"s"}</span></div>
-    </div>
-    ${closedTrajectoryCardHtml(dashboardDealsFiltered)}
-    ${capitalNeedCardHtml(capNeedBuckets)}
-    ${pageDividerHtml("Geography & stages")}
     <div class="dash-grid">
       <div class="dash-card">
         <h4 class="section-label">By stage</h4>
@@ -5042,6 +5063,23 @@ function renderDashboard(){
           : (unmapped.length ? `<div class="map-note">${unmapped.length} deal${unmapped.length>1?"s":""} without a resolvable state — set an Address or State on the deal to place it on the map.</div>` : "")}
       </div>
     </div>
+    ${pageDividerHtml("This week")}
+    ${basicsTableCardHtml(inContractEntries)}
+    ${needsAttentionCardHtml(overdue, decisionEntries, upcoming, stalled)}
+    ${prospectsForReviewCardHtml(prospectingEntries)}
+    ${financingGapsCardHtml(inContractEntries)}
+    ${pageDividerHtml("Pipeline overview")}
+    <div class="kpi-grid">
+      <div class="kpi-tile"><span class="kpi-label">Active deals</span><span class="kpi-value">${active.length}</span><span class="kpi-sub">${filtered.length-active.length} dead / passed</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Purchase price · under contract</span><span class="kpi-value">${fmtMoneyShort(totalPrice)}</span><span class="kpi-sub">${inContractDeals.length} deal${inContractDeals.length===1?"":"s"} signed PSA/DD</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Total capital needed</span><span class="kpi-value">${fmtMoneyShort(totalCapital)}</span><span class="kpi-sub">in contract + LOI w/ firm dates · ${capitalNeedDeals.filter(d=>calcCapitalStack(d)).length} priced deals</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Debt</span><span class="kpi-value">${fmtMoneyShort(totalDebt)}</span><span class="kpi-sub">in contract, pre-close · ${inContractPricedCount} deal${inContractPricedCount===1?"":"s"}</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Equity required</span><span class="kpi-value good">${fmtMoneyShort(totalEquity)}</span><span class="kpi-sub">in contract, pre-close · ${inContractPricedCount} deal${inContractPricedCount===1?"":"s"}</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Meet target criteria</span><span class="kpi-value">${targetCount} / ${active.length}</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Avg days to close</span><span class="kpi-value">${avgDaysToClose!==null?avgDaysToClose:"—"}</span><span class="kpi-sub">${closeDurations.length} closed deal${closeDurations.length===1?"":"s"}</span></div>
+    </div>
+    ${closedTrajectoryCardHtml(dashboardDealsFiltered)}
+    ${capitalNeedCardHtml(capNeedBuckets)}
     ${dealQualityCardHtml(dashboardDealsFiltered)}
     ${pageDividerHtml("Trends")}
     <div class="dash-grid">
@@ -5630,6 +5668,34 @@ async function geocodeAddress(address){
     _geocodeCache.set(key, null);
     return null;
   }
+}
+/* Live location map near the top of a deal's detail panel — deliberately separate from (and
+   simpler than) the printable IC memo's map: it renders once when the panel opens and again
+   whenever the analyst changes the address or the map-address override, rather than on every
+   realtime update, since re-creating a live Leaflet instance on every remote edit elsewhere in
+   the deal would be wasted work and a distracting flicker for no benefit. geocodeAddress's own
+   in-memory cache keeps repeat opens of the same deal free. */
+async function renderDealLocationMap(dealId, addr){
+  const wrap = document.getElementById("dealLocationMapWrap");
+  if(!wrap) return;
+  addr = (addr||"").trim();
+  if(!addr){ wrap.innerHTML = ""; return; }
+  wrap.innerHTML = `<div class="deal-location-map-loading" id="dealLocationMapSlot">Loading map…</div>`;
+  const hit = await geocodeAddress(addr);
+  const slot = document.getElementById("dealLocationMapSlot");
+  if(!slot || openDealId!==dealId) return; // panel closed, or switched to a different deal while geocoding
+  if(!hit || typeof L === "undefined"){
+    slot.textContent = "Map unavailable for this address — check it looks right, or use the Google Maps link under Links.";
+    return;
+  }
+  slot.className = "deal-location-map";
+  slot.textContent = "";
+  const map = L.map(slot, { scrollWheelZoom:false, dragging:true }).setView([hit.lat, hit.lon], 15);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 18,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
+  }).addTo(map);
+  L.marker([hit.lat, hit.lon]).addTo(map);
 }
 function cssVar(name, fallback){
   try{
@@ -7298,6 +7364,8 @@ function openDealDetail(id){
 
         <div id="keyMetricsWrap"></div>
 
+        <div class="deal-location-map-wrap" id="dealLocationMapWrap"></div>
+
         <div>
           <h4 class="section-label">Deal overview</h4>
           <div class="overview-grid" id="overviewGrid"></div>
@@ -7571,7 +7639,7 @@ function openDealDetail(id){
           <h4 class="section-label">Links</h4>
           <div class="deal-fields">
             ${d.address ? `<a class="btn" style="align-self:flex-start;text-decoration:none;" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(d.address)}" target="_blank" rel="noopener">📍 Open "${escapeHtml(d.address)}" in Google Maps</a>` : `<div class="locked-note">Add a street address above to get a Google Maps link for this site.</div>`}
-            <div class="field"><label for="slideFolder">Project folder URL</label><input id="slideFolder" type="text" placeholder="https://…"></div>
+            <div class="field"><label for="slideFolder">Project folder URL</label><input id="slideFolder" type="text" placeholder="Paste a OneDrive/SharePoint/Drive share link…"></div>
             <div class="field"><label for="slideProforma">Pro forma URL</label><input id="slideProforma" type="text" placeholder="https://…"></div>
           </div>
         </div>
@@ -7614,7 +7682,8 @@ function openDealDetail(id){
               <div class="field"><label for="slideModelUpdated">Model last updated</label><input id="slideModelUpdated" type="date"></div>
               <div class="field"><label for="slideModelChange">What changed since last update</label><input id="slideModelChange" type="text" placeholder="e.g. Refined construction budget after GC bid"></div>
             </div>
-            <div class="locked-note">The full model lives in Excel — link it under Links → Pro forma URL on the Overview tab.</div>
+            <div class="locked-note">Upload the workbook below for a quick AI-read summary, and/or link it under Links → Project folder URL on the Overview tab if it lives on OneDrive/SharePoint too.</div>
+            <div id="modelFileWrap"></div>
           </div>
         </div>
 
@@ -7751,6 +7820,8 @@ function openDealDetail(id){
   renderExtraDeposits();
   document.getElementById("sensitivityTableWrap").innerHTML = sensitivityTableHtml(d);
   setModelToggle(d.modelStatus||"boe");
+  renderDealLocationMap(id, d.mapAddress || d.address || "");
+  renderModelFileSection();
   refreshDemoPreview();
 
   function refreshDemoPreview(){
@@ -7806,7 +7877,11 @@ function openDealDetail(id){
 
   const save = (patch)=> updateDeal(id, patch);
   document.getElementById("slideTitle").addEventListener("change", e=> save({name: e.target.value.trim()}));
-  document.getElementById("slideAddress").addEventListener("change", e=> save({address: e.target.value.trim()}));
+  document.getElementById("slideAddress").addEventListener("change", e=>{
+    const v = e.target.value.trim();
+    save({address: v}); d.address = v;
+    renderDealLocationMap(id, document.getElementById("slideMapAddress").value.trim() || v);
+  });
   document.getElementById("slideStage").addEventListener("change", e=>{
     const newStage = e.target.value, prevStage = d.stage||"prospecting";
     confirmStageChange(d, newStage,
@@ -7825,7 +7900,11 @@ function openDealDetail(id){
   document.getElementById("slideExecSummary").addEventListener("change", e=> save({execSummary: e.target.value.trim()}));
   document.getElementById("slideRisks").addEventListener("change", e=> save({risks: e.target.value.trim()}));
   document.getElementById("slideSitePlan").addEventListener("change", e=> save({sitePlanUrl: e.target.value.trim()}));
-  document.getElementById("slideMapAddress").addEventListener("change", e=> save({mapAddress: e.target.value.trim()}));
+  document.getElementById("slideMapAddress").addEventListener("change", e=>{
+    const v = e.target.value.trim();
+    save({mapAddress: v}); d.mapAddress = v;
+    renderDealLocationMap(id, v || document.getElementById("slideAddress").value.trim());
+  });
   document.getElementById("addOpenQuestionBtn").addEventListener("click", ()=> addRepeatableRow(id, "openQuestions", "openQuestionsList"));
   document.getElementById("slideZoning").addEventListener("change", e=>{ save({zoningDesignation: e.target.value.trim()}); d.zoningDesignation = e.target.value.trim(); });
   document.getElementById("slideZoningMapUrl").addEventListener("change", e=>{ save({zoningMapUrl: e.target.value.trim()}); d.zoningMapUrl = e.target.value.trim(); });
@@ -9534,6 +9613,210 @@ async function handleBrokerLogFileUpload(entryIdx, fileList, statusEl){
   }
   if(statusEl){ statusEl.textContent = ""; statusEl.classList.remove("warn"); }
   renderBrokerActivityLog();
+}
+
+/* =================== deal Excel-model upload + AI-extracted "gist" =================== */
+/* The prompt asks the model to read the RAW, mechanically-flattened contents of an uploaded
+   underwriting workbook (see flattenWorkbookText) and pull out whatever headline figures it can
+   actually find — spreadsheet layouts vary wildly deal to deal, so this deliberately doesn't
+   assume fixed cell positions the way a "real" Excel integration might; it leans on the model's
+   reading comprehension instead, the same way OM/listing extraction already does for prose. */
+const MODEL_GIST_PROMPT = (ctx)=> `You are a real estate acquisitions analyst at Newgard Development Group. You've been given the raw extracted contents of an Excel underwriting/financial model for a deal, and asked to produce a quick, readable summary of it for someone who doesn't want to open the spreadsheet themselves.
+
+KNOWN DEAL FIELDS (already entered by the analyst — treat as ground truth):
+- Project name: ${ctx.name || "(not given)"}
+- Address: ${ctx.address || "(not given)"}
+- Product line: ${ctx.productLine || "(not given)"}
+- Purchase price: ${ctx.purchasePrice != null ? ctx.purchasePrice : "(not given)"}
+
+RAW MODEL CONTENTS (mechanically extracted from the spreadsheet's cells, sheet by sheet as CSV — labels and values may be jumbled or repeated since this is not a clean export; use your judgment to find the real headline figures):
+"""
+${ctx.modelText || "(none)"}
+"""
+
+Return ONLY a JSON object with exactly these keys:
+- "summary": 2-4 plain-language sentences on what this model shows — the deal's economics in a nutshell. This is the main "gist" someone would read instead of opening the spreadsheet.
+- "keyFigures": an array of up to 8 objects {"label": short label, "value": short formatted value as a string} for the headline figures you can actually find in the extracted text (e.g. IRR, equity multiple, yield on cost, cap rate, total development cost, net margin, cash-on-cash, exit value — whichever of these the model actually contains). Only include a figure if you can point to where it came from in the text — never invent or estimate one.
+- "risks": 1-2 sentences flagging anything in the model worth double-checking (a thin margin, an aggressive assumption, a stale-looking date) — or an empty string if nothing stands out.
+
+If the extracted text doesn't look like a financial model at all (e.g. it's mostly blank, or clearly some other kind of document), still return the JSON shape above, but with "summary" explaining that you couldn't find recognizable model content, an empty "keyFigures" array, and an empty "risks" string.`;
+
+/* Flattens every sheet in a parsed workbook to plain CSV-ish text, sheet by sheet, capped in
+   length the same way OM/listing text extraction already is elsewhere in this file — the AI
+   prompt above is what does the actual "reading", this just gets the raw cell contents to it. */
+function flattenWorkbookText(workbook){
+  const parts = [];
+  (workbook.SheetNames||[]).forEach(name=>{
+    const sheet = workbook.Sheets[name];
+    if(!sheet) return;
+    let csv = "";
+    try{ csv = XLSX.utils.sheet_to_csv(sheet, {blankrows:false}); }catch(e){ csv = ""; }
+    if(csv.trim()) parts.push(`--- Sheet: ${name} ---\n${csv.trim()}`);
+  });
+  return parts.join("\n\n").slice(0, 24000);
+}
+
+async function extractModelGist(dealId, arrayBuffer, statusEl){
+  if(typeof XLSX === "undefined"){
+    if(statusEl){ statusEl.textContent = "Uploaded — the summary tool didn't load. Refresh the page and try \"Regenerate summary\"."; statusEl.classList.add("warn"); }
+    return;
+  }
+  let workbook;
+  try{ workbook = XLSX.read(arrayBuffer, {type:"array"}); }
+  catch(err){
+    console.error("Workbook parse failed:", err);
+    if(statusEl){ statusEl.textContent = "Uploaded, but couldn't read that as an Excel file — is it a valid .xlsx/.xls?"; statusEl.classList.add("warn"); }
+    return;
+  }
+  const modelText = flattenWorkbookText(workbook);
+  if(!modelText.trim()){
+    if(statusEl){ statusEl.textContent = "Uploaded, but the file looks empty — no summary generated."; statusEl.classList.add("warn"); }
+    return;
+  }
+  if(!sampleApi){
+    if(statusEl){ statusEl.textContent = "Uploaded — AI summarizing isn't available in this view."; statusEl.classList.add("warn"); }
+    return;
+  }
+  const d = deals.get(dealId) || {};
+  if(statusEl){ statusEl.textContent = "Summarizing…"; statusEl.classList.remove("warn"); }
+  try{
+    const result = await sampleApi.json(MODEL_GIST_PROMPT({name:d.name, address:d.address, productLine:d.productLine, purchasePrice:d.purchasePrice, modelText}), {modelTier:"default"});
+    if(!result || typeof result.summary!=="string") throw new Error("Unexpected response shape");
+    await updateDeal(dealId, {modelGist: {
+      summary: result.summary || "",
+      keyFigures: Array.isArray(result.keyFigures) ? result.keyFigures.filter(f=>f && f.label && f.value).slice(0,8) : [],
+      risks: result.risks || "",
+      generatedAt: new Date().toISOString(),
+    }});
+    if(statusEl){ statusEl.textContent = ""; statusEl.classList.remove("warn"); }
+  }catch(err){
+    console.error("Model summary failed:", err);
+    if(statusEl){ statusEl.textContent = "Uploaded, but summarizing failed" + (err && err.detail ? " — "+err.detail : "") + "."; statusEl.classList.add("warn"); }
+  }
+}
+
+async function handleModelFileUpload(dealId, file, statusEl){
+  if(!sb){ if(statusEl){ statusEl.textContent = "File storage isn't connected."; statusEl.classList.add("warn"); } return; }
+  if(!/\.(xlsx|xls)$/i.test(file.name)){
+    if(statusEl){ statusEl.textContent = "Only .xlsx/.xls files are supported."; statusEl.classList.add("warn"); }
+    return;
+  }
+  if(file.size > 50*1024*1024){
+    if(statusEl){ statusEl.textContent = file.name + " is over the 50MB limit — try a smaller file."; statusEl.classList.add("warn"); }
+    return;
+  }
+  if(statusEl){ statusEl.textContent = "Uploading " + file.name + "…"; statusEl.classList.remove("warn"); }
+  const prevFile = (deals.get(dealId)||{}).proformaFile;
+  try{
+    const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+    const path = dealId + "/" + Date.now() + "_" + Math.random().toString(36).slice(2,8) + "_" + safeName;
+    const { error } = await sb.storage.from("deal-files").upload(path, file);
+    if(error) throw error;
+    await updateDeal(dealId, {proformaFile: {path, name: file.name, size: file.size, uploadedAt: new Date().toISOString()}, modelGist: null});
+    if(prevFile && prevFile.path){
+      try{ await sb.storage.from("deal-files").remove([prevFile.path]); }
+      catch(e){ console.error("Storage cleanup failed (old model file may be orphaned, harmless):", e); }
+    }
+  }catch(err){
+    console.error("Model file upload failed:", err);
+    if(statusEl){ statusEl.textContent = "Couldn't upload " + file.name + " — " + ((err && err.message) || "try again"); statusEl.classList.add("warn"); }
+    return;
+  }
+  renderModelFileSection();
+  try{
+    if(statusEl){ statusEl.textContent = "Reading the model…"; }
+    const buf = await file.arrayBuffer();
+    await extractModelGist(dealId, buf, statusEl);
+  }catch(err){
+    console.error("Model parse failed:", err);
+    if(statusEl){ statusEl.textContent = "Uploaded, but couldn't read the file to summarize it — " + ((err && err.message)||"try again") + "."; statusEl.classList.add("warn"); }
+  }
+  renderModelFileSection();
+}
+
+async function regenerateModelGist(dealId, statusEl){
+  const d = deals.get(dealId) || {};
+  const file = d.proformaFile;
+  if(!file || !sb) return;
+  if(statusEl){ statusEl.textContent = "Fetching model…"; statusEl.classList.remove("warn"); }
+  try{
+    const { data, error } = await sb.storage.from("deal-files").createSignedUrl(file.path, 300);
+    if(error) throw error;
+    const res = await fetch(data.signedUrl);
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    const buf = await res.arrayBuffer();
+    await extractModelGist(dealId, buf, statusEl);
+  }catch(err){
+    console.error("Regenerate model summary failed:", err);
+    if(statusEl){ statusEl.textContent = "Couldn't re-read the file — " + ((err && err.message)||"try again") + "."; statusEl.classList.add("warn"); }
+    return;
+  }
+  renderModelFileSection();
+}
+
+async function openModelFile(path){
+  if(!sb){ showToast("File storage isn't connected", "bad"); return; }
+  try{
+    const { data, error } = await sb.storage.from("deal-files").createSignedUrl(path, 3600);
+    if(error) throw error;
+    window.open(data.signedUrl, "_blank", "noopener");
+  }catch(err){ console.error("Couldn't open model file:", err); showToast("Couldn't open that file", "bad"); }
+}
+
+async function removeModelFile(dealId){
+  const d = deals.get(dealId) || {};
+  const file = d.proformaFile;
+  if(!file) return;
+  await updateDeal(dealId, {proformaFile: null, modelGist: null});
+  if(sb){
+    try{ await sb.storage.from("deal-files").remove([file.path]); }
+    catch(e){ console.error("Storage cleanup failed (harmless):", e); }
+  }
+  renderModelFileSection();
+}
+
+/* Re-rendered on open, after upload/remove/regenerate, and whenever this deal's data changes
+   underneath the open panel (same conservative-realtime pattern as renderBrokerModalContent) —
+   safe to always re-render since nothing here is a text input the analyst could be mid-typing in. */
+function renderModelFileSection(){
+  if(!openDealId) return;
+  const wrap = document.getElementById("modelFileWrap");
+  if(!wrap) return;
+  const d = deals.get(openDealId) || {};
+  const file = d.proformaFile;
+  const gist = d.modelGist;
+  wrap.innerHTML = `
+    <div class="model-file-attach-area">
+      ${file ? `<span class="pill pill-neutral tag-pill">
+          <span class="model-file-open" id="modelFileOpenBtn">📎 ${escapeHtml(file.name)}${file.size!=null?` (${fmtFileSize(file.size)})`:""}</span>
+          <span class="tag-pill-remove" id="modelFileRemoveBtn" title="Remove file">✕</span>
+        </span>
+        <button type="button" class="btn-icon" id="modelGistRegenBtn" title="Re-run the summary from this file">↻ Regenerate summary</button>`
+        : `<label class="model-file-label">📎 Upload Excel model<input type="file" id="modelFileInput" accept=".xlsx,.xls"></label>`}
+      <span class="model-file-status" id="modelFileStatus"></span>
+    </div>
+    ${gist ? `<div class="model-gist-box">
+      <p class="model-gist-summary">${escapeHtml(gist.summary||"")}</p>
+      ${gist.keyFigures && gist.keyFigures.length ? `<div class="model-gist-figures">${gist.keyFigures.map(f=>`<div class="model-gist-figure"><span class="model-gist-figure-label">${escapeHtml(f.label)}</span><span class="model-gist-figure-value">${escapeHtml(f.value)}</span></div>`).join("")}</div>` : ""}
+      ${gist.risks ? `<p class="model-gist-summary" style="margin-top:8px;"><strong>Worth double-checking:</strong> ${escapeHtml(gist.risks)}</p>` : ""}
+      <div class="model-gist-meta">Summarized ${gist.generatedAt?fmtDate(gist.generatedAt.slice(0,10)):""} from the uploaded file — always verify in the actual model before presenting to IC.</div>
+    </div>` : (file ? `<div class="empty-hint" style="margin-top:8px;">No summary yet — click "Regenerate summary" above, or re-upload the file.</div>` : "")}
+  `;
+  if(file){
+    const openBtn = document.getElementById("modelFileOpenBtn");
+    if(openBtn) openBtn.addEventListener("click", ()=> openModelFile(file.path));
+    const removeBtn = document.getElementById("modelFileRemoveBtn");
+    if(removeBtn) removeBtn.addEventListener("click", ()=> removeModelFile(openDealId));
+    const regenBtn = document.getElementById("modelGistRegenBtn");
+    if(regenBtn) regenBtn.addEventListener("click", ()=> regenerateModelGist(openDealId, document.getElementById("modelFileStatus")));
+  } else {
+    const fileInput = document.getElementById("modelFileInput");
+    if(fileInput) fileInput.addEventListener("change", (e)=>{
+      const f = e.target.files[0];
+      e.target.value = "";
+      if(f) handleModelFileUpload(openDealId, f, document.getElementById("modelFileStatus"));
+    });
+  }
 }
 
 function renderBrokerActivityLog(){
