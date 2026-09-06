@@ -1399,6 +1399,21 @@
   .suggested-task-add{ flex:none; padding:6px 12px; font-size:12px; }
   .suggested-task-dismiss{ flex:none; padding:6px 8px; font-size:12px; }
   @media (max-width:640px){ .suggested-task-row{ flex-wrap:wrap; } }
+  /* ---------- brokers: vertical tier-grouped stacked layout (mirrors the Acquisitions
+     pipeline's .stage-section/.stage-row pattern — reuses its generic row-content classes
+     (.stage-row-top/-title/-sub/-fields/-actions), just with a 3-column grid since brokers
+     have no "responsible owner" column). ---------- */
+  .broker-row{
+    background:var(--surface-2); border:1px solid var(--border); border-left:4px solid var(--neutral);
+    border-radius:10px; padding:12px 14px; cursor:pointer; display:grid;
+    grid-template-columns:minmax(200px,1.4fr) minmax(320px,2fr) 150px;
+    gap:16px; align-items:start;
+  }
+  .broker-row:hover{ border-color:var(--ink-faint); }
+  @media (max-width:980px){
+    .broker-row{ grid-template-columns:1fr; }
+    .broker-row .stage-row-actions{ flex-direction:row; align-items:center; justify-content:space-between; }
+  }
   .broker-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px; }
   .broker-card{
     background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
@@ -2269,11 +2284,15 @@ const SOURCE_OPTIONS = ["Broker","Direct / Off-Market","Referral","Cold Outreach
    separately from the deals themselves so one broker's info lives in one place and every
    deal just references it. */
 const BROKER_TIER_META = {
-  "":     {label:"Not rated", cls:"pill-neutral"},
-  hot:    {label:"Hot",       cls:"pill-bad"},
-  warm:   {label:"Warm",      cls:"pill-warn"},
-  cold:   {label:"Cold",      cls:"pill-accent"},
+  "":     {label:"Not rated", cls:"pill-neutral", color:"neutral"},
+  hot:    {label:"Hot",       cls:"pill-bad",     color:"bad"},
+  warm:   {label:"Warm",      cls:"pill-warn",    color:"warn"},
+  cold:   {label:"Cold",      cls:"pill-accent",  color:"accent"},
 };
+/* Section/sort order for the Brokers list — warmest first, same idea as the Acquisitions
+   pipeline's stage-grouped layout (see renderPipelineStages), just grouped by relationship
+   temperature instead of deal stage. */
+const BROKER_TIER_ORDER = ["hot","warm","cold",""];
 function brokerLabel(b){
   if(!b) return "";
   return b.firm ? `${b.name||"Unnamed"} — ${b.firm}` : (b.name||"Unnamed");
@@ -9138,13 +9157,64 @@ function renderEquityView(){
   wireEquityView(wrap);
 }
 
+/* One broker's row in the stacked Brokers list — deliberately mirrors buildStageDealRow's
+   structure/classes (stage-row-top/-title/-sub/-fields/-actions) so the two "stacked" views in
+   the app read as one visual language, just grouped by relationship temperature instead of deal
+   stage. The tier select lets you re-rate a broker right from the list, same convenience as the
+   pipeline's inline "move to stage" select. */
+function buildBrokerRow(id, b){
+  const row = document.createElement("div");
+  row.className = "broker-row";
+  const tier = BROKER_TIER_META[b.tier||""] || BROKER_TIER_META[""];
+  row.style.borderLeftColor = `var(--${tier.color})`;
+  row.addEventListener("click", (e)=>{
+    if(e.target.closest(".broker-tier-select")) return;
+    openBrokerModal(id);
+  });
+  const stats = brokerDealStats(id);
+  const contactBits = [];
+  if(b.phone) contactBits.push(escapeHtml(b.phone));
+  if(b.email) contactBits.push(escapeHtml(b.email));
+  const contactHtml = contactBits.length ? contactBits.join(" · ") : `<span class="broker-card-nocontact">No contact info yet</span>`;
+
+  row.innerHTML = `
+    <div class="stage-row-top">
+      <div class="stage-row-title-wrap">
+        <span class="stage-row-title"></span>
+        <span class="pill ${tier.cls}">${tier.label}</span>
+        ${(b.markets && b.markets.length) ? b.markets.map(m=>`<span class="pill pill-neutral">${escapeHtml(m)}</span>`).join("") : ""}
+      </div>
+      ${b.firm ? `<div class="stage-row-sub"></div>` : ""}
+    </div>
+    <div class="stage-row-fields">
+      <div class="stage-field"><span class="stage-field-label">Contact</span><span class="stage-field-value">${contactHtml}</span></div>
+      <div class="stage-field"><span class="stage-field-label">Deals sent</span><span class="stage-field-value">${stats.count}</span></div>
+      <div class="stage-field"><span class="stage-field-label">Active</span><span class="stage-field-value">${stats.activeCount}</span></div>
+      <div class="stage-field"><span class="stage-field-label">$ Volume</span><span class="stage-field-value">${stats.totalVolume?fmtMoneyShort(stats.totalVolume):"—"}</span></div>
+      <div class="stage-field"><span class="stage-field-label">Last deal</span><span class="stage-field-value">${stats.lastDealDate?fmtDate(stats.lastDealDate.slice(0,10)):"—"}</span></div>
+    </div>
+    <div class="stage-row-actions">
+      <select class="move-select broker-tier-select" title="Rating"></select>
+    </div>`;
+  row.querySelector(".stage-row-title").textContent = b.name || "Unnamed";
+  if(b.firm) row.querySelector(".stage-row-sub").textContent = b.firm;
+  const tierSel = row.querySelector(".broker-tier-select");
+  Object.entries(BROKER_TIER_META).forEach(([k,m])=>{
+    const o = document.createElement("option"); o.value=k; o.textContent=m.label;
+    if((b.tier||"")===k) o.selected = true;
+    tierSel.appendChild(o);
+  });
+  tierSel.addEventListener("click", e=>e.stopPropagation());
+  tierSel.addEventListener("change", ()=> updateBroker(id, {tier: tierSel.value}));
+  return row;
+}
+
 function renderBrokersView(){
   const wrap = document.getElementById("brokersWrap");
   if(!wrap) return;
   const q = (document.getElementById("searchInput").value||"").trim().toLowerCase();
   let list = [...brokers.entries()];
   if(q) list = list.filter(([id,b])=> matchesFilter([b.name,b.firm,b.phone,b.email,b.notes,(b.markets||[]).join(" ")].join(" "), q));
-  list.sort((a,b)=> brokerLabel(a[1]).localeCompare(brokerLabel(b[1])));
 
   if(!brokers.size){
     wrap.innerHTML = `<div class="empty-hint">No brokers yet. Add one, or drop an OM into the pipeline (Acquisitions → "Start from an OM or listing") and we'll pick up the listing broker automatically.</div>`;
@@ -9159,37 +9229,38 @@ function renderBrokersView(){
   toolbar.className = "pipeline-toolbar";
   toolbar.innerHTML = `<div class="pipeline-toolbar-left"><span class="filter-note">${list.length} broker${list.length===1?"":"s"}</span></div>`;
 
-  const grid = document.createElement("div");
-  grid.className = "broker-grid";
-  grid.innerHTML = list.map(([id,b])=>{
-    const stats = brokerDealStats(id);
-    const tier = BROKER_TIER_META[b.tier||""] || BROKER_TIER_META[""];
-    return `<div class="broker-card" data-id="${escapeAttr(id)}">
-      <div class="broker-card-head">
-        <div class="broker-card-name">${escapeHtml(b.name||"Unnamed")}</div>
-        <span class="pill ${tier.cls}">${tier.label}</span>
-      </div>
-      ${b.firm ? `<div class="broker-card-firm">${escapeHtml(b.firm)}</div>` : ""}
-      ${(b.markets && b.markets.length) ? `<div class="broker-card-markets">${b.markets.map(m=>`<span class="pill pill-neutral">${escapeHtml(m)}</span>`).join("")}</div>` : ""}
-      <div class="broker-card-contact">
-        ${b.phone ? `<span>${escapeHtml(b.phone)}</span>` : ""}
-        ${b.email ? `<span>${escapeHtml(b.email)}</span>` : ""}
-        ${(!b.phone && !b.email) ? `<span class="broker-card-nocontact">No contact info yet</span>` : ""}
-      </div>
-      <div class="broker-card-stats">
-        <div class="broker-stat"><div class="broker-stat-value">${stats.count}</div><div class="broker-stat-label">Deals sent</div></div>
-        <div class="broker-stat"><div class="broker-stat-value">${stats.activeCount}</div><div class="broker-stat-label">Active</div></div>
-        <div class="broker-stat"><div class="broker-stat-value">${stats.totalVolume?fmtMoneyShort(stats.totalVolume):"—"}</div><div class="broker-stat-label">$ Volume</div></div>
-      </div>
-      <div class="broker-card-last">${stats.lastDealDate ? "Last deal "+fmtDate(stats.lastDealDate.slice(0,10)) : "No deals linked yet"}</div>
-    </div>`;
-  }).join("");
-
   wrap.innerHTML = "";
   wrap.appendChild(toolbar);
-  wrap.appendChild(grid);
-  grid.querySelectorAll(".broker-card").forEach(card=>{
-    card.addEventListener("click", ()=> openBrokerModal(card.dataset.id));
+
+  BROKER_TIER_ORDER.forEach(tierKey=>{
+    const tier = BROKER_TIER_META[tierKey];
+    let group = list.filter(([id,b])=> (b.tier||"")===tierKey);
+    group.sort((a,b)=> brokerLabel(a[1]).localeCompare(brokerLabel(b[1])));
+
+    const section = document.createElement("details");
+    section.className = "stage-section";
+    section.open = true;
+    const summary = document.createElement("summary");
+    summary.className = "stage-header";
+    summary.style.borderLeftColor = `var(--${tier.color})`;
+    summary.style.background = `var(--${tier.color})`;
+    summary.style.color = `var(--${tier.color}-ink)`;
+    summary.innerHTML = `
+      <h3 class="stage-header-title">${tier.label}</h3>
+      <span class="stage-header-count mono">${group.length}</span>`;
+    section.appendChild(summary);
+
+    const body = document.createElement("div");
+    body.className = "stage-body";
+    if(group.length===0){
+      const hint = document.createElement("div");
+      hint.className = "stage-empty-line";
+      hint.textContent = "No brokers at this rating";
+      body.appendChild(hint);
+    }
+    group.forEach(([id,b])=> body.appendChild(buildBrokerRow(id,b)));
+    section.appendChild(body);
+    wrap.appendChild(section);
   });
 }
 
