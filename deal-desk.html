@@ -1535,6 +1535,31 @@
   .model-gist-figure-label{ font-size:9.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); font-weight:700; }
   .model-gist-figure-value{ font-size:13px; font-weight:700; color:var(--ink); font-family:var(--font-mono); }
   .model-gist-meta{ font-size:10.5px; color:var(--ink-faint); margin-top:10px; }
+
+  /* ---------- Contract documents (PSA/LOI/amendment upload + AI term extraction) — a list
+     rather than the single-file model upload above, since a deal accumulates an LOI, then a PSA,
+     then amendments over time; each upload gets its own extraction pass and review step before
+     anything is written to the deal, since these are financial/legal terms worth double-checking
+     rather than a low-stakes summary. ---------- */
+  .contract-docs-list{ display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
+  .contract-doc-row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); font-size:12.5px; }
+  .contract-doc-open{ cursor:pointer; font-weight:600; }
+  .contract-doc-open:hover{ text-decoration:underline; }
+  .contract-doc-summary{ color:var(--ink-soft); flex:1 1 100%; }
+  .contract-doc-meta{ color:var(--ink-faint); font-size:11px; flex:1 1 100%; }
+  .contract-doc-actions{ display:flex; gap:6px; align-items:center; margin-left:auto; }
+  .contract-extract-review{ margin-top:8px; padding:10px 12px; border:1px solid var(--border-strong); border-radius:8px; background:var(--surface-2); }
+  .contract-extract-review-head{ font-size:12.5px; font-weight:700; margin-bottom:8px; color:var(--ink); }
+  .contract-extract-review-rows{ display:flex; flex-direction:column; gap:7px; }
+  .contract-extract-review-row{ display:flex; align-items:baseline; flex-wrap:wrap; gap:6px; font-size:12.5px; cursor:pointer; }
+  .contract-extract-review-row input[type=checkbox]{ margin-right:2px; }
+  .contract-extract-review-label{ font-weight:600; color:var(--ink); min-width:150px; }
+  .contract-extract-review-from{ color:var(--ink-faint); text-decoration:line-through; }
+  .contract-extract-review-arrow{ color:var(--ink-faint); }
+  .contract-extract-review-to{ color:var(--good); font-weight:700; }
+  .contract-extract-review-notes{ align-items:flex-start; margin-top:4px; }
+  .contract-extract-notes-preview{ color:var(--ink-soft); white-space:pre-wrap; flex:1 1 260px; line-height:1.5; }
+  .contract-extract-actions{ display:flex; gap:8px; margin-top:10px; }
   .broker-deal-list{ display:flex; flex-direction:column; }
   .broker-deal-row{
     display:flex; align-items:center; gap:10px; padding:8px 4px; border-top:1px solid var(--border);
@@ -3197,7 +3222,7 @@ async function boot(){
       renderBoard(); renderCounts();
       if(view==="brokers") renderBrokersView();
       if(openBrokerId) renderBrokerModalContent();
-      if(openDealId){ renderDDSection(); renderUwTiles(deals.get(openDealId)); renderCapTiles(deals.get(openDealId)); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderModelFileSection(); }
+      if(openDealId){ renderDDSection(); renderUwTiles(deals.get(openDealId)); renderCapTiles(deals.get(openDealId)); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderModelFileSection(); renderContractDocsList(); }
     }, ()=>{});
     db.doc("settings/categories").onSnapshot(snap=>{
       const data = snap.data();
@@ -3332,7 +3357,7 @@ async function createDeal(data){
 }
 async function updateDeal(id, data){
   if(db){ logDealActivity(id, deals.get(id), data); await db.doc("deals/"+id).update(data); }
-  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDSection(); renderUwTiles(deals.get(id)); renderCapTiles(deals.get(id)); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderModelFileSection(); } }
+  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDSection(); renderUwTiles(deals.get(id)); renderCapTiles(deals.get(id)); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderModelFileSection(); renderContractDocsList(); } }
 }
 async function deleteDeal(id){
   if(db){ await db.doc("deals/"+id).delete(); }
@@ -7764,6 +7789,16 @@ function openDealDetail(id){
         </div>
 
         <div>
+          <h4 class="section-label">Contract documents</h4>
+          <div class="contract-docs-list" id="contractDocsList"></div>
+          <div class="model-file-attach-area">
+            <label class="model-file-label">📎 Upload PSA / LOI / amendment<input type="file" id="contractDocInput" accept=".pdf,.txt,.md"></label>
+            <span class="model-file-status" id="contractDocStatus"></span>
+          </div>
+          <div id="contractExtractReviewWrap"></div>
+        </div>
+
+        <div>
           <h4 class="section-label">Deposits</h4>
           <div class="deal-fields">
             <div class="field-row">
@@ -7974,6 +8009,12 @@ function openDealDetail(id){
   setModelToggle(d.modelStatus||"boe");
   renderDealLocationMap(id, d.mapAddress || d.address || "");
   renderModelFileSection();
+  renderContractDocsList();
+  document.getElementById("contractDocInput").addEventListener("change", (e)=>{
+    const f = e.target.files[0];
+    e.target.value = "";
+    if(f) handleContractDocUpload(id, f, document.getElementById("contractDocStatus"));
+  });
   refreshDemoPreview();
 
   function refreshDemoPreview(){
@@ -9969,6 +10010,399 @@ function renderModelFileSection(){
       if(f) handleModelFileUpload(openDealId, f, document.getElementById("modelFileStatus"));
     });
   }
+}
+
+/* =================== contract documents (PSA/LOI/amendment upload + AI term extraction) =================== */
+/* Unlike the single Excel-model file above, a deal accumulates contract documents over time — an
+   LOI, then a PSA, then amendments that change specific terms — so this is a growing list
+   (d.contractDocs), each entry its own upload with its own extraction pass. And unlike the model
+   gist (a read-only summary), extraction results here are actual deal field values (purchase
+   price, dates, deposits) that would otherwise require re-typing by hand — so every extraction
+   goes through a review step (checkboxes, current value shown struck through next to the
+   proposed one) before anything is written, rather than auto-applying. The same review flow
+   naturally handles amendments too: re-uploading a later document just runs another pass against
+   the deal's current values, and only what that document actually restates or changes shows up
+   as a proposed change — nothing to special-case. */
+const CONTRACT_DOCTYPE_META = {
+  PSA:       {label:"PSA",       color:"accent"},
+  LOI:       {label:"LOI",       color:"warn"},
+  Amendment: {label:"Amendment", color:"brass"},
+  Other:     {label:"Document",  color:"neutral"},
+};
+const CONTRACT_FIELD_LABELS = {
+  psaStatus:         {label:"PSA status",              kind:"text", default:"Not Started"},
+  purchasePrice:     {label:"Purchase price",           kind:"money"},
+  lotSizeAcres:       {label:"Lot size (acres)",         kind:"acres"},
+  effectiveDate:     {label:"PSA effective date",       kind:"date"},
+  closingDate:       {label:"Expected close date",      kind:"date"},
+  inspectionEndDate: {label:"Inspection / DD end date", kind:"date"},
+  actualCloseDate:   {label:"Actual close date",        kind:"date"},
+  deposit1Amount:    {label:"1st deposit amount",       kind:"money"},
+  deposit1Date:      {label:"Earnest money date",       kind:"date"},
+  deposit1Status:    {label:"1st deposit status",       kind:"text", default:"Not Due"},
+  deposit2Amount:    {label:"2nd deposit amount",       kind:"money"},
+  deposit2Date:      {label:"2nd deposit date",         kind:"date"},
+  deposit2Status:    {label:"2nd deposit status",       kind:"text", default:"Not Due"},
+};
+function contractFieldDisplay(kind, v){
+  if(v===null || v===undefined || v==="") return "—";
+  if(kind==="money") return fmtMoneyShort(v);
+  if(kind==="acres") return fmtAcres(v);
+  if(kind==="date"){ const d = new Date(v+"T00:00:00"); return isNaN(d) ? String(v) : d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}); }
+  return String(v);
+}
+
+const CONTRACT_EXTRACT_PROMPT = (ctx)=> `You are a real estate acquisitions analyst at Newgard Development Group. You've been given the extracted text of a contract document — a Purchase & Sale Agreement (PSA), a Letter of Intent (LOI), or an amendment to either one — for a deal already in the pipeline. Pull out whatever deal terms it actually states so the pipeline entry can be updated automatically instead of someone re-typing what they just read.
+
+KNOWN DEAL FIELDS (already on file — the CURRENT values). Only return a key below if THIS document explicitly states a value for it — whether that's the original terms or a change from these current values. If the document doesn't mention a field at all, omit that key (or use null) — never guess, never restate a current value just to fill the key in, and never invent a number or date:
+- Project name: ${ctx.name || "(not given)"}
+- Address: ${ctx.address || "(not given)"}
+- Current PSA status: ${ctx.psaStatus || "Not Started"}
+- Current purchase price: ${ctx.purchasePrice != null ? fmtMoneyShort(ctx.purchasePrice) : "(not set)"}
+- Current lot size: ${ctx.lotSizeAcres != null ? ctx.lotSizeAcres+" ac" : "(not set)"}
+- Current effective/execution date: ${ctx.effectiveDate || "(not set)"}
+- Current expected closing date: ${ctx.closingDate || "(not set)"}
+- Current inspection/DD end date: ${ctx.inspectionEndDate || "(not set)"}
+- Current actual close date: ${ctx.actualCloseDate || "(not set)"}
+- Current 1st deposit: ${ctx.deposit1Amount != null ? fmtMoneyShort(ctx.deposit1Amount) : "(not set)"}, due ${ctx.deposit1Date || "(not set)"}, status ${ctx.deposit1Status || "Not Due"}
+- Current 2nd deposit: ${ctx.deposit2Amount != null ? fmtMoneyShort(ctx.deposit2Amount) : "(not set)"}, due ${ctx.deposit2Date || "(not set)"}, status ${ctx.deposit2Status || "Not Due"}
+- Other deposits already on file: ${ctx.extraDepositLabels && ctx.extraDepositLabels.length ? ctx.extraDepositLabels.join("; ") : "(none)"}
+
+DOCUMENT TEXT (mechanically extracted — may include OCR/layout noise; use your judgment):
+"""
+${ctx.text}
+"""
+
+Return ONLY a JSON object with exactly these keys:
+- "docType": your best guess at what this document is — one of "PSA", "LOI", "Amendment", "Other"
+- "docSummary": one short plain sentence describing this specific document, for someone scanning a list of uploaded files (e.g. "Executed PSA dated 10/27/25" or "First amendment extending the site plan approval date to 5/4/2026")
+- "psaStatus": one of ${JSON.stringify(PSA_STATUS_OPTIONS)}, only if this document makes the status clear and it's different from "Current PSA status" above — otherwise null
+- "purchasePrice": numeric dollars, no symbols/commas, or null
+- "lotSizeAcres": numeric acres (convert from square feet by dividing by 43560 if that's what's given), or null
+- "effectiveDate": ISO date (YYYY-MM-DD) the PSA/LOI was executed/effective, or null
+- "closingDate": ISO date the deal is expected to close, or null
+- "inspectionEndDate": ISO date the inspection / due-diligence / feasibility period ends (sometimes called the non-refundable date), or null
+- "actualCloseDate": ISO date, ONLY if this document states the deal has already actually closed, or null
+- "deposit1Amount": numeric dollars for the first/earnest money deposit, or null
+- "deposit1Date": ISO date that deposit is/was due, or null
+- "deposit1Status": one of ${JSON.stringify(DEPOSIT_STATUS_OPTIONS)}, or null
+- "deposit2Amount": numeric dollars for a second deposit, or null
+- "deposit2Date": ISO date, or null
+- "deposit2Status": one of ${JSON.stringify(DEPOSIT_STATUS_OPTIONS)}, or null
+- "extraDeposits": an array of any OTHER deposits this document describes beyond the first/second above (e.g. an extension deposit) that aren't already among "Other deposits already on file" — each as {"label": short description, "amount": numeric dollars, "date": ISO date or "", "status": one of ${JSON.stringify(DEPOSIT_STATUS_OPTIONS)}}. Empty array if none.
+- "notesAddition": 2-5 sentences of plain-language, non-numeric context worth recording in the deal's notes — seller name, escrow/title company, commission structure and who pays it, intended use, or any other condition worth a human knowing about. Empty string if this document adds nothing new here.
+
+If this text doesn't look like a real estate contract at all, still return this exact JSON shape with every field null/empty and "docType":"Other".`;
+
+/* Reads plain text out of an uploaded contract file the same way OM/listing extraction already
+   does (extractPdfText/loadPdfJs, defined above) — PDF via pdf.js, .txt/.md read directly. */
+async function extractContractDocText(file){
+  const isPdf = /\.pdf$/i.test(file.name) || (file.type||"")==="application/pdf";
+  if(isPdf) return await extractPdfText(file);
+  return (await file.text()) || "";
+}
+
+function contractDocStatus(msg, isWarn){
+  const el = document.getElementById("contractDocStatus");
+  if(!el) return;
+  el.textContent = msg||"";
+  el.classList.toggle("warn", !!isWarn);
+}
+
+async function handleContractDocUpload(dealId, file, statusEl){
+  if(!sb){ contractDocStatus("File storage isn't connected.", true); return; }
+  if(!/\.(pdf|txt|md)$/i.test(file.name)){
+    contractDocStatus("Only .pdf, .txt, or .md files are supported right now — open it and paste the key terms into Notes instead.", true);
+    return;
+  }
+  if(file.size > 50*1024*1024){
+    contractDocStatus(file.name + " is over the 50MB limit — try a smaller file.", true);
+    return;
+  }
+  contractDocStatus("Uploading " + file.name + "…");
+  const d = deals.get(dealId) || {};
+  const docs = (d.contractDocs || []).slice();
+  let docIndex = docs.length;
+  try{
+    const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+    const path = dealId + "/contracts/" + Date.now() + "_" + Math.random().toString(36).slice(2,8) + "_" + safeName;
+    const { error } = await sb.storage.from("deal-files").upload(path, file);
+    if(error) throw error;
+    docs.push({path, name:file.name, size:file.size, uploadedAt:new Date().toISOString(), docType:"", docSummary:""});
+    await updateDeal(dealId, {contractDocs: docs});
+  }catch(err){
+    console.error("Contract document upload failed:", err);
+    contractDocStatus("Couldn't upload " + file.name + " — " + ((err && err.message) || "try again"), true);
+    return;
+  }
+  renderContractDocsList();
+  try{
+    contractDocStatus("Reading " + file.name + "…");
+    const text = await extractContractDocText(file);
+    if(!text || !text.trim()){
+      contractDocStatus("Uploaded, but couldn't find readable text in " + file.name + " (it may be a scanned image) — paste the key terms into Notes instead.", true);
+      return;
+    }
+    await runContractExtraction(dealId, docIndex, text);
+  }catch(err){
+    console.error("Contract extraction failed:", err);
+    contractDocStatus("Uploaded, but reading the terms failed" + (err && err.detail ? " — "+err.detail : "") + " — fill them in manually or try \"Re-run extraction\" below.", true);
+  }
+  renderContractDocsList();
+}
+
+/* Re-reads an already-uploaded contract document from storage and runs extraction again — used
+   both for "try again" after a failure and, just as usefully, for genuinely re-checking a document
+   against whatever the deal's fields look like now. */
+async function rerunContractDocExtraction(dealId, docIndex){
+  const d = deals.get(dealId) || {};
+  const doc = (d.contractDocs||[])[docIndex];
+  if(!doc || !sb) return;
+  contractDocStatus("Fetching " + doc.name + "…");
+  try{
+    const { data, error } = await sb.storage.from("deal-files").createSignedUrl(doc.path, 300);
+    if(error) throw error;
+    const res = await fetch(data.signedUrl);
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    const blob = await res.blob();
+    const file = new File([blob], doc.name, {type: blob.type});
+    const text = await extractContractDocText(file);
+    if(!text || !text.trim()){
+      contractDocStatus("Couldn't find readable text in " + doc.name + ".", true);
+      return;
+    }
+    contractDocStatus("Reading " + doc.name + "…");
+    await runContractExtraction(dealId, docIndex, text);
+  }catch(err){
+    console.error("Re-run contract extraction failed:", err);
+    contractDocStatus("Couldn't re-read " + doc.name + " — " + ((err && err.message)||"try again"), true);
+  }
+  renderContractDocsList();
+}
+
+let pendingContractExtraction = null; // {dealId, docIndex, result, diffs, notesAddition}
+
+async function runContractExtraction(dealId, docIndex, text){
+  const d = deals.get(dealId) || {};
+  const ctx = {
+    name: d.name, address: d.address, psaStatus: d.psaStatus,
+    purchasePrice: d.purchasePrice, lotSizeAcres: d.lotSizeAcres,
+    effectiveDate: d.effectiveDate, closingDate: d.closingDate,
+    inspectionEndDate: d.inspectionEndDate, actualCloseDate: d.actualCloseDate,
+    deposit1Amount: d.deposit1Amount, deposit1Date: d.deposit1Date, deposit1Status: d.deposit1Status,
+    deposit2Amount: d.deposit2Amount, deposit2Date: d.deposit2Date, deposit2Status: d.deposit2Status,
+    extraDepositLabels: (d.extraDeposits||[]).map(dep=> dep.label).filter(Boolean),
+    text: text.slice(0, 24000),
+  };
+  const result = await sampleApi.json(CONTRACT_EXTRACT_PROMPT(ctx), {modelTier:"default"});
+  if(!result || typeof result !== "object") throw new Error("Unexpected response shape");
+
+  // Record what this document is, regardless of whether it turns up any field changes.
+  const docs = (deals.get(dealId)||{}).contractDocs ? (deals.get(dealId).contractDocs).slice() : [];
+  if(docs[docIndex]){
+    docs[docIndex] = Object.assign({}, docs[docIndex], {
+      docType: (result.docType && CONTRACT_DOCTYPE_META[result.docType]) ? result.docType : "Other",
+      docSummary: result.docSummary || "",
+    });
+    await updateDeal(dealId, {contractDocs: docs});
+  }
+
+  const diffs = [];
+  Object.keys(CONTRACT_FIELD_LABELS).forEach(key=>{
+    if(!(key in result) || result[key]===null || result[key]===undefined || result[key]==="") return;
+    const meta = CONTRACT_FIELD_LABELS[key];
+    const from = (d[key] ?? meta.default ?? null);
+    if(String(from ?? "") === String(result[key])) return; // already on file — nothing to apply
+    diffs.push({key, label: meta.label, kind: meta.kind, from, to: result[key],
+      fromDisplay: contractFieldDisplay(meta.kind, from), toDisplay: contractFieldDisplay(meta.kind, result[key])});
+  });
+  const extraDepositsNew = Array.isArray(result.extraDeposits) ? result.extraDeposits.filter(dep=> dep && dep.label && dep.amount!=null) : [];
+  const notesAddition = (result.notesAddition||"").trim();
+
+  if(!diffs.length && !extraDepositsNew.length && !notesAddition){
+    pendingContractExtraction = null;
+    contractDocStatus("Read " + (docs[docIndex]?docs[docIndex].name:"the document") + " — nothing new found to apply (terms already match what's on file).");
+    renderContractExtractReview();
+    return;
+  }
+  pendingContractExtraction = {dealId, docIndex, diffs, extraDepositsNew, notesAddition, docName: docs[docIndex]?docs[docIndex].name:"this document"};
+  contractDocStatus("");
+  renderContractExtractReview();
+}
+
+function renderContractExtractReview(){
+  const wrap = document.getElementById("contractExtractReviewWrap");
+  if(!wrap) return;
+  const p = pendingContractExtraction;
+  if(!p || p.dealId !== openDealId){ wrap.innerHTML = ""; return; }
+  wrap.innerHTML = `
+    <div class="contract-extract-review">
+      <div class="contract-extract-review-head">Found in "${escapeHtml(p.docName)}" — review before applying:</div>
+      <div class="contract-extract-review-rows">
+        ${p.diffs.map((diff,i)=>`
+          <label class="contract-extract-review-row">
+            <input type="checkbox" class="contract-extract-check" data-idx="${i}" checked>
+            <span class="contract-extract-review-label">${escapeHtml(diff.label)}</span>
+            <span class="contract-extract-review-from">${escapeHtml(diff.fromDisplay)}</span>
+            <span class="contract-extract-review-arrow">→</span>
+            <span class="contract-extract-review-to">${escapeHtml(diff.toDisplay)}</span>
+          </label>`).join("")}
+        ${p.extraDepositsNew.map((dep,i)=>`
+          <label class="contract-extract-review-row">
+            <input type="checkbox" class="contract-extract-extra-check" data-idx="${i}" checked>
+            <span class="contract-extract-review-label">${escapeHtml(dep.label)}</span>
+            <span class="contract-extract-review-from">—</span>
+            <span class="contract-extract-review-arrow">→</span>
+            <span class="contract-extract-review-to">${escapeHtml(fmtMoneyShort(dep.amount))}${dep.date?" · "+escapeHtml(contractFieldDisplay("date",dep.date)):""}${dep.status?" · "+escapeHtml(dep.status):""}</span>
+          </label>`).join("")}
+      </div>
+      ${p.notesAddition ? `<label class="contract-extract-review-row contract-extract-review-notes">
+        <input type="checkbox" id="contractExtractNotesCheck" checked>
+        <span class="contract-extract-review-label">Add to notes</span>
+        <span class="contract-extract-notes-preview">${escapeHtml(p.notesAddition)}</span>
+      </label>` : ""}
+      <div class="contract-extract-actions">
+        <button type="button" class="btn" id="contractExtractApplyBtn">Apply selected</button>
+        <button type="button" class="btn btn-ghost" id="contractExtractDismissBtn">Dismiss</button>
+      </div>
+    </div>`;
+  document.getElementById("contractExtractApplyBtn").addEventListener("click", applyContractExtraction);
+  document.getElementById("contractExtractDismissBtn").addEventListener("click", ()=>{ pendingContractExtraction = null; renderContractExtractReview(); });
+}
+
+async function applyContractExtraction(){
+  const p = pendingContractExtraction;
+  if(!p) return;
+  const wrap = document.getElementById("contractExtractReviewWrap");
+  const patch = {};
+  const appliedLabels = [];
+  p.diffs.forEach((diff,i)=>{
+    const cb = wrap.querySelector(`.contract-extract-check[data-idx="${i}"]`);
+    if(cb && cb.checked){ patch[diff.key] = diff.to; appliedLabels.push(diff.label); }
+  });
+  const checkedExtras = p.extraDepositsNew.filter((dep,i)=>{
+    const cb = wrap.querySelector(`.contract-extract-extra-check[data-idx="${i}"]`);
+    return cb && cb.checked;
+  });
+  if(checkedExtras.length){
+    const d = deals.get(p.dealId) || {};
+    patch.extraDeposits = (d.extraDeposits||[]).concat(checkedExtras.map(dep=>({label:dep.label, amount:dep.amount, date:dep.date||"", status:dep.status||"Not Due"})));
+    appliedLabels.push(checkedExtras.length===1 ? "1 additional deposit" : checkedExtras.length+" additional deposits");
+  }
+  const notesCheck = document.getElementById("contractExtractNotesCheck");
+  if(notesCheck && notesCheck.checked && p.notesAddition){
+    const d = deals.get(p.dealId) || {};
+    const attribution = `From ${p.docName}:\n${p.notesAddition}`;
+    patch.notes = (d.notes||"").trim() ? d.notes.trim() + "\n\n" + attribution : attribution;
+    appliedLabels.push("Notes");
+  }
+  if(!Object.keys(patch).length){ pendingContractExtraction = null; renderContractExtractReview(); return; }
+
+  // Clear the pending extraction BEFORE writing (rather than after), so any render triggered by
+  // the writes below — including this app's own realtime round-trip on this same deal — can't
+  // redisplay the just-applied checkboxes while the writes are still in flight.
+  pendingContractExtraction = null;
+
+  await updateDeal(p.dealId, patch);
+
+  // Record on the document itself that it was applied, and what.
+  const docs = (deals.get(p.dealId)||{}).contractDocs ? deals.get(p.dealId).contractDocs.slice() : [];
+  if(docs[p.docIndex]){
+    docs[p.docIndex] = Object.assign({}, docs[p.docIndex], {appliedAt:new Date().toISOString(), appliedSummary: appliedLabels.join(", ")});
+    await updateDeal(p.dealId, {contractDocs: docs});
+  }
+
+  refreshSlideFieldsAfterExternalPatch(patch);
+  renderContractExtractReview();
+  renderContractDocsList();
+  contractDocStatus("Applied: " + appliedLabels.join(", ") + ".");
+}
+
+/* Directly updates the raw <input> elements in the open deal panel after a patch is applied out
+   from under it (rather than re-opening the whole panel, which would also blow away anything the
+   analyst is mid-typing elsewhere in it — same conservative-realtime philosophy used throughout
+   this file). CRITICAL_DATE_FIELDS already maps every date field this feature can touch. */
+function refreshSlideFieldsAfterExternalPatch(patch){
+  if(!openDealId) return;
+  const setVal = (id, v)=>{ const el = document.getElementById(id); if(el) el.value = v; };
+  if("purchasePrice" in patch) setVal("slidePrice", patch.purchasePrice ?? "");
+  if("lotSizeAcres" in patch) setVal("slideLot", patch.lotSizeAcres ?? "");
+  if("psaStatus" in patch) setVal("slidePsa", patch.psaStatus || "Not Started");
+  if("deposit1Amount" in patch) setVal("slideDep1Amt", patch.deposit1Amount ?? "");
+  if("deposit1Status" in patch) setVal("slideDep1Status", patch.deposit1Status || "Not Due");
+  if("deposit2Amount" in patch) setVal("slideDep2Amt", patch.deposit2Amount ?? "");
+  if("deposit2Date" in patch) setVal("slideDep2Date", patch.deposit2Date || "");
+  if("deposit2Status" in patch) setVal("slideDep2Status", patch.deposit2Status || "Not Due");
+  if("notes" in patch) setVal("slideNotes", patch.notes || "");
+  CRITICAL_DATE_FIELDS.forEach(f=>{
+    if(!(f.field in patch)) return;
+    setVal(f.id, patch[f.field]||"");
+    const mark = document.getElementById(f.id+"Mark");
+    if(mark){ mark.textContent = patch[f.field] ? "✓" : "—"; mark.classList.toggle("done", !!patch[f.field]); }
+  });
+  if("purchasePrice" in patch || "lotSizeAcres" in patch){
+    // updateCalcPerAcre() itself is scoped inside openDealDetail's closure and isn't reachable
+    // from here — inline the same calculation rather than reaching in for it.
+    const price = Number(document.getElementById("slidePrice").value||0);
+    const lot = Number(document.getElementById("slideLot").value||0);
+    const units = Number(document.getElementById("slideUnits").value||0);
+    const perAcreEl = document.getElementById("calcPerAcre");
+    if(perAcreEl) perAcreEl.textContent = (price>0 && lot>0) ? fmtMoneyShort(price/lot)+"/ac" : "—";
+    const perUnitEl = document.getElementById("calcPerUnit");
+    if(perUnitEl) perUnitEl.textContent = (price>0 && units>0) ? fmtMoneyShort(price/units)+"/unit" : "—";
+  }
+  if("extraDeposits" in patch) renderExtraDeposits();
+}
+
+async function removeContractDoc(dealId, docIndex){
+  const d = deals.get(dealId) || {};
+  const doc = (d.contractDocs||[])[docIndex];
+  if(!doc) return;
+  const docs = d.contractDocs.slice();
+  docs.splice(docIndex, 1);
+  await updateDeal(dealId, {contractDocs: docs});
+  if(sb){
+    try{ await sb.storage.from("deal-files").remove([doc.path]); }
+    catch(e){ console.error("Storage cleanup failed (harmless):", e); }
+  }
+  if(pendingContractExtraction && pendingContractExtraction.dealId===dealId && pendingContractExtraction.docIndex===docIndex){
+    pendingContractExtraction = null;
+    renderContractExtractReview();
+  }
+  renderContractDocsList();
+}
+
+function renderContractDocsList(){
+  if(!openDealId) return;
+  const wrap = document.getElementById("contractDocsList");
+  if(!wrap) return;
+  const docs = (deals.get(openDealId)||{}).contractDocs || [];
+  if(!docs.length){ wrap.innerHTML = ""; }
+  else{
+    wrap.innerHTML = docs.map((doc,i)=>{
+      const meta = CONTRACT_DOCTYPE_META[doc.docType] || null;
+      return `<div class="contract-doc-row">
+        <span class="pill pill-${meta?meta.color:"neutral"}">${meta?escapeHtml(meta.label):"Reading…"}</span>
+        <span class="contract-doc-open" data-path="${escapeAttr(doc.path)}">📎 ${escapeHtml(doc.name)}${doc.size!=null?` (${fmtFileSize(doc.size)})`:""}</span>
+        <div class="contract-doc-actions">
+          <button type="button" class="btn-icon" data-rerun-idx="${i}" title="Re-run extraction">↻ Re-run extraction</button>
+          <span class="tag-pill-remove" data-remove-idx="${i}" title="Remove document">✕</span>
+        </div>
+        ${doc.docSummary ? `<span class="contract-doc-summary">${escapeHtml(doc.docSummary)}</span>` : ""}
+        <span class="contract-doc-meta">Uploaded ${fmtDate(doc.uploadedAt.slice(0,10))}${doc.appliedAt ? ` · Applied ${fmtDate(doc.appliedAt.slice(0,10))}${doc.appliedSummary?" ("+escapeHtml(doc.appliedSummary)+")":""}` : " · not yet applied to the deal"}</span>
+      </div>`;
+    }).join("");
+    wrap.querySelectorAll(".contract-doc-open").forEach(el=>{
+      el.addEventListener("click", ()=> openModelFile(el.dataset.path));
+    });
+    wrap.querySelectorAll("[data-rerun-idx]").forEach(el=>{
+      el.addEventListener("click", ()=> rerunContractDocExtraction(openDealId, Number(el.dataset.rerunIdx)));
+    });
+    wrap.querySelectorAll("[data-remove-idx]").forEach(el=>{
+      el.addEventListener("click", ()=> removeContractDoc(openDealId, Number(el.dataset.removeIdx)));
+    });
+  }
+  renderContractExtractReview();
 }
 
 function renderBrokerActivityLog(){
