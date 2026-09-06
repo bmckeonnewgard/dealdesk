@@ -1,0 +1,6 @@
+{
+  "name": "deal-desk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Deal Desk — Newgard Development Group acquisitions pipeline tool. Static HTML app (deal-desk.html) with a single Vercel serverless function (api/sample.js) proxying AI requests to the Anthropic API."
+}
