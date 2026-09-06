@@ -9220,7 +9220,7 @@ function openBrokerModal(id, opts){
       </div>
       <div class="modal-body">
         <div class="field-row">
-          <div class="field"><label for="brName">Name</label><input id="brName" type="text" placeholder="e.g. Sultan Albarq"></div>
+          <div class="field"><label for="brName">Name</label><input id="brName" type="text" placeholder="e.g. Jane Doe"></div>
           <div class="field"><label for="brFirm">Firm</label><input id="brFirm" type="text" placeholder="e.g. Newgard Group"></div>
         </div>
         <div class="field-row">
@@ -9231,7 +9231,6 @@ function openBrokerModal(id, opts){
           </div>
         </div>
         <div class="field"><label for="brNotes">Relationship notes</label><textarea id="brNotes" placeholder="Standing notes — e.g. 'good on off-market land', 'slow to respond'…"></textarea></div>
-        ${!isNew ? `
         <div class="field">
           <label for="brMarketInput">Markets</label>
           <div class="tag-input-wrap">
@@ -9239,6 +9238,7 @@ function openBrokerModal(id, opts){
             <input type="text" id="brMarketInput" placeholder="Type a market, press Enter…">
           </div>
         </div>
+        ${!isNew ? `
         <div>
           <div class="deposit-extra-head"><h4 class="section-label" style="margin:0;">Call / activity log</h4><button type="button" class="btn-icon" id="brAddLogBtn">+ Add note</button></div>
           <div id="brokerActivityLog"></div>
@@ -9270,6 +9270,36 @@ function openBrokerModal(id, opts){
   if(cancelBtn) cancelBtn.addEventListener("click", close);
 
   if(isNew){
+    // A brand-new broker has no id yet (and isn't in the `brokers` map), so its markets are held
+    // in this local array until "Add broker" is clicked, rather than routed through
+    // addBrokerMarket/updateBroker (which need an existing broker record).
+    let newMarkets = (pre.markets || []).slice();
+    const renderNewMarketsPills = ()=>{
+      const holder = document.getElementById("brMarketsPillsList");
+      if(!holder) return;
+      holder.innerHTML = newMarkets.map((m,i)=>
+        `<span class="pill pill-neutral tag-pill">${escapeHtml(m)}<span class="tag-pill-remove" data-idx="${i}" title="Remove market">✕</span></span>`
+      ).join("");
+      holder.querySelectorAll(".tag-pill-remove").forEach(btn=>{
+        btn.addEventListener("click", ()=>{
+          newMarkets = newMarkets.filter((_,i)=> i!==Number(btn.getAttribute("data-idx")));
+          renderNewMarketsPills();
+        });
+      });
+    };
+    const addNewMarket = (value)=>{
+      const v = (value||"").trim();
+      if(!v || newMarkets.some(m=>m.toLowerCase()===v.toLowerCase())) return;
+      newMarkets = newMarkets.concat([v]);
+      renderNewMarketsPills();
+    };
+    const newMarketInput = document.getElementById("brMarketInput");
+    newMarketInput.addEventListener("keydown", e=>{
+      if(e.key==="Enter" || e.key===","){ e.preventDefault(); addNewMarket(newMarketInput.value); newMarketInput.value = ""; }
+    });
+    newMarketInput.addEventListener("blur", ()=>{ if(newMarketInput.value.trim()){ addNewMarket(newMarketInput.value); newMarketInput.value = ""; } });
+    renderNewMarketsPills();
+
     document.getElementById("brSaveBtn").addEventListener("click", async ()=>{
       const name = document.getElementById("brName").value.trim();
       if(!name){ document.getElementById("brName").focus(); return; }
@@ -9280,6 +9310,7 @@ function openBrokerModal(id, opts){
         email: document.getElementById("brEmail").value.trim(),
         tier: document.getElementById("brTier").value,
         notes: document.getElementById("brNotes").value.trim(),
+        markets: newMarkets,
       });
       if(brokerModalOnCreate) brokerModalOnCreate(newId);
       close();
