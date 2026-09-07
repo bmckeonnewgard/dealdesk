@@ -264,7 +264,7 @@
 
   .stage-row-compact{
     display:grid;
-    grid-template-columns:12px minmax(140px,240px) minmax(80px,1fr) minmax(70px,0.9fr) minmax(96px,1fr) minmax(70px,0.9fr) minmax(110px,1.2fr) minmax(110px,1.2fr) minmax(64px,1fr) minmax(108px,1.1fr);
+    grid-template-columns:12px minmax(180px,2fr) minmax(80px,1fr) minmax(70px,0.9fr) minmax(96px,1fr) minmax(70px,0.9fr) minmax(110px,1.2fr) minmax(80px,0.6fr) minmax(56px,0.5fr) minmax(96px,0.7fr);
     align-items:center; gap:12px; padding:6px 12px; border-left:3px solid var(--neutral);
     border-bottom:1px solid var(--border); cursor:pointer; font-size:12px;
   }
@@ -813,6 +813,19 @@
   }
   .dd-summary .num{ font-family:var(--font-mono); font-weight:600; font-size:20px; }
   .dd-summary .progress-track{ height:7px; }
+
+  /* ---------- gate log (Screen to Close decision checkpoints) ---------- */
+  .gate-log-form{ display:flex; flex-direction:column; gap:10px; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+  .gate-row{ border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
+  .gate-row-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .gate-row-title{ font-weight:700; font-size:13.5px; }
+  .gate-row-meta{ font-size:11.5px; color:var(--ink-faint); margin-top:3px; }
+  .gate-row-note{ font-size:12px; color:var(--ink-soft); margin-top:5px; }
+  .gate-history-toggle{ margin-top:6px; }
+  .gate-history-toggle summary{ font-size:11.5px; color:var(--ink-faint); cursor:pointer; }
+  .gate-history-row{ display:flex; justify-content:space-between; gap:8px; font-size:11.5px; color:var(--ink-soft); padding:4px 0 0 4px; }
+  .gate-history-answer{ font-weight:600; flex:none; }
+  .gate-history-meta{ color:var(--ink-faint); text-align:right; }
   .uw-tiles{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
   .uw-tile{ background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:10px 12px; display:flex; flex-direction:column; gap:3px; min-width:0; }
   .uw-label{ font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); font-weight:700; }
@@ -1759,6 +1772,96 @@ const DD_TEMPLATE = [
 const DD_TOTAL = DD_TEMPLATE.reduce((n,c)=>n+c.items.length,0);
 const DD_UNLOCK_STAGES = ["signed_psa_dd","onboarded","dead"];
 
+/* Second due-diligence list, tracked alongside DD_TEMPLATE (the standard collected documents):
+   the underlying work that actually produces those documents, from the Screen to Close process
+   map — title & survey, environmental & physical, entitlement & zoning, design & cost,
+   financial & legal, and the capital raise running as its own parallel lane. Its own template/
+   cache/collection (workChecklist) so its completion math never mixes with DD_TOTAL/ddComplete. */
+const DD_WORK_TEMPLATE = [
+  { category:"Title & survey", items:[
+    {key:"wk-title-commitment", label:"Title commitment ordered"},
+    {key:"wk-b2-exceptions", label:"Schedule B-II exceptions reviewed by counsel"},
+    {key:"wk-easements-plotted", label:"Easements plotted on the survey"},
+    {key:"wk-alta-survey", label:"ALTA/NSPS survey with agreed Table A items"},
+    {key:"wk-objection-letter", label:"Objection letter delivered inside the objection window"},
+  ]},
+  { category:"Environmental & physical", items:[
+    {key:"wk-phase1-esa", label:"Phase I ESA to ASTM E1527"},
+    {key:"wk-phase2-esa", label:"Phase II if the Phase I identifies RECs"},
+    {key:"wk-asbestos-lead", label:"Asbestos and lead survey if structures remain"},
+    {key:"wk-geotech-borings", label:"Geotechnical borings and report"},
+    {key:"wk-wetlands-delineation", label:"Wetlands delineation if the NWI screen flagged the parcel"},
+    {key:"wk-topo-tree-survey", label:"Topographic and tree survey"},
+    {key:"wk-utility-letters", label:"Utility availability letters — water, sewer, power, gas"},
+  ]},
+  { category:"Entitlement & zoning", items:[
+    {key:"wk-zoning-verification", label:"Zoning verification letter from the jurisdiction"},
+    {key:"wk-pre-app-meeting", label:"Pre-application meeting with planning staff"},
+    {key:"wk-traffic-concurrency", label:"Traffic or concurrency study if required"},
+    {key:"wk-hearing-calendar", label:"Hearing calendar mapped against the closing date"},
+    {key:"wk-permit-expediter-engaged", label:"Permit expediter engaged"},
+    {key:"wk-height-faa", label:"Height and FAA surface check if near an airport"},
+  ]},
+  { category:"Design & cost", items:[
+    {key:"wk-concept-design", label:"Concept design developed off the test fit"},
+    {key:"wk-hard-cost-estimate", label:"GC or estimator hard cost estimate"},
+    {key:"wk-soft-cost-schedule", label:"Soft cost schedule"},
+    {key:"wk-amenity-ffe-budget", label:"Club amenity and FF&E budget"},
+  ]},
+  { category:"Financial & legal", items:[
+    {key:"wk-full-underwriting-model", label:"Full underwriting model with sensitivities, replacing the back-of-envelope"},
+    {key:"wk-reassessment-exposure", label:"Reassessment exposure at the new basis"},
+    {key:"wk-insurance-quotes", label:"Insurance quotes, including flood where the zone requires it"},
+    {key:"wk-incentives-review", label:"Incentives review — opportunity zone, state, local"},
+    {key:"wk-leases-estoppels", label:"Leases and estoppels if a tenant is in place"},
+    {key:"wk-entity-formation", label:"Project entity formation started"},
+  ]},
+  { category:"Capital — parallel lane", items:[
+    {key:"wk-debt-sourced", label:"Debt sourced; term sheets received and compared"},
+    {key:"wk-lender-site-visit", label:"Lender site visit"},
+    {key:"wk-equity-package", label:"Equity package issued"},
+    {key:"wk-lp-commitments", label:"LP commitments signed"},
+    {key:"wk-sources-uses", label:"Sources and uses tied to the current model"},
+  ]},
+];
+const DD_WORK_TOTAL = DD_WORK_TEMPLATE.reduce((n,c)=>n+c.items.length,0);
+
+/* Gate log — the six Go/Hold/No-Go decision checkpoints from the Screen to Close process map,
+   recorded per deal as a running history (d.gateLog: {gate, at, decider, answer, reasonCode, note,
+   loggedAt}[]) so a gate can be revisited (e.g. a re-trade at G5) without losing the earlier
+   record. Deliberately decoupled from the pipeline stage dropdown — logging a decision here never
+   changes d.stage on its own. */
+const GATES = [
+  {key:"g1", label:"G1 — Screen", meta:"Deal lead · minutes", deciders:"Deal lead",
+    answers:["Pursue","Watch — with a date","Pass — with reason code"]},
+  {key:"g2", label:"G2 — LOI authorization", meta:"Deal lead + one principal · days", deciders:"Deal lead + one principal",
+    answers:["Authorize at stated terms","Authorize at a lower ceiling","Hold","Pass"]},
+  {key:"g3", label:"G3 — Investment Committee", meta:"Investment Committee · days to a week", deciders:"Investment Committee",
+    answers:["Go","Go subject to conditions","Hold","No-Go"]},
+  {key:"g4", label:"G4 — Capital", meta:"Principal + capital markets · before G5", deciders:"Principal + capital markets",
+    answers:["Capital confirmed","Named gap with a plan","Not confirmed — extend or pass"]},
+  {key:"g5", label:"G5 — Go-hard", meta:"Investment Committee · DD expiration − 5 business days", deciders:"Investment Committee",
+    answers:["Go hard","Go hard after re-trade","Extend at stated cost","Terminate inside DD"]},
+  {key:"g6", label:"G6 — Funding authorization", meta:"Principal + second approver · 24–48 hrs out", deciders:"Principal + second approver",
+    answers:["Authorize funding","Hold pending a named item"]},
+];
+const GATE_REASON_CODES = ["price","market","zoning","site","capital","seller","timing"];
+function gateAnswerTone(answer){
+  const a = (answer||"").toLowerCase();
+  if(/no-go|^pass$|pass —|terminate/.test(a)) return "bad";
+  if(/hold|extend|gap|watch|lower ceiling/.test(a)) return "warn";
+  if(a) return "good";
+  return "neutral";
+}
+function gateNeedsReasonCode(answer){
+  return /pass|no-go|terminate/i.test(answer||"");
+}
+function latestGateEntry(d, gateKey){
+  const list = (d.gateLog||[]).filter(e=>e.gate===gateKey);
+  if(!list.length) return null;
+  return list.slice().sort((a,b)=> (a.at||"").localeCompare(b.at||"") || (a.loggedAt||"").localeCompare(b.loggedAt||""))[list.length-1];
+}
+
 const STATUS_META = {
   not_started: {label:"Not started", cls:"pill-neutral"},
   in_progress: {label:"In progress", cls:"pill-accent"},
@@ -1885,6 +1988,7 @@ function jumpToCriteriaLine(line){
   rebuildCriteriaView();
   if(dealUnsub){ dealUnsub(); dealUnsub=null; }
   if(dealCriteriaUnsub){ dealCriteriaUnsub(); dealCriteriaUnsub=null; }
+  if(dealWorkChecklistUnsub){ dealWorkChecklistUnsub(); dealWorkChecklistUnsub=null; }
   openDealId = null;
   const slideRoot = document.getElementById("slideoverRoot");
   if(slideRoot) slideRoot.innerHTML = "";
@@ -2587,6 +2691,7 @@ let pipelineMapMode = "state"; // "state" or "market" — which layer of bubbles
 let agendaMeetingDate = null; // null = today — the Weekly Agenda's "as of" reference date
 let agendaItems = new Map(); // "Special comments" — ad hoc discussion items, synced like tasks/deals/brokers
 let checklistCache = new Map();
+let workChecklistCache = new Map();
 let criteriaCache = new Map();
 let openDealId = null;
 let openBrokerId = null;
@@ -2596,6 +2701,7 @@ let downloadsCap = null;
 let autoClearDays = 7;
 let dealUnsub = null;
 let dealCriteriaUnsub = null;
+let dealWorkChecklistUnsub = null;
 let omExtractedExtra = {};
 let omExtractedNotes = "";
 let omExtractedBroker = null;
@@ -3245,7 +3351,7 @@ async function boot(){
       renderBoard(); renderCounts();
       if(view==="brokers") renderBrokersView();
       if(openBrokerId) renderBrokerModalContent();
-      if(openDealId){ renderDDSection(); renderUwTiles(deals.get(openDealId)); renderCapTiles(deals.get(openDealId)); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderModelFileSection(); renderContractDocsList(); refreshSiteCondPreview(); }
+      if(openDealId){ renderDDSection(); renderDDWorkSection(); renderUwTiles(deals.get(openDealId)); renderCapTiles(deals.get(openDealId)); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderModelFileSection(); renderContractDocsList(); refreshSiteCondPreview(); renderGateLogSummary(); }
     }, ()=>{});
     db.doc("settings/categories").onSnapshot(snap=>{
       const data = snap.data();
@@ -3380,7 +3486,7 @@ async function createDeal(data){
 }
 async function updateDeal(id, data){
   if(db){ logDealActivity(id, deals.get(id), data); await db.doc("deals/"+id).update(data); }
-  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDSection(); renderUwTiles(deals.get(id)); renderCapTiles(deals.get(id)); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderModelFileSection(); renderContractDocsList(); refreshSiteCondPreview(); } }
+  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDSection(); renderDDWorkSection(); renderUwTiles(deals.get(id)); renderCapTiles(deals.get(id)); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderModelFileSection(); renderContractDocsList(); refreshSiteCondPreview(); renderGateLogSummary(); } }
 }
 async function deleteDeal(id){
   if(db){ await db.doc("deals/"+id).delete(); }
@@ -3436,6 +3542,28 @@ function recomputeDealProgress(dealId){
   cache.forEach(v=>{ if(v.status==="complete") complete++; if(v.status==="na") na++; });
   const applicable = DD_TOTAL - na;
   updateDeal(dealId, {ddComplete:complete, ddApplicable:applicable, ddTotal:DD_TOTAL});
+}
+
+/* Second checklist's own set/recompute pair — same shape as setChecklistItem/recomputeDealProgress
+   above, kept on its own sub-collection (workChecklist) and its own deal fields (workComplete/
+   workApplicable/workTotal) so it never mixes into DD_TOTAL/ddComplete math used elsewhere
+   (dashboard rollups, the deal-compare tool's "DD completion" criterion, etc.). */
+async function setWorkChecklistItem(dealId, key, patch){
+  let cache = workChecklistCache.get(dealId);
+  if(!cache){ cache = new Map(); workChecklistCache.set(dealId, cache); }
+  const current = cache.get(key) || {status:"not_started", notes:""};
+  const next = Object.assign({}, current, patch, {updatedAt: new Date().toISOString(), updatedBy: whoName()||undefined});
+  cache.set(key, next);
+  if(db){ await db.doc("deals/"+dealId+"/workChecklist/"+key).set(next); }
+  recomputeWorkChecklistProgress(dealId);
+  renderDDWorkSection();
+}
+function recomputeWorkChecklistProgress(dealId){
+  const cache = workChecklistCache.get(dealId) || new Map();
+  let complete=0, na=0;
+  cache.forEach(v=>{ if(v.status==="complete") complete++; if(v.status==="na") na++; });
+  const applicable = DD_WORK_TOTAL - na;
+  updateDeal(dealId, {workComplete:complete, workApplicable:applicable, workTotal:DD_WORK_TOTAL});
 }
 
 async function setCriteriaItem(dealId, key, patch){
@@ -8015,8 +8143,33 @@ function openDealDetail(id){
         </div>
 
         <div>
+          <h4 class="section-label">Screen to Close — gate log</h4>
+          <div class="gate-log-form">
+            <div class="field-row">
+              <div class="field"><label for="gateLogGate">Gate</label><select id="gateLogGate"></select></div>
+              <div class="field"><label for="gateLogAnswer">Answer</label><select id="gateLogAnswer"></select></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="gateLogDecider">Decider</label><input id="gateLogDecider" type="text" placeholder="Who decided"></div>
+              <div class="field"><label for="gateLogDate">Date</label><input id="gateLogDate" type="date"></div>
+            </div>
+            <div class="field-row">
+              <div class="field" id="gateLogReasonWrap" hidden><label for="gateLogReason">Reason code</label><select id="gateLogReason"></select></div>
+              <div class="field"><label for="gateLogNote">Note</label><input id="gateLogNote" type="text" placeholder="Optional"></div>
+            </div>
+            <button type="button" class="btn btn-primary" id="gateLogSubmit" style="align-self:flex-start;">Log decision</button>
+          </div>
+          <div id="gateLogSummary"></div>
+        </div>
+
+        <div>
           <h4 class="section-label">Standard acquisition due diligence</h4>
           <div id="ddSection"></div>
+        </div>
+
+        <div>
+          <h4 class="section-label">Due diligence — the work that produces it</h4>
+          <div id="ddWorkSection"></div>
         </div>
         </div>
 
@@ -8226,7 +8379,7 @@ function openDealDetail(id){
     mark.classList.toggle("done", !!val);
   }
 
-  const close = ()=>{ if(dealUnsub){ dealUnsub(); dealUnsub=null; } if(dealCriteriaUnsub){ dealCriteriaUnsub(); dealCriteriaUnsub=null; } openDealId=null; root.innerHTML=""; };
+  const close = ()=>{ if(dealUnsub){ dealUnsub(); dealUnsub=null; } if(dealCriteriaUnsub){ dealCriteriaUnsub(); dealCriteriaUnsub=null; } if(dealWorkChecklistUnsub){ dealWorkChecklistUnsub(); dealWorkChecklistUnsub=null; } openDealId=null; root.innerHTML=""; };
   document.getElementById("slideOverlay").addEventListener("click", close);
   document.getElementById("slideClose").addEventListener("click", close);
   document.getElementById("slideStar").addEventListener("click", ()=>{
@@ -8461,6 +8614,75 @@ function openDealDetail(id){
     renderIcCriteriaSection();
   }
   renderIcCriteriaSection();
+
+  if(!workChecklistCache.has(id)) workChecklistCache.set(id, new Map());
+  if(db){
+    dealWorkChecklistUnsub = db.collection("deals/"+id+"/workChecklist").onSnapshot(snap=>{
+      const cache = new Map();
+      snap.docs.forEach(doc=> cache.set(doc.id, doc.data()));
+      workChecklistCache.set(id, cache);
+      renderDDWorkSection();
+      recomputeWorkChecklistProgress(id);
+    }, ()=>{});
+  } else {
+    renderDDWorkSection();
+  }
+  renderDDWorkSection();
+
+  wireGateLogForm(id);
+  renderGateLogSummary();
+}
+
+/* Wires the "record a gate decision" form once per deal-detail open — deliberately not rebuilt by
+   the derived-render hooks (unlike renderGateLogSummary below it) so an in-progress note or answer
+   selection survives an unrelated field's realtime update, matching how the site-conditions
+   repeatable rows are kept separate from refreshSiteCondPreview. */
+function wireGateLogForm(dealId){
+  const gateSel = document.getElementById("gateLogGate");
+  const answerSel = document.getElementById("gateLogAnswer");
+  const reasonWrap = document.getElementById("gateLogReasonWrap");
+  const reasonSel = document.getElementById("gateLogReason");
+  const deciderInput = document.getElementById("gateLogDecider");
+  const dateInput = document.getElementById("gateLogDate");
+  const noteInput = document.getElementById("gateLogNote");
+  const submitBtn = document.getElementById("gateLogSubmit");
+  if(!gateSel || !submitBtn) return;
+
+  gateSel.innerHTML = GATES.map(g=>`<option value="${g.key}">${escapeHtml(g.label)}</option>`).join("");
+  reasonSel.innerHTML = GATE_REASON_CODES.map(c=>`<option value="${c}">${c}</option>`).join("");
+
+  function populateAnswers(){
+    const g = GATES.find(x=>x.key===gateSel.value) || GATES[0];
+    answerSel.innerHTML = g.answers.map(a=>`<option value="${escapeAttr(a)}">${escapeHtml(a)}</option>`).join("");
+    refreshReasonVisibility();
+  }
+  function refreshReasonVisibility(){
+    reasonWrap.hidden = !gateNeedsReasonCode(answerSel.value);
+  }
+  gateSel.addEventListener("change", populateAnswers);
+  answerSel.addEventListener("change", refreshReasonVisibility);
+  populateAnswers();
+  deciderInput.value = whoName() || "";
+  dateInput.value = new Date().toISOString().slice(0,10);
+
+  submitBtn.addEventListener("click", ()=>{
+    const d = deals.get(dealId);
+    if(!d) return;
+    const entry = {
+      gate: gateSel.value,
+      answer: answerSel.value,
+      decider: deciderInput.value.trim(),
+      at: dateInput.value || new Date().toISOString().slice(0,10),
+      reasonCode: (!reasonWrap.hidden && reasonSel.value) ? reasonSel.value : "",
+      note: noteInput.value.trim(),
+      loggedAt: new Date().toISOString(),
+    };
+    const next = (d.gateLog||[]).concat([entry]);
+    d.gateLog = next;
+    updateDeal(dealId, {gateLog: next});
+    noteInput.value = "";
+    renderGateLogSummary();
+  });
 }
 
 function renderUwTiles(dealLike){
@@ -8582,17 +8804,18 @@ function renderPhotoStrip(d){
   </div>`;
 }
 
-/* Builds the DD_TEMPLATE category/item checklist for a given deal as a wired-up DOM node.
-   Shared by the deal slideover and the standalone DD Checklist tab so both stay in sync
-   off the same checklistCache + setChecklistItem() plumbing.
+/* Builds a template's category/item checklist for a given deal as a wired-up DOM node — the
+   shared engine behind both due-diligence lists (the standard collected-documents template and
+   the "work that produces it" template), each with its own cache and setItemFn so their
+   completion math never mixes.
    opts.openFirstIndex: category index to expand by default (undefined = all collapsed). */
-function buildDdCategories(dealId, opts){
+function buildChecklistCategories(dealId, template, total, cache, setItemFn, opts){
   opts = opts || {};
-  const cache = checklistCache.get(dealId) || new Map();
+  cache = cache || new Map();
   let complete=0, na=0;
   const catsWrap = document.createElement("div");
   catsWrap.style.cssText = "display:flex;flex-direction:column;gap:10px;";
-  DD_TEMPLATE.forEach((cat, ci)=>{
+  template.forEach((cat, ci)=>{
     let catComplete = 0;
     const details = document.createElement("details");
     details.className = "category";
@@ -8636,25 +8859,31 @@ function buildDdCategories(dealId, opts){
       colorSelectByStatus(sel, (STATUS_META[sel.value]||STATUS_META.not_started).cls);
       refreshOverdue();
       sel.addEventListener("change", ()=>{
-        setChecklistItem(dealId, item.key, {status: sel.value});
+        setItemFn(dealId, item.key, {status: sel.value});
         colorSelectByStatus(sel, STATUS_META[sel.value].cls);
         refreshOverdue();
       });
       dateInput.addEventListener("change", ()=>{
-        setChecklistItem(dealId, item.key, {targetDate: dateInput.value});
+        setItemFn(dealId, item.key, {targetDate: dateInput.value});
         refreshOverdue();
       });
       const notesInput = row.querySelector(".dd-notes");
       notesInput.value = v.notes||"";
-      notesInput.addEventListener("change", ()=> setChecklistItem(dealId, item.key, {notes: notesInput.value}));
+      notesInput.addEventListener("change", ()=> setItemFn(dealId, item.key, {notes: notesInput.value}));
       details.appendChild(row);
     });
     summaryEl.querySelector(".cat-count").textContent = `${catComplete}/${cat.items.length}`;
     catsWrap.appendChild(details);
   });
-  const applicable = DD_TOTAL - na;
+  const applicable = total - na;
   const pct = applicable>0 ? Math.round((complete/applicable)*100) : 0;
   return {catsWrap, complete, na, applicable, pct};
+}
+function buildDdCategories(dealId, opts){
+  return buildChecklistCategories(dealId, DD_TEMPLATE, DD_TOTAL, checklistCache.get(dealId), setChecklistItem, opts);
+}
+function buildWorkChecklistCategories(dealId, opts){
+  return buildChecklistCategories(dealId, DD_WORK_TEMPLATE, DD_WORK_TOTAL, workChecklistCache.get(dealId), setWorkChecklistItem, opts);
 }
 
 async function addCustomCriterion(dealId, label, requirement, type){
@@ -9425,6 +9654,80 @@ function renderDDSection(){
   wrap.innerHTML = "";
   wrap.appendChild(summary);
   wrap.appendChild(catsWrap);
+}
+
+/* Second due-diligence checklist — "the work that produces it" (DD_WORK_TEMPLATE) — same gating,
+   same layout as renderDDSection, its own wrap/ids so the two sections render independently. */
+function renderDDWorkSection(){
+  if(!openDealId) return;
+  const wrap = document.getElementById("ddWorkSection");
+  if(!wrap) return;
+  const d = deals.get(openDealId) || {};
+  const stage = d.stage || "prospecting";
+  const unlocked = DD_UNLOCK_STAGES.includes(stage);
+
+  if(!unlocked){
+    wrap.innerHTML = `<div class="locked-panel">
+      <div class="lock-icon">🔒</div>
+      <div><strong>Checklist locked</strong></div>
+      <div>The work behind due diligence unlocks once this deal moves to <strong>Under Contract</strong>.</div>
+    </div>`;
+    return;
+  }
+
+  const stageMeta = DEAL_STAGES.find(s=>s.key===stage);
+  const {catsWrap, complete, na, applicable, pct} = buildWorkChecklistCategories(openDealId, {openFirstIndex:0});
+  catsWrap.style.marginTop = "12px";
+
+  const summary = document.createElement("div");
+  summary.className = "dd-summary";
+  summary.innerHTML = `<div class="num mono" id="ddWorkPct">${pct}%</div>
+    <div style="flex:1">
+      <div class="progress-track"><div class="progress-fill${pct>=100 && applicable>0?" complete":""}" id="ddWorkFill" style="width:${pct}%"></div></div>
+      <div class="progress-label" id="ddWorkLabel" style="margin-top:5px">${complete} of ${applicable} complete${na?` (${na} n/a)`:""}</div>
+    </div>
+    <span class="pill pill-${stageMeta?stageMeta.color:"neutral"} dd-stage-pill">${stageMeta?stageMeta.title:""}</span>`;
+
+  wrap.innerHTML = "";
+  wrap.appendChild(summary);
+  wrap.appendChild(catsWrap);
+}
+
+/* =================== Gate log — Screen to Close decision checkpoints =================== */
+/* Read-only summary (status pill + latest decider/date + history) for all six gates, rebuilt on
+   every derived-render pass — mirrors refreshSiteCondPreview's split of a safe-to-rebuild preview
+   from the separately-wired "record a decision" form (see wireGateLogForm, built once in
+   openDealDetail so an in-progress form entry never gets wiped by an unrelated field's realtime
+   update). */
+function gateHistoryRowHtml(e){
+  return `<div class="gate-history-row">
+    <span class="gate-history-answer">${escapeHtml(e.answer||"—")}</span>
+    <span class="gate-history-meta">${e.decider?escapeHtml(e.decider)+" · ":""}${e.at?fmtDate(e.at):"—"}${e.reasonCode?` · ${escapeHtml(e.reasonCode)}`:""}${e.note?` — ${escapeHtml(e.note)}`:""}</span>
+  </div>`;
+}
+function gateLogSummaryHtml(d){
+  return GATES.map(g=>{
+    const entries = (d.gateLog||[]).filter(e=>e.gate===g.key);
+    const latest = latestGateEntry(d, g.key);
+    const tone = latest ? gateAnswerTone(latest.answer) : "neutral";
+    const earlier = entries.length>1 ? entries.slice().sort((a,b)=>(a.at||"").localeCompare(b.at||"")||(a.loggedAt||"").localeCompare(b.loggedAt||"")).slice(0,-1).reverse() : [];
+    return `<div class="gate-row">
+      <div class="gate-row-head">
+        <span class="gate-row-title">${escapeHtml(g.label)}</span>
+        <span class="pill pill-${tone}">${latest?escapeHtml(latest.answer):"Not decided"}</span>
+      </div>
+      <div class="gate-row-meta">${escapeHtml(g.meta)}${latest?` · ${latest.decider?escapeHtml(latest.decider)+" · ":""}${latest.at?fmtDate(latest.at):"—"}${latest.reasonCode?` · ${escapeHtml(latest.reasonCode)}`:""}`:""}</div>
+      ${latest && latest.note ? `<div class="gate-row-note">${escapeHtml(latest.note)}</div>` : ""}
+      ${earlier.length ? `<details class="gate-history-toggle"><summary>${earlier.length} earlier decision${earlier.length===1?"":"s"}</summary>${earlier.map(gateHistoryRowHtml).join("")}</details>` : ""}
+    </div>`;
+  }).join("");
+}
+function renderGateLogSummary(){
+  if(!openDealId) return;
+  const wrap = document.getElementById("gateLogSummary");
+  if(!wrap) return;
+  const d = deals.get(openDealId) || {};
+  wrap.innerHTML = gateLogSummaryHtml(d);
 }
 
 /* =================== DD Checklist tab (all in-DD projects, one place) =================== */
