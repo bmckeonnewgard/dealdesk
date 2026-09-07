@@ -32,6 +32,22 @@
     --neutral:#7C8B92; --neutral-soft:#EBEBEB; --neutral-ink:#FFFFFF;
     --priority-high:#17803D; --priority-high-soft:#DFF3E6; --priority-high-ink:#FFFFFF;
     --priority-medium:#9E8300; --priority-medium-soft:#FBF3D0; --priority-medium-ink:#2A2100;
+    /* Pipeline-stage ordinal ramp — one hue (the brand's teal), monotonically darkening from
+       Prospecting to Closing, so color itself reads as "how far along" a deal is, the way the
+       dataviz skill's ordinal-ramp method prescribes (one hue, monotone lightness) rather than
+       cycling a handful of unrelated categorical colors or hue-rotating through a rainbow.
+       Onboarded and Dead/Passed intentionally stay on the existing --good/--bad status colors
+       below, not this ramp — they're outcomes (succeeded / didn't happen), not "further along,"
+       so they keep their own fixed, reserved meaning instead of just being the darkest ramp step.
+       Validated with the dataviz skill's ordinal checks (monotone L, >=0.06 step gaps, light-end
+       contrast >=2:1, single hue) — see scripts/validate_palette.js in that skill for the method. */
+    --pipe1:#75BBCF; --pipe1-soft:#C6E4EC; --pipe1-ink:#183139;
+    --pipe2:#39A5C6; --pipe2-soft:#C6E3EC; --pipe2-ink:#183139;
+    --pipe3:#2A8AA9; --pipe3-soft:#C6E2EC; --pipe3-ink:#FFFFFF;
+    --pipe4:#1F7493; --pipe4-soft:#C6E2EC; --pipe4-ink:#FFFFFF;
+    --pipe5:#185E7C; --pipe5-soft:#C6E0EC; --pipe5-ink:#FFFFFF;
+    --pipe6:#134A65; --pipe6-soft:#C6DFEC; --pipe6-ink:#FFFFFF;
+    --pipe7:#113245; --pipe7-soft:#C6DEEC; --pipe7-ink:#FFFFFF;
     --shadow:0 1px 2px rgba(24,49,57,.07), 0 10px 28px -14px rgba(24,49,57,.26);
     --font-display:'Source Serif 4',Georgia,'Times New Roman',serif;
     --font-body:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;
@@ -39,36 +55,8 @@
     --radius:10px;
     --slideover-w:720px;
   }
-  @media (prefers-color-scheme: dark){
-    :root:not([data-theme="light"]){
-      --bg:#0F1B20; --surface:#16262C; --surface-2:#122026;
-      --ink:#E7EEF0; --ink-soft:#A9BAC0; --ink-faint:#728488;
-      --border:#25383F; --border-strong:#35494F;
-      --accent:#AAD8E5; --accent-soft:#1C333B; --accent-strong:#C7E7EF; --accent-ink:#0E2027;
-      --brass:#7FC4DA; --brass-soft:#1E2F35; --brass-ink:#0E2027;
-      --good:#4CBB77; --good-soft:#163826; --good-ink:#0E2027;
-      --warn:#DDAE49; --warn-soft:#3A2E12; --warn-ink:#0E2027;
-      --bad:#E1685F; --bad-soft:#3A1D1B; --bad-ink:#0E2027;
-      --neutral:#7E8B92; --neutral-soft:#212B32; --neutral-ink:#0E2027;
-      --priority-high:#5FC98A; --priority-high-soft:#1A3A2A; --priority-high-ink:#0E2027;
-      --priority-medium:#E8CB4A; --priority-medium-soft:#3A3312; --priority-medium-ink:#0E2027;
-      --shadow:0 1px 2px rgba(0,0,0,.35), 0 10px 28px -14px rgba(0,0,0,.55);
-    }
-  }
-  :root[data-theme="dark"]{
-    --bg:#0F1B20; --surface:#16262C; --surface-2:#122026;
-    --ink:#E7EEF0; --ink-soft:#A9BAC0; --ink-faint:#728488;
-    --border:#25383F; --border-strong:#35494F;
-    --accent:#AAD8E5; --accent-soft:#1C333B; --accent-strong:#C7E7EF; --accent-ink:#0E2027;
-    --brass:#7FC4DA; --brass-soft:#1E2F35; --brass-ink:#0E2027;
-    --good:#4CBB77; --good-soft:#163826; --good-ink:#0E2027;
-    --warn:#DDAE49; --warn-soft:#3A2E12; --warn-ink:#0E2027;
-    --bad:#E1685F; --bad-soft:#3A1D1B; --bad-ink:#0E2027;
-    --neutral:#7E8B92; --neutral-soft:#212B32; --neutral-ink:#0E2027;
-    --priority-high:#5FC98A; --priority-high-soft:#1A3A2A; --priority-high-ink:#0E2027;
-    --priority-medium:#E8CB4A; --priority-medium-soft:#3A3312; --priority-medium-ink:#0E2027;
-    --shadow:0 1px 2px rgba(0,0,0,.35), 0 10px 28px -14px rgba(0,0,0,.55);
-  }
+  /* Dark mode removed by request — the app now always renders the light palette above,
+     regardless of the OS/browser color-scheme setting. */
 
   *{box-sizing:border-box;}
   body{
@@ -91,13 +79,7 @@
   }
   .brand{ display:flex; align-items:center; gap:12px; margin-right:2px; }
   .brand-logo{ height:19px; width:auto; display:block; flex:none; }
-  .brand-logo.logo-dark{ display:none; }
-  @media (prefers-color-scheme: dark){
-    :root:not([data-theme="light"]) .brand-logo.logo-light{ display:none; }
-    :root:not([data-theme="light"]) .brand-logo.logo-dark{ display:block; }
-  }
-  :root[data-theme="dark"] .brand-logo.logo-light{ display:none; }
-  :root[data-theme="dark"] .brand-logo.logo-dark{ display:block; }
+  .brand-logo.logo-dark{ display:none; } /* dark mode removed — the dark-variant logo never shows */
   .brand-divider{ width:1px; height:16px; background:var(--border-strong); flex:none; }
   .brand-tag{ font-family:var(--font-body); font-weight:600; font-size:12.5px; color:var(--ink-soft); letter-spacing:.01em; }
   .tabs{ display:flex; gap:4px; background:var(--surface-2); border:1px solid var(--border); border-radius:9px; padding:3px; }
@@ -155,6 +137,10 @@
   .dot-neutral{ background:var(--neutral); } .dot-accent{ background:var(--accent); }
   .dot-brass{ background:var(--brass); } .dot-warn{ background:var(--warn); }
   .dot-good{ background:var(--good); } .dot-bad{ background:var(--bad); }
+  .dot-pipe1{ background:var(--pipe1); } .dot-pipe2{ background:var(--pipe2); }
+  .dot-pipe3{ background:var(--pipe3); } .dot-pipe4{ background:var(--pipe4); }
+  .dot-pipe5{ background:var(--pipe5); } .dot-pipe6{ background:var(--pipe6); }
+  .dot-pipe7{ background:var(--pipe7); }
 
   /* ---------- board ---------- */
   .board-wrap{ flex:1; overflow-x:auto; padding:18px 20px 32px; }
@@ -481,6 +467,13 @@
   .pill-brass{ background:var(--brass-soft); color:var(--brass); }
   .pill-priority-high{ background:var(--priority-high-soft); color:var(--priority-high); }
   .pill-priority-medium{ background:var(--priority-medium-soft); color:var(--priority-medium); }
+  .pill-pipe1{ background:var(--pipe1-soft); color:var(--pipe1); }
+  .pill-pipe2{ background:var(--pipe2-soft); color:var(--pipe2); }
+  .pill-pipe3{ background:var(--pipe3-soft); color:var(--pipe3); }
+  .pill-pipe4{ background:var(--pipe4-soft); color:var(--pipe4); }
+  .pill-pipe5{ background:var(--pipe5-soft); color:var(--pipe5); }
+  .pill-pipe6{ background:var(--pipe6-soft); color:var(--pipe6); }
+  .pill-pipe7{ background:var(--pipe7-soft); color:var(--pipe7); }
   .pill-solid{ font-weight:800; box-shadow:0 1px 2px rgba(0,0,0,.12); }
   .pill-solid.pill-neutral{ background:var(--neutral); color:var(--neutral-ink); }
   .pill-solid.pill-good{ background:var(--good); color:var(--good-ink); }
@@ -488,6 +481,13 @@
   .pill-solid.pill-bad{ background:var(--bad); color:var(--bad-ink); }
   .pill-solid.pill-accent{ background:var(--accent); color:var(--accent-ink); }
   .pill-solid.pill-brass{ background:var(--brass); color:var(--brass-ink); }
+  .pill-solid.pill-pipe1{ background:var(--pipe1); color:var(--pipe1-ink); }
+  .pill-solid.pill-pipe2{ background:var(--pipe2); color:var(--pipe2-ink); }
+  .pill-solid.pill-pipe3{ background:var(--pipe3); color:var(--pipe3-ink); }
+  .pill-solid.pill-pipe4{ background:var(--pipe4); color:var(--pipe4-ink); }
+  .pill-solid.pill-pipe5{ background:var(--pipe5); color:var(--pipe5-ink); }
+  .pill-solid.pill-pipe6{ background:var(--pipe6); color:var(--pipe6-ink); }
+  .pill-solid.pill-pipe7{ background:var(--pipe7); color:var(--pipe7-ink); }
   .pill-solid.pill-priority-high{ background:var(--priority-high); color:var(--priority-high-ink); }
   .pill-solid.pill-priority-medium{ background:var(--priority-medium); color:var(--priority-medium-ink); }
   .card-foot{ display:flex; align-items:center; gap:8px; margin-top:1px; }
@@ -1670,7 +1670,6 @@
     <div class="spacer"></div>
     <label class="who-label" for="whoInput" title="Type your name — it pre-fills the assignee / deal lead fields when you add tasks or deals, and is only saved in this browser.">Working as</label>
     <input class="who-input" id="whoInput" type="text" placeholder="Your name" title="Type your name — it pre-fills the assignee / deal lead fields when you add tasks or deals, and is only saved in this browser.">
-    <button class="btn-icon" id="themeToggleBtn" type="button" title="Toggle light / dark mode">🌓</button>
     <button class="btn btn-primary" id="addBtn" onclick="openAddModal()">+ Add task</button>
   </header>
   <div class="meta-bar">
@@ -2097,14 +2096,19 @@ const TASK_COLUMNS = [
    happen) into one pipeline column indistinguishable at a glance. Likewise "Onboarded" conflated
    Closing prep, the Close event, and the 30-day Post-close handoff into one "done" bucket that
    hid any open closing/handoff to-dos. See STAGE_MIGRATION below for how existing deals land. */
+/* Stage colors: "pipe1".."pipe7" are one hue (teal), monotonically darkening from Prospecting to
+   Closing — a proper ordinal ramp (see the --pipeN custom properties above) so color itself shows
+   progress through the pipeline instead of a handful of categorical colors repeating out of order.
+   Onboarded and Dead/Passed deliberately stay off that ramp, on the app's existing status colors
+   (good/bad) — they're outcomes, not "further along" than Closing. */
 const DEAL_STAGES = [
-  {key:"prospecting",    title:"Prospecting",        color:"neutral"},
-  {key:"underwriting",   title:"Underwriting",       color:"accent"},
-  {key:"submitted_loi",  title:"Submitted LOI",      color:"brass"},
-  {key:"signed_loi",     title:"Signed LOI",         color:"warn"},
-  {key:"signed_psa",     title:"Signed PSA",         color:"accent"},
-  {key:"due_diligence",  title:"In Due Diligence",   color:"warn"},
-  {key:"closing",        title:"Closing",            color:"brass"},
+  {key:"prospecting",    title:"Prospecting",        color:"pipe1"},
+  {key:"underwriting",   title:"Underwriting",       color:"pipe2"},
+  {key:"submitted_loi",  title:"Submitted LOI",      color:"pipe3"},
+  {key:"signed_loi",     title:"Signed LOI",         color:"pipe4"},
+  {key:"signed_psa",     title:"Signed PSA",         color:"pipe5"},
+  {key:"due_diligence",  title:"In Due Diligence",   color:"pipe6"},
+  {key:"closing",        title:"Closing",            color:"pipe7"},
   {key:"onboarded",      title:"Onboarded",          color:"good"},
   {key:"dead",           title:"Dead / Passed",      color:"bad"},
 ];
@@ -2246,9 +2250,36 @@ function parseCityStateFromAddress(addr){
   }
   return null;
 }
+/* A handful of well-known "this is really just <big-name market>" cases — an address commonly
+   reads with the specific municipality ("...North Miami, FL...", "...Sugar Land, TX...") rather
+   than the metro name the business actually talks about deals by. Kept as a short, explicit list
+   (not an automatic distance-based rollup, which would make a lot of silent judgment calls across
+   the whole country) — add a line here any time another one comes up. Keys are lowercased "city,
+   st" matching the shape parseCityStateFromAddress produces. */
+const MARKET_METRO_ALIASES = {
+  // Miami-Dade / South Florida
+  "north miami, fl": "Miami, FL", "north miami beach, fl": "Miami, FL",
+  "miami beach, fl": "Miami, FL", "miami gardens, fl": "Miami, FL",
+  "miami springs, fl": "Miami, FL", "coral gables, fl": "Miami, FL",
+  "hialeah, fl": "Miami, FL", "doral, fl": "Miami, FL", "aventura, fl": "Miami, FL",
+  "sunny isles beach, fl": "Miami, FL", "homestead, fl": "Miami, FL", "kendall, fl": "Miami, FL",
+  // Las Vegas valley
+  "henderson, nv": "Las Vegas, NV", "north las vegas, nv": "Las Vegas, NV",
+  "paradise, nv": "Las Vegas, NV", "spring valley, nv": "Las Vegas, NV",
+  "summerlin south, nv": "Las Vegas, NV",
+  // Greater Houston
+  "sugar land, tx": "Houston, TX", "katy, tx": "Houston, TX", "the woodlands, tx": "Houston, TX",
+  "pearland, tx": "Houston, TX", "missouri city, tx": "Houston, TX", "spring, tx": "Houston, TX",
+  "pasadena, tx": "Houston, TX", "baytown, tx": "Houston, TX",
+  // New York City boroughs
+  "brooklyn, ny": "New York, NY", "queens, ny": "New York, NY", "bronx, ny": "New York, NY",
+  "staten island, ny": "New York, NY", "manhattan, ny": "New York, NY",
+};
 function dealMarketKey(d){
   const cs = parseCityStateFromAddress(d.address||"");
-  return cs ? `${cs.city}, ${cs.state}` : null;
+  if(!cs) return null;
+  const raw = `${cs.city}, ${cs.state}`;
+  return MARKET_METRO_ALIASES[raw.toLowerCase()] || raw;
 }
 /* Falls back to just the state when the address doesn't parse into a clean "City, ST" (e.g. a
    plot name with no city segment) — still better than a blank cell in the pipeline list, and only
@@ -2623,11 +2654,8 @@ function dealStageProgressPct(d){
 function progressGradientColor(idx, total){
   const i = Math.max(idx, 0);
   const hue = total>1 ? Math.round((i/(total-1))*120) : 0;
-  // Fixed lightness reads fine as dark text on the light-mode surface, but the same lightness is
-  // too dim against dark-mode's dark surfaces (red in particular — it's the darkest-reading hue
-  // at a given lightness) — so dark mode uses a lighter variant, same hue/saturation.
-  const light = isDarkModeActive() ? 62 : 42;
-  return `hsl(${hue}, 68%, ${light}%)`;
+  // Fixed lightness that reads fine as dark text on the app's light surface (dark mode removed).
+  return `hsl(${hue}, 68%, 42%)`;
 }
 function progressColorForDeal(d){
   const seq = DEAL_STAGES.filter(s=>s.key!=="dead");
@@ -2761,41 +2789,8 @@ function applySlideoverWidth(){
   document.documentElement.style.setProperty("--slideover-w", slideoverWidth+"px");
 }
 applySlideoverWidth();
-/* Light / dark / system theme toggle. "system" (the default) sets no data-theme attribute at
-   all, so the existing prefers-color-scheme CSS keeps deciding automatically; "light"/"dark"
-   pin the :root[data-theme] override defined at the top of the stylesheet. Remembered per
-   browser only — this is a per-viewer convenience, not shared team data. */
-let themeMode = (()=>{ try{ return localStorage.getItem("dealdesk_theme")||"system"; }catch(e){ return "system"; } })();
-function applyTheme(){
-  const root = document.documentElement;
-  if(themeMode==="light") root.setAttribute("data-theme","light");
-  else if(themeMode==="dark") root.setAttribute("data-theme","dark");
-  else root.removeAttribute("data-theme");
-  const btn = document.getElementById("themeToggleBtn");
-  if(btn){
-    btn.textContent = themeMode==="dark" ? "🌙" : themeMode==="light" ? "☀️" : "🌓";
-    btn.title = "Theme: " + (themeMode==="dark"?"Dark":themeMode==="light"?"Light":"System default") + " — click to change";
-  }
-}
-function cycleTheme(){
-  themeMode = themeMode==="system" ? "light" : themeMode==="light" ? "dark" : "system";
-  try{ localStorage.setItem("dealdesk_theme", themeMode); }catch(e){}
-  applyTheme();
-  // A few colors (like the progress-bar heat map below) are computed in JS rather than via CSS
-  // custom properties, so they don't update just from the data-theme attribute changing — force
-  // a re-render of whatever's currently on screen so they pick up the new theme immediately.
-  renderBoard();
-}
-/* True once dark styling is actually in effect — either pinned explicitly via the theme toggle,
-   or "system" mode deferring to the OS's prefers-color-scheme. Used by the handful of colors
-   computed in JS (not CSS custom properties) that need to pick their own light/dark variant. */
-function isDarkModeActive(){
-  const attr = document.documentElement.getAttribute("data-theme");
-  if(attr==="dark") return true;
-  if(attr==="light") return false;
-  try{ return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches); }
-  catch(e){ return false; }
-}
+/* Dark mode removed by request (was a light/dark/system toggle in the top bar) — the app now
+   always renders the light palette, so there's no theme state to track or switch here anymore. */
 /* The review window for the dashboard hero stat / funnel is a plain start date rather than a
    fixed preset — closings are judged by when they actually closed, not when the deal was first
    sourced, so this filters on actualCloseDate. Quick-pick buttons (YTD / trailing 12mo / all
@@ -3337,8 +3332,6 @@ async function ensureDownloadsCap(){
 /* =================== bootstrap / db wiring =================== */
 async function boot(){
   setView(view); // sync the tab bar / panel visibility to the default landing view
-  applyTheme();
-  document.getElementById("themeToggleBtn").addEventListener("click", cycleTheme);
   try{ const savedWho = localStorage.getItem("dealdesk_who"); if(savedWho) document.getElementById("whoInput").value = savedWho; }catch(e){}
   document.getElementById("whoInput").addEventListener("change", ()=>{
     try{ localStorage.setItem("dealdesk_who", document.getElementById("whoInput").value||""); }catch(e){}
