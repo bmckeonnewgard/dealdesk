@@ -7975,6 +7975,43 @@ function openDealDetail(id){
         </div>
 
         <div>
+          <h4 class="section-label">Critical dates</h4>
+          <div class="cdate-list" id="cdateList">
+            ${CRITICAL_DATE_FIELDS.map(f=>`
+            <div class="cdate-row">
+              <span class="cdate-mark" id="${f.id}Mark">—</span>
+              <span class="cdate-label">${f.label}</span>
+              <input class="cdate-input" id="${f.id}" type="date">
+            </div>`).join("")}
+          </div>
+        </div>
+
+        <div>
+          <h4 class="section-label">Deposits</h4>
+          <div class="deal-fields">
+            <div class="field-row">
+              <div class="field"><label for="slideDep1Amt">1st deposit amount</label><div class="money-field"><span class="money-field-prefix">$</span><input id="slideDep1Amt" type="number"></div></div>
+              <div class="field"><label for="slideDep1Date">1st deposit date</label><input id="slideDep1Date" type="date"></div>
+              <div class="field"><label for="slideDep1Status">1st deposit status</label>
+                <select id="slideDep1Status">${DEPOSIT_STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join("")}</select>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="slideDep2Amt">2nd deposit amount</label><div class="money-field"><span class="money-field-prefix">$</span><input id="slideDep2Amt" type="number"></div></div>
+              <div class="field"><label for="slideDep2Date">2nd deposit date</label><input id="slideDep2Date" type="date"></div>
+              <div class="field"><label for="slideDep2Status">2nd deposit status</label>
+                <select id="slideDep2Status">${DEPOSIT_STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join("")}</select>
+              </div>
+            </div>
+          </div>
+          <div class="deposit-extra-head">
+            <span class="cdate-label" style="font-weight:700;">Additional deposits</span>
+            <button type="button" class="btn-icon" id="addDepositBtn">+ Add deposit</button>
+          </div>
+          <div class="deposit-extra-list" id="extraDepositList"></div>
+        </div>
+
+        <div>
           <h4 class="section-label">Property photos</h4>
           <div class="deal-fields">
             <div class="field"><label for="slidePhoto1">Photo 1 URL (exterior)</label><input id="slidePhoto1" type="text" placeholder="https://…"></div>
@@ -8223,42 +8260,6 @@ function openDealDetail(id){
         </div>
 
         <div>
-          <h4 class="section-label">Critical dates</h4>
-          <div class="cdate-list" id="cdateList">
-            ${CRITICAL_DATE_FIELDS.map(f=>`
-            <div class="cdate-row">
-              <span class="cdate-mark" id="${f.id}Mark">—</span>
-              <span class="cdate-label">${f.label}</span>
-              <input class="cdate-input" id="${f.id}" type="date">
-            </div>`).join("")}
-          </div>
-        </div>
-
-        <div>
-          <h4 class="section-label">Deposits</h4>
-          <div class="deal-fields">
-            <div class="field-row">
-              <div class="field"><label for="slideDep1Amt">1st deposit amount</label><div class="money-field"><span class="money-field-prefix">$</span><input id="slideDep1Amt" type="number"></div></div>
-              <div class="field"><label for="slideDep1Status">1st deposit status</label>
-                <select id="slideDep1Status">${DEPOSIT_STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join("")}</select>
-              </div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label for="slideDep2Amt">2nd deposit amount</label><div class="money-field"><span class="money-field-prefix">$</span><input id="slideDep2Amt" type="number"></div></div>
-              <div class="field"><label for="slideDep2Date">2nd deposit date</label><input id="slideDep2Date" type="date"></div>
-              <div class="field"><label for="slideDep2Status">2nd deposit status</label>
-                <select id="slideDep2Status">${DEPOSIT_STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join("")}</select>
-              </div>
-            </div>
-          </div>
-          <div class="deposit-extra-head">
-            <span class="cdate-label" style="font-weight:700;">Additional deposits</span>
-            <button type="button" class="btn-icon" id="addDepositBtn">+ Add deposit</button>
-          </div>
-          <div class="deposit-extra-list" id="extraDepositList"></div>
-        </div>
-
-        <div>
           <h4 class="section-label">Links</h4>
           <div class="deal-fields">
             ${d.address ? `<a class="btn" style="align-self:flex-start;text-decoration:none;" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(d.address)}" target="_blank" rel="noopener">📍 Open "${escapeHtml(d.address)}" in Google Maps</a>` : `<div class="locked-note">Add a street address above to get a Google Maps link for this site.</div>`}
@@ -8470,6 +8471,7 @@ function openDealDetail(id){
     updateCdateMark(f);
   });
   document.getElementById("slideDep1Amt").value = d.deposit1Amount??"";
+  document.getElementById("slideDep1Date").value = d.deposit1Date||"";
   document.getElementById("slideDep1Status").value = d.deposit1Status||"Not Due";
   document.getElementById("slideDep2Amt").value = d.deposit2Amount??"";
   document.getElementById("slideDep2Date").value = d.deposit2Date||"";
@@ -8703,9 +8705,27 @@ function openDealDetail(id){
       save({[f.field]: e.target.value});
       d[f.field] = e.target.value;
       updateCdateMark(f);
+      // "Earnest money date" here is the same underlying field as "1st deposit date" down in
+      // Deposits — keep that field's own copy in sync too rather than waiting on a re-render.
+      if(f.field==="deposit1Date"){
+        const mirror = document.getElementById("slideDep1Date");
+        if(mirror) mirror.value = e.target.value;
+      }
     });
   });
   document.getElementById("slideDep1Amt").addEventListener("change", e=> save({deposit1Amount: e.target.value?Number(e.target.value):null}));
+  document.getElementById("slideDep1Date").addEventListener("change", e=>{
+    save({deposit1Date: e.target.value});
+    d.deposit1Date = e.target.value;
+    // Mirror into "Earnest money date" under Critical dates — same underlying field, shown in
+    // both places (Critical dates as a milestone checklist item, here for quick access alongside
+    // the amount/status while entering deposit terms).
+    const cdEarnest = document.getElementById("cdEarnest");
+    if(cdEarnest){
+      cdEarnest.value = e.target.value;
+      updateCdateMark({id:"cdEarnest", field:"deposit1Date"});
+    }
+  });
   document.getElementById("slideDep1Status").addEventListener("change", e=> save({deposit1Status: e.target.value}));
   document.getElementById("slideDep2Amt").addEventListener("change", e=> save({deposit2Amount: e.target.value?Number(e.target.value):null}));
   document.getElementById("slideDep2Date").addEventListener("change", e=> save({deposit2Date: e.target.value}));
@@ -11167,6 +11187,7 @@ function refreshSlideFieldsAfterExternalPatch(patch){
   if("lotSizeAcres" in patch) setVal("slideLot", patch.lotSizeAcres ?? "");
   if("psaStatus" in patch) setVal("slidePsa", patch.psaStatus || "Not Started");
   if("deposit1Amount" in patch) setVal("slideDep1Amt", patch.deposit1Amount ?? "");
+  if("deposit1Date" in patch) setVal("slideDep1Date", patch.deposit1Date || ""); // mirrors cdEarnest below (same field)
   if("deposit1Status" in patch) setVal("slideDep1Status", patch.deposit1Status || "Not Due");
   if("deposit2Amount" in patch) setVal("slideDep2Amt", patch.deposit2Amount ?? "");
   if("deposit2Date" in patch) setVal("slideDep2Date", patch.deposit2Date || "");
