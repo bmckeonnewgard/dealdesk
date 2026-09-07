@@ -9,6 +9,8 @@
 //
 // After adding/changing env vars, redeploy for them to take effect.
 
+const { jsonrepair } = require("jsonrepair");
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
@@ -36,10 +38,11 @@ module.exports = async function handler(req, res) {
   // gist, and contract-document extraction) — some of those, contract extraction especially, ask
   // for a dozen-plus fields plus a multi-sentence notes field and an array, and 1200 tokens was
   // occasionally too tight for that: the model's JSON got cut off mid-object on a rich document
-  // and failed to parse ("Model did not return valid JSON"), particularly for longer OCR'd scans.
-  // Bumping the cap doesn't cost anything unless a response actually needs it — Anthropic bills
-  // for tokens actually generated, not the max_tokens ceiling.
-  const maxTokens = modelTier === "quick" ? 600 : 2500;
+  // and failed to parse ("Model did not return valid JSON"), particularly for longer OCR'd scans
+  // or a detailed typed update covering multiple parcels/parties. Bumping the cap doesn't cost
+  // anything unless a response actually needs it — Anthropic bills for tokens actually generated,
+  // not the max_tokens ceiling.
+  const maxTokens = modelTier === "quick" ? 600 : 4096;
 
   const finalPrompt = json
     ? prompt + "\n\nRespond with ONLY a valid JSON object. No markdown code fences, no preamble, no explanation."
@@ -87,8 +90,18 @@ module.exports = async function handler(req, res) {
       try {
         result = JSON.parse(cleaned);
       } catch (e) {
-        res.status(502).json({ error: "Model did not return valid JSON", raw: cleaned.slice(0, 500) });
-        return;
+        // Even after the brace-trimming above, the model's own JSON can still come back slightly
+        // malformed — most commonly an unescaped quote inside a string value (e.g. it echoes a
+        // quoted phrase straight out of the source document/note, like a date written as "dated
+        // as of August 26, 2026", without escaping the inner quotes), and occasionally a response
+        // cut short before it finished. jsonrepair fixes exactly these classes of issue (escaping,
+        // truncation, stray commas, and more); only give up if it can't make sense of it either.
+        try {
+          result = JSON.parse(jsonrepair(cleaned));
+        } catch (e2) {
+          res.status(502).json({ error: "Model did not return valid JSON", raw: cleaned.slice(0, 500) });
+          return;
+        }
       }
       res.status(200).json({ result });
       return;
