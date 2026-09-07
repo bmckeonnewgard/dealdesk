@@ -32,7 +32,14 @@ module.exports = async function handler(req, res) {
   }
 
   const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
-  const maxTokens = modelTier === "quick" ? 600 : 1200;
+  // "default" covers every JSON-extraction prompt (OM/listing extraction, deal screening, model
+  // gist, and contract-document extraction) — some of those, contract extraction especially, ask
+  // for a dozen-plus fields plus a multi-sentence notes field and an array, and 1200 tokens was
+  // occasionally too tight for that: the model's JSON got cut off mid-object on a rich document
+  // and failed to parse ("Model did not return valid JSON"), particularly for longer OCR'd scans.
+  // Bumping the cap doesn't cost anything unless a response actually needs it — Anthropic bills
+  // for tokens actually generated, not the max_tokens ceiling.
+  const maxTokens = modelTier === "quick" ? 600 : 2500;
 
   const finalPrompt = json
     ? prompt + "\n\nRespond with ONLY a valid JSON object. No markdown code fences, no preamble, no explanation."
@@ -67,7 +74,15 @@ module.exports = async function handler(req, res) {
       .trim();
 
     if (json) {
-      const cleaned = text.replace(/```json|```/g, "").trim();
+      let cleaned = text.replace(/```json|```/g, "").trim();
+      // Belt-and-suspenders: if the model added any stray commentary before/after the object
+      // despite being told not to, trim to the outermost braces before parsing rather than
+      // failing outright on otherwise-valid JSON.
+      const firstBrace = cleaned.indexOf("{");
+      const lastBrace = cleaned.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+      }
       let result;
       try {
         result = JSON.parse(cleaned);
