@@ -1565,6 +1565,12 @@
      then amendments over time; each upload gets its own extraction pass and review step before
      anything is written to the deal, since these are financial/legal terms worth double-checking
      rather than a low-stakes summary. ---------- */
+  /* Quick update: a free-text box (top of the Overview tab, right above Contract documents) that
+     runs the same AI extraction + review pipeline as an uploaded document, just against typed
+     text instead of a file — a one-line "we signed the amendment, $100k due tomorrow" note gets
+     the same proposed-field-changes review as uploading the amendment itself would. */
+  .quick-update-box{ display:flex; flex-direction:column; gap:6px; }
+  .quick-update-textarea{ min-height:56px; width:100%; border:1px solid var(--border); background:var(--surface-2); color:var(--ink); border-radius:8px; padding:8px 10px; font-family:var(--font-body); font-size:13.5px; resize:vertical; }
   .contract-docs-list{ display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
   .contract-doc-row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); font-size:12.5px; }
   .contract-doc-open{ cursor:pointer; font-weight:600; }
@@ -1770,7 +1776,7 @@ const DD_TEMPLATE = [
   ]},
 ];
 const DD_TOTAL = DD_TEMPLATE.reduce((n,c)=>n+c.items.length,0);
-const DD_UNLOCK_STAGES = ["signed_psa_dd","onboarded","dead"];
+const DD_UNLOCK_STAGES = ["signed_psa_dd","due_diligence","closing","onboarded","dead"];
 
 /* Second due-diligence list, tracked alongside DD_TEMPLATE (the standard collected documents):
    the underlying work that actually produces those documents, from the Screen to Close process
@@ -2085,23 +2091,46 @@ const TASK_COLUMNS = [
   {key:"complete", title:"Complete", color:"good"},
   {key:"process_improvements", title:"Process Improvements", color:"accent"},
 ];
+/* Split to match the Screen to Close process map: the old single "Signed PSA/DD" bucket
+   conflated the PSA stage (drafting/negotiating/executing, escrow opening — 2-4 weeks) with Due
+   diligence itself (the 60-120 day investigation, where G4 Capital and G5 Go-hard actually
+   happen) into one pipeline column indistinguishable at a glance. Likewise "Onboarded" conflated
+   Closing prep, the Close event, and the 30-day Post-close handoff into one "done" bucket that
+   hid any open closing/handoff to-dos. See STAGE_MIGRATION below for how existing deals land. */
 const DEAL_STAGES = [
   {key:"prospecting",    title:"Prospecting",        color:"neutral"},
   {key:"underwriting",   title:"Underwriting",       color:"accent"},
   {key:"submitted_loi",  title:"Submitted LOI",      color:"brass"},
   {key:"signed_loi",     title:"Signed LOI",         color:"warn"},
-  {key:"signed_psa_dd",  title:"Signed PSA/DD",      color:"accent"},
+  {key:"signed_psa",     title:"Signed PSA",         color:"accent"},
+  {key:"due_diligence",  title:"In Due Diligence",   color:"warn"},
+  {key:"closing",        title:"Closing",            color:"brass"},
   {key:"onboarded",      title:"Onboarded",          color:"good"},
   {key:"dead",           title:"Dead / Passed",      color:"bad"},
 ];
-/* legacy stage keys -> current pipeline stages, applied once per deal on load so nothing gets stranded */
+/* legacy stage keys -> current pipeline stages, applied once per deal on load so nothing gets
+   stranded. Every deal previously sitting in the old combined "signed_psa_dd" bucket already had
+   its PSA executed (that stage could only be entered post-IC-approval — see confirmStageChange),
+   so the safe forward migration is straight to "due_diligence" rather than the new, narrower
+   "signed_psa" (which now covers only the brief pre-execution drafting window). "due_diligence"
+   and "closing" are themselves now current stage keys, not legacy ones — do not remap them here. */
 const STAGE_MIGRATION = {
   sourcing: "prospecting",
-  under_contract: "signed_psa_dd",
-  due_diligence: "signed_psa_dd",
-  closing: "signed_psa_dd",
+  under_contract: "due_diligence",
+  signed_psa_dd: "due_diligence",
   closed: "onboarded",
 };
+/* Legacy stage TITLES as recorded verbatim in activity-log entries from before this stage was
+   split, so buildDealGanttRow's history reconstruction (which looks up a stage by its logged
+   title) doesn't silently drop old segments once "Signed PSA/DD" stops being a current title. */
+const LEGACY_STAGE_TITLES = { "Signed PSA/DD": "due_diligence" };
+/* Stages where a deal is under a signed purchase agreement but not yet closed — PSA through
+   closing prep. Used wherever forward-looking capital/price totals should count "in contract,
+   pre-close" deals (see the comment above IN_CONTRACT_STAGES below for why Onboarded is excluded). */
+const CONTRACT_STAGES = new Set(["signed_psa","due_diligence","closing"]);
+/* Stages that count as a real outcome rather than "still pending" for conversion-rate math
+   (dealOutcomeBucket, the Passed deals & hit rate card) — anything from a signed PSA onward. */
+const CONVERTED_STAGES = new Set(["signed_psa","due_diligence","closing","onboarded"]);
 function migrateDealStages(){
   deals.forEach((d,id)=>{
     const cur = d.stage || "prospecting";
@@ -3652,10 +3681,10 @@ function renderCounts(){
   const brokersCountEl = document.getElementById("brokersCount");
   if(brokersCountEl) brokersCountEl.textContent = brokers.size;
   const ddCountEl = document.getElementById("ddTasksCount");
-  if(ddCountEl) ddCountEl.textContent = [...deals.values()].filter(d=>(d.stage||"prospecting")==="signed_psa_dd").length;
+  if(ddCountEl) ddCountEl.textContent = [...deals.values()].filter(d=>{ const s=d.stage||"prospecting"; return s==="due_diligence" || s==="closing"; }).length;
   const capitalCountEl = document.getElementById("capitalCount");
   if(capitalCountEl){
-    const preClose = [...deals.values()].filter(d=>(d.stage||"prospecting")==="signed_psa_dd");
+    const preClose = [...deals.values()].filter(d=> CONTRACT_STAGES.has(d.stage||"prospecting"));
     const gapCount = preClose.filter(d=> debtDealTotals(d).gap>0 || equityDealTotals(d).gap>0).length;
     capitalCountEl.textContent = gapCount;
   }
@@ -3752,7 +3781,8 @@ function computeSuggestedTasks(){
 
   // DD checklist items overdue / due within a week, for deals actively in DD
   [...deals.entries()].forEach(([id,d])=>{
-    if((d.stage||"prospecting")!=="signed_psa_dd") return;
+    const ddStage = d.stage||"prospecting";
+    if(ddStage!=="due_diligence" && ddStage!=="closing") return;
     const name = d.name||d.address||"Untitled deal";
     const cache = checklistCache.get(id) || new Map();
     DD_ITEMS_FLAT.forEach(item=>{
@@ -3787,7 +3817,7 @@ function computeSuggestedTasks(){
         notes: d.icFlagNote ? `Flagged: ${d.icFlagNote}` : "Flagged for IC discussion.",
         priority:"high", dueDate:""});
     }
-    if(stage==="signed_psa_dd" && !d.icDecision){
+    if(CONTRACT_STAGES.has(stage) && !d.icDecision){
       const cache = criteriaCache.get(id) || new Map();
       const list = activeIcCriteria(d);
       const tbd = list.filter(c=> !cache.get(c.key) || cache.get(c.key).status==="tbd").length;
@@ -3948,11 +3978,27 @@ function stageHighlightFields(stageKey, d, extra){
         {label:"Earnest money", value: d.deposit1Amount?fmtMoneyShort(d.deposit1Amount):"—"},
       ];
       break;
-    case "signed_psa_dd":
+    case "signed_psa":
+      fields = [
+        {label:"DD end / inspection", value: nonRefDate, cls: nonRefCls},
+        {label:"Expected close", value: closeDate, cls: closeCls},
+        {label:"Earnest money", value: d.deposit1Amount?`${fmtMoneyShort(d.deposit1Amount)} · ${d.deposit1Status||"Not Due"}`:"—"},
+        {label:"Capital needed", value: capStr},
+      ];
+      break;
+    case "due_diligence":
       fields = [
         {label:"DD progress", value: `${complete}/${applicable} (${ddPct}%)`},
         {label:"Non-refundable date", value: nonRefDate, cls: nonRefCls},
         {label:"Expected close", value: closeDate, cls: closeCls},
+        {label:"Earnest money", value: d.deposit1Amount?`${fmtMoneyShort(d.deposit1Amount)} · ${d.deposit1Status||"Not Due"}`:"—"},
+      ];
+      break;
+    case "closing":
+      fields = [
+        {label:"Expected close", value: closeDate, cls: closeCls},
+        {label:"DD progress", value: `${complete}/${applicable} (${ddPct}%)`},
+        {label:"Capital needed", value: capStr},
         {label:"Earnest money", value: d.deposit1Amount?`${fmtMoneyShort(d.deposit1Amount)} · ${d.deposit1Status||"Not Due"}`:"—"},
       ];
       break;
@@ -4589,15 +4635,15 @@ function openAlertDetail(kind, list){
 }
 
 /* =================== dashboard: basics table (deals under contract) =================== */
-/* A single scannable row per in-contract deal (Signed PSA/DD) with the core facts leadership
-   asks for first — name, location, status, lot size, price, and the key dates — rather than
-   needing to open each deal to find them. */
+/* A single scannable row per in-contract deal (Signed PSA / Due Diligence / Closing) with the core
+   facts leadership asks for first — name, location, status, lot size, price, and the key dates —
+   rather than needing to open each deal to find them. */
 function basicsTableCardHtml(dealEntries){
   const rows = dealEntries.slice().sort((a,b)=> (a[1].name||a[1].address||"").localeCompare(b[1].name||b[1].address||""));
   if(!rows.length){
     return `<div class="dash-card basics-card" style="margin-bottom:16px;">
       <h4 class="section-label">Under contract — basics</h4>
-      <div class="empty-hint">No deals are under contract yet — this fills in once a deal reaches Signed PSA/DD.</div>
+      <div class="empty-hint">No deals are under contract yet — this fills in once a deal reaches Signed PSA.</div>
     </div>`;
   }
   const rowHtml = ([id,d])=>{
@@ -5133,7 +5179,7 @@ function renderDashboard(){
      "needed" once it's onboarded/closed (that capital's already been put to work). Onboarded
      deals are tracked as a progress signal elsewhere (Avg days to close, the closed-deals trend,
      the Onboarded row in By stage) rather than folded into a forward-looking funding number. */
-  const IN_CONTRACT_STAGES = new Set(["signed_psa_dd"]);
+  const IN_CONTRACT_STAGES = CONTRACT_STAGES;
   const inContractDeals = active.filter(d=> IN_CONTRACT_STAGES.has(d.stage||"prospecting"));
   const inContractEntries = activeEntries.filter(([id,d])=> IN_CONTRACT_STAGES.has(d.stage||"prospecting"));
   let totalDebt=0, totalEquity=0, inContractPricedCount=0;
@@ -5179,7 +5225,7 @@ function renderDashboard(){
   const funnelStages = [
     {key:"prospecting", label:"Prospecting", color:"stage1", count:funnelProspecting.length, capital: funnelProspecting.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
     {key:"loi", label:"LOI", color:"stage2", count:funnelLoi.length, capital: funnelLoi.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
-    {key:"psa", label:"Signed PSA/DD", color:"stage3", count:inContractDeals.length, capital: inContractDeals.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
+    {key:"psa", label:"Under Contract", color:"stage3", count:inContractDeals.length, capital: inContractDeals.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
     {key:"closed", label:"Closed", color:"closed", count:closedInPeriod.length, capital: closedCapitalPeriod, periodOnly:true},
   ];
   const prospectingEntries = activeEntries.filter(([id,d])=> (d.stage||"prospecting")==="prospecting");
@@ -5335,7 +5381,7 @@ function renderDashboard(){
     ${pageDividerHtml("Pipeline overview")}
     <div class="kpi-grid">
       <div class="kpi-tile"><span class="kpi-label">Active deals</span><span class="kpi-value">${active.length}</span><span class="kpi-sub">${filtered.length-active.length} dead / passed</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Purchase price · under contract</span><span class="kpi-value">${fmtMoneyShort(totalPrice)}</span><span class="kpi-sub">${inContractDeals.length} deal${inContractDeals.length===1?"":"s"} signed PSA/DD</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Purchase price · under contract</span><span class="kpi-value">${fmtMoneyShort(totalPrice)}</span><span class="kpi-sub">${inContractDeals.length} deal${inContractDeals.length===1?"":"s"} under contract</span></div>
       <div class="kpi-tile"><span class="kpi-label">Total capital needed</span><span class="kpi-value">${fmtMoneyShort(totalCapital)}</span><span class="kpi-sub">in contract + LOI w/ firm dates · ${capitalNeedDeals.filter(d=>calcCapitalStack(d)).length} priced deals</span></div>
       <div class="kpi-tile"><span class="kpi-label">Debt</span><span class="kpi-value">${fmtMoneyShort(totalDebt)}</span><span class="kpi-sub">in contract, pre-close · ${inContractPricedCount} deal${inContractPricedCount===1?"":"s"}</span></div>
       <div class="kpi-tile"><span class="kpi-label">Equity required</span><span class="kpi-value good">${fmtMoneyShort(totalEquity)}</span><span class="kpi-sub">in contract, pre-close · ${inContractPricedCount} deal${inContractPricedCount===1?"":"s"}</span></div>
@@ -5602,7 +5648,7 @@ function renderAgendaView(){
   const prospectingEntries = activeEntries.filter(([id,d])=> (d.stage||"prospecting")==="prospecting");
   const IN_MOTION_STAGES = new Set(["underwriting","submitted_loi","signed_loi"]);
   const inMotionEntries = activeEntries.filter(([id,d])=> IN_MOTION_STAGES.has(d.stage||"prospecting"));
-  const IN_CONTRACT_STAGES = new Set(["signed_psa_dd"]);
+  const IN_CONTRACT_STAGES = CONTRACT_STAGES;
   const inContractEntries = activeEntries.filter(([id,d])=> IN_CONTRACT_STAGES.has(d.stage||"prospecting"));
   const capNeedBuckets = bucketCapitalNeed(getCapitalNeedItems(deals), meetingDate);
 
@@ -5637,7 +5683,7 @@ function renderAgendaView(){
     },
     undercontract: {
       title: "Under contract — status check",
-      sub: "Signed PSA/DD — dates, DD progress, and financing gaps.",
+      sub: "Under contract — dates, DD progress, and financing gaps.",
       count: inContractEntries.length,
       body: basicsTableCardHtml(inContractEntries) + financingGapsCardHtml(inContractEntries),
     },
@@ -6253,13 +6299,13 @@ function capitalNeedCardHtml(buckets){
 
 /* =================== dashboard: deal-quality / screening-accuracy rollup =================== */
 /* Are our screening calls actually predicting which deals go on to close? Buckets each dimension's
-   *decided* deals (reached Signed PSA/DD or later = "converted", or Dead/Passed = "dead") into a
+   *decided* deals (reached Signed PSA or later = "converted", or Dead/Passed = "dead") into a
    conversion rate — deals still active with no outcome yet are shown as context but excluded from
    the rate itself, since their outcome isn't known. */
 function dealOutcomeBucket(d){
   const stage = d.stage || "prospecting";
   if(stage==="dead") return "dead";
-  if(stage==="signed_psa_dd" || stage==="onboarded") return "converted";
+  if(CONVERTED_STAGES.has(stage)) return "converted";
   return "pending";
 }
 function outcomeBreakdown(dealList, groupFn, order){
@@ -6336,7 +6382,7 @@ function passedDealsCardHtml(dealMap){
     .sort((a,b)=> (b.at||"").localeCompare(a.at||""));
   const convertedCount = [...dealMap.values()].filter(d=>{
     const s = d.stage||"prospecting";
-    return s==="signed_psa_dd" || s==="onboarded";
+    return CONVERTED_STAGES.has(s);
   }).length;
   const decided = passed.length + convertedCount;
   const rate = decided ? Math.round(convertedCount/decided*100) : null;
@@ -6473,7 +6519,7 @@ function openOnePagerModal(){
 
   let totalCapital=0;
   active.forEach(d=>{ const cap = calcCapitalStack(d); if(cap) totalCapital += cap.basis; });
-  const IN_CONTRACT_STAGES = new Set(["signed_psa_dd"]);
+  const IN_CONTRACT_STAGES = CONTRACT_STAGES;
   const inContractDeals = active.filter(d=> IN_CONTRACT_STAGES.has(d.stage||"prospecting"));
   let totalDebt=0, totalEquity=0;
   inContractDeals.forEach(d=>{ const cap = calcCapitalStack(d); if(cap){ totalDebt+=cap.debtAmount; totalEquity+=cap.equityAmount; } });
@@ -6538,7 +6584,7 @@ function buildDealGanttRow(id, d){
   const name = d.name || d.address || "Untitled deal";
   const stage = d.stage || "prospecting";
   const stageMeta = DEAL_STAGES.find(s=>s.key===stage) || DEAL_STAGES[0];
-  const keyByTitle = t => (DEAL_STAGES.find(s=>s.title===t)||{}).key || null;
+  const keyByTitle = t => (DEAL_STAGES.find(s=>s.title===t)||{}).key || LEGACY_STAGE_TITLES[t] || null;
   const stageEvents = activityLog
     .filter(a=> a.dealId===id && !a.created && Array.isArray(a.changes))
     .flatMap(a=> a.changes.filter(c=>c.field==="stage").map(c=>({at:a.at, from:c.from, to:c.to})))
@@ -6977,7 +7023,73 @@ function loadPdfJs(){
   });
   return pdfjsLoadPromise;
 }
-async function extractPdfText(file){
+/* Lazily loads Tesseract.js from cdnjs — only needed when a PDF has no embedded text layer at
+   all (a scanned/faxed document), which is the common case pdf.js alone can't handle. */
+let tesseractLoadPromise = null;
+function loadTesseractJs(){
+  if(tesseractLoadPromise) return tesseractLoadPromise;
+  const TESSERACT_VERSION = "7.0.0";
+  tesseractLoadPromise = new Promise((resolve, reject)=>{
+    if(window.Tesseract){ resolve(window.Tesseract); return; }
+    const s = document.createElement("script");
+    s.src = `https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/${TESSERACT_VERSION}/tesseract.min.js`;
+    s.onload = ()=> resolve(window.Tesseract);
+    s.onerror = ()=> reject(new Error("Couldn't load the OCR reader."));
+    document.head.appendChild(s);
+  });
+  return tesseractLoadPromise;
+}
+/* Lazily loads mammoth.js from cdnjs — reads the raw text out of a modern .docx file (the Open
+   XML format). Legacy binary .doc files aren't supported by mammoth or by anything else that can
+   run in a browser without a much heavier dependency, so those still need to be pasted manually. */
+let mammothLoadPromise = null;
+function loadMammoth(){
+  if(mammothLoadPromise) return mammothLoadPromise;
+  const MAMMOTH_VERSION = "1.12.2";
+  mammothLoadPromise = new Promise((resolve, reject)=>{
+    if(window.mammoth){ resolve(window.mammoth); return; }
+    const s = document.createElement("script");
+    s.src = `https://cdnjs.cloudflare.com/ajax/libs/mammoth/${MAMMOTH_VERSION}/mammoth.browser.min.js`;
+    s.onload = ()=> resolve(window.mammoth);
+    s.onerror = ()=> reject(new Error("Couldn't load the Word document reader."));
+    document.head.appendChild(s);
+  });
+  return mammothLoadPromise;
+}
+/* Renders each page of an already-opened pdf.js document to a canvas and runs it through
+   Tesseract OCR — used as a fallback when a PDF's text layer comes back essentially empty (a
+   scanned or faxed document, most commonly). Capped well below the plain-text-layer page cap
+   since OCR is slow (several seconds per page); onStatus lets the caller show progress since this
+   can take a while on a multi-page document. Never throws — a failure here just means the caller
+   falls back to its existing "couldn't find readable text" handling. */
+async function ocrPdfDocument(doc, onStatus){
+  try{
+    const Tesseract = await loadTesseractJs();
+    const maxOcrPages = Math.min(doc.numPages, 15);
+    let out = "";
+    for(let i=1;i<=maxOcrPages;i++){
+      if(onStatus) onStatus(`Running OCR on the scanned pages — page ${i} of ${maxOcrPages}…`);
+      const page = await doc.getPage(i);
+      const viewport = page.getViewport({scale: 2});
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const canvasContext = canvas.getContext("2d");
+      await page.render({canvasContext, viewport}).promise;
+      const { data } = await Tesseract.recognize(canvas, "eng");
+      out += (data && data.text ? data.text : "") + "\n\n";
+    }
+    return out.trim();
+  }catch(err){
+    console.error("OCR failed:", err);
+    return "";
+  }
+}
+/* onStatus(msg) is optional — callers that show a status line (OM extraction, Screen tab,
+   contract documents) pass one in so "running OCR" progress shows up somewhere, but it's fine to
+   omit. Returns "" (never throws for a text-layer miss) so every caller's existing "couldn't find
+   readable text" handling still works — OCR is just tried first now, silently, before giving up. */
+async function extractPdfText(file, onStatus){
   const pdfjsLib = await loadPdfJs();
   const buf = await file.arrayBuffer();
   const doc = await pdfjsLib.getDocument({data: buf}).promise;
@@ -6988,7 +7100,29 @@ async function extractPdfText(file){
     const content = await page.getTextContent();
     text += content.items.map(it=>it.str).join(" ") + "\n\n";
   }
-  return text.trim();
+  text = text.trim();
+  // A handful of stray characters (page numbers, a stamped date) rather than real body text
+  // still means no usable text layer — that's almost always a scanned/faxed document, so try OCR
+  // before giving up rather than immediately telling the user nothing was found.
+  if(text.length < 20){
+    const ocrText = await ocrPdfDocument(doc, onStatus);
+    if(ocrText) return ocrText;
+  }
+  return text;
+}
+/* Reads the raw text out of a .docx file via mammoth.js. Returns "" (never throws) on failure so
+   callers can fall through to their existing "couldn't read this file" handling, same as a PDF
+   with no text layer. */
+async function extractDocxText(file){
+  try{
+    const mammoth = await loadMammoth();
+    const buf = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({arrayBuffer: buf});
+    return (result && result.value) ? result.value.trim() : "";
+  }catch(err){
+    console.error("Docx extraction failed:", err);
+    return "";
+  }
 }
 
 async function handleOmFile(e){
@@ -6999,9 +7133,9 @@ async function handleOmFile(e){
   if(isPdf){
     omStatus(`Reading ${file.name}…`);
     try{
-      const text = await extractPdfText(file);
+      const text = await extractPdfText(file, msg=>omStatus(msg));
       if(!text){
-        omStatus(`Couldn't find readable text in ${file.name} (it may be a scanned image) — paste the key details instead.`, true);
+        omStatus(`Couldn't find readable text in ${file.name}, even after trying OCR (it may be a low-quality scan) — paste the key details instead.`, true);
         return;
       }
       document.getElementById("omPaste").value = text;
@@ -7283,9 +7417,9 @@ async function handleScreenOmFile(e){
   if(isPdf){
     screenStatus(`Reading ${file.name}…`);
     try{
-      const text = await extractPdfText(file);
+      const text = await extractPdfText(file, msg=>screenStatus(msg));
       if(!text){
-        screenStatus(`Couldn't find readable text in ${file.name} (it may be a scanned image) — paste the key details instead.`, true);
+        screenStatus(`Couldn't find readable text in ${file.name}, even after trying OCR (it may be a low-quality scan) — paste the key details instead.`, true);
         return;
       }
       document.getElementById("screenOmPaste").value = text;
@@ -7794,6 +7928,24 @@ function openDealDetail(id){
         <div class="deal-location-map-wrap" id="dealLocationMapWrap"></div>
 
         <div>
+          <h4 class="section-label">Quick update</h4>
+          <div class="quick-update-box">
+            <textarea id="quickUpdateText" class="quick-update-textarea" placeholder="Describe what changed, in plain language — e.g. &quot;We signed the amendment: $100k deposit due tomorrow, closing pushed to December 15&quot;…"></textarea>
+            <div class="model-file-attach-area">
+              <button type="button" class="btn" id="quickUpdateApplyBtn">Apply update</button>
+              <span class="model-file-status" id="quickUpdateStatus"></span>
+            </div>
+          </div>
+          <h4 class="section-label" style="margin-top:14px;">Contract documents</h4>
+          <div class="contract-docs-list" id="contractDocsList"></div>
+          <div class="model-file-attach-area">
+            <label class="model-file-label">📎 Upload PSA / LOI / amendment<input type="file" id="contractDocInput" accept=".pdf,.docx,.txt,.md"></label>
+            <span class="model-file-status" id="contractDocStatus"></span>
+          </div>
+          <div id="contractExtractReviewWrap"></div>
+        </div>
+
+        <div>
           <h4 class="section-label">Deal overview</h4>
           <div class="overview-grid" id="overviewGrid"></div>
           <div class="deal-fields" style="margin-top:10px;">
@@ -8083,16 +8235,6 @@ function openDealDetail(id){
         </div>
 
         <div>
-          <h4 class="section-label">Contract documents</h4>
-          <div class="contract-docs-list" id="contractDocsList"></div>
-          <div class="model-file-attach-area">
-            <label class="model-file-label">📎 Upload PSA / LOI / amendment<input type="file" id="contractDocInput" accept=".pdf,.txt,.md"></label>
-            <span class="model-file-status" id="contractDocStatus"></span>
-          </div>
-          <div id="contractExtractReviewWrap"></div>
-        </div>
-
-        <div>
           <h4 class="section-label">Deposits</h4>
           <div class="deal-fields">
             <div class="field-row">
@@ -8354,6 +8496,7 @@ function openDealDetail(id){
     e.target.value = "";
     if(f) handleContractDocUpload(id, f, document.getElementById("contractDocStatus"));
   });
+  document.getElementById("quickUpdateApplyBtn").addEventListener("click", ()=> handleQuickUpdate(id));
   refreshDemoPreview();
 
   function refreshDemoPreview(){
@@ -9633,7 +9776,7 @@ function renderDDSection(){
     wrap.innerHTML = `<div class="locked-panel">
       <div class="lock-icon">🔒</div>
       <div><strong>Checklist locked</strong></div>
-      <div>The standard due diligence process unlocks once this deal moves to <strong>Under Contract</strong>.</div>
+      <div>The standard due diligence process unlocks once this deal reaches <strong>In Due Diligence</strong>.</div>
     </div>`;
     return;
   }
@@ -9670,7 +9813,7 @@ function renderDDWorkSection(){
     wrap.innerHTML = `<div class="locked-panel">
       <div class="lock-icon">🔒</div>
       <div><strong>Checklist locked</strong></div>
-      <div>The work behind due diligence unlocks once this deal moves to <strong>Under Contract</strong>.</div>
+      <div>The work behind due diligence unlocks once this deal reaches <strong>In Due Diligence</strong>.</div>
     </div>`;
     return;
   }
@@ -9793,14 +9936,14 @@ function renderDdTasksView(){
   const wrap = document.getElementById("ddTasksWrap");
   if(!wrap) return;
   const q = (document.getElementById("searchInput").value||"").trim().toLowerCase();
-  let list = [...deals.entries()].filter(([id,d])=> (d.stage||"prospecting")==="signed_psa_dd");
+  let list = [...deals.entries()].filter(([id,d])=> ["due_diligence","closing"].includes(d.stage||"prospecting"));
   reconcileDdTasksSubs(list);
   if(q){ list = list.filter(([id,d])=> matchesFilter([d.name,d.address].join(" ")||"", q)); }
   list.sort((a,b)=> (a[1].name||"").localeCompare(b[1].name||""));
 
   wrap.innerHTML = "";
   if(!list.length){
-    wrap.innerHTML = `<div class="stage-empty-line" style="padding:26px 4px;">No projects are in due diligence yet — this checklist unlocks once a deal reaches <strong>Signed PSA/DD</strong>, and drops off once the deal closes.</div>`;
+    wrap.innerHTML = `<div class="stage-empty-line" style="padding:26px 4px;">No projects are in due diligence yet — this checklist unlocks once a deal reaches <strong>In Due Diligence</strong>, and drops off once the deal closes.</div>`;
     return;
   }
   const toolbar = document.createElement("div");
@@ -9938,7 +10081,7 @@ function renderDebtView(){
   const wrap = document.getElementById("debtWrap");
   if(!wrap) return;
   const all = [...deals.entries()];
-  const preClose = all.filter(([id,d])=> (d.stage||"prospecting")==="signed_psa_dd");
+  const preClose = all.filter(([id,d])=> CONTRACT_STAGES.has(d.stage||"prospecting"));
   const closed = all.filter(([id,d])=> (d.stage||"prospecting")==="onboarded");
   preClose.sort((a,b)=> debtDealTotals(b[1]).gap - debtDealTotals(a[1]).gap);
   closed.sort((a,b)=> (b[1].actualCloseDate||"").localeCompare(a[1].actualCloseDate||""));
@@ -9959,7 +10102,7 @@ function renderDebtView(){
       <div class="kpi-tile"><span class="kpi-label">Gap</span><span class="kpi-value${gapTotal>0?" bad":""}">${fmtMoneyShort(gapTotal)}</span><span class="kpi-sub">${gapTotal>0?"not yet covered by a lender":"fully covered"}</span></div>
       <div class="kpi-tile"><span class="kpi-label">No sources yet</span><span class="kpi-value">${noSourcesCount}</span><span class="kpi-sub">of ${preClose.length} deal${preClose.length===1?"":"s"}</span></div>
     </div>
-    ${preClose.length ? preClose.map(([id,d])=>debtDealCardHtml(id,d)).join("") : `<div class="empty-hint">No deals are under contract yet — this fills in once a deal reaches Signed PSA/DD.</div>`}
+    ${preClose.length ? preClose.map(([id,d])=>debtDealCardHtml(id,d)).join("") : `<div class="empty-hint">No deals are under contract yet — this fills in once a deal reaches Signed PSA.</div>`}
     ${closed.length ? `<details class="weekly-group" style="margin-top:16px;">
       <summary>Closed / funded<span class="weekly-group-count">${closed.length}</span></summary>
       <div style="padding:10px 13px;">${closed.map(([id,d])=>debtDealCardHtml(id,d)).join("")}</div>
@@ -10056,7 +10199,7 @@ function renderEquityView(){
   const wrap = document.getElementById("equityWrap");
   if(!wrap) return;
   const all = [...deals.entries()];
-  const preClose = all.filter(([id,d])=> (d.stage||"prospecting")==="signed_psa_dd");
+  const preClose = all.filter(([id,d])=> CONTRACT_STAGES.has(d.stage||"prospecting"));
   const closed = all.filter(([id,d])=> (d.stage||"prospecting")==="onboarded");
   preClose.sort((a,b)=> equityDealTotals(b[1]).gap - equityDealTotals(a[1]).gap);
   closed.sort((a,b)=> (b[1].actualCloseDate||"").localeCompare(a[1].actualCloseDate||""));
@@ -10078,7 +10221,7 @@ function renderEquityView(){
       <div class="kpi-tile"><span class="kpi-label">Gap</span><span class="kpi-value${gapTotal>0?" bad":""}">${fmtMoneyShort(gapTotal)}</span><span class="kpi-sub">${gapTotal>0?"not yet covered":"fully covered"}</span></div>
       <div class="kpi-tile"><span class="kpi-label">No sources yet</span><span class="kpi-value">${noSourcesCount}</span><span class="kpi-sub">of ${preClose.length} deal${preClose.length===1?"":"s"}</span></div>
     </div>
-    ${preClose.length ? preClose.map(([id,d])=>equityDealCardHtml(id,d)).join("") : `<div class="empty-hint">No deals are under contract yet — this fills in once a deal reaches Signed PSA/DD.</div>`}
+    ${preClose.length ? preClose.map(([id,d])=>equityDealCardHtml(id,d)).join("") : `<div class="empty-hint">No deals are under contract yet — this fills in once a deal reaches Signed PSA.</div>`}
     ${closed.length ? `<details class="weekly-group" style="margin-top:16px;">
       <summary>Closed / funded<span class="weekly-group-count">${closed.length}</span></summary>
       <div style="padding:10px 13px;">${closed.map(([id,d])=>equityDealCardHtml(id,d)).join("")}</div>
@@ -10709,9 +10852,11 @@ function contractFieldDisplay(kind, v){
   return String(v);
 }
 
-const CONTRACT_EXTRACT_PROMPT = (ctx)=> `You are a real estate acquisitions analyst at Newgard Development Group. You've been given the extracted text of a contract document — a Purchase & Sale Agreement (PSA), a Letter of Intent (LOI), or an amendment to either one — for a deal already in the pipeline. Pull out whatever deal terms it actually states so the pipeline entry can be updated automatically instead of someone re-typing what they just read.
+const CONTRACT_EXTRACT_PROMPT = (ctx)=> `You are a real estate acquisitions analyst at Newgard Development Group. You've been given either (a) the extracted text of a contract document — a Purchase & Sale Agreement (PSA), a Letter of Intent (LOI), or an amendment to either one — or (b) a short freeform note someone on the team typed describing a deal update (e.g. "signed the amendment, $100k deposit due tomorrow, closing pushed to Dec 15"), for a deal already in the pipeline. Pull out whatever deal terms it actually states so the pipeline entry can be updated automatically instead of someone re-typing what they just read or said.
 
-KNOWN DEAL FIELDS (already on file — the CURRENT values). Only return a key below if THIS document explicitly states a value for it — whether that's the original terms or a change from these current values. If the document doesn't mention a field at all, omit that key (or use null) — never guess, never restate a current value just to fill the key in, and never invent a number or date:
+TODAY'S DATE: ${ctx.today}. Resolve any relative date ("due tomorrow", "in 30 days", "next Friday", or a month/day with no year like "December 15") against this — assume the nearest upcoming occurrence of a bare month/day rather than a date in the past.
+
+KNOWN DEAL FIELDS (already on file — the CURRENT values). Only return a key below if THIS text explicitly states a value for it — whether that's the original terms or a change from these current values. If the text doesn't mention a field at all, omit that key (or use null) — never guess, never restate a current value just to fill the key in, and never invent a number or date:
 - Project name: ${ctx.name || "(not given)"}
 - Address: ${ctx.address || "(not given)"}
 - Current PSA status: ${ctx.psaStatus || "Not Started"}
@@ -10725,14 +10870,14 @@ KNOWN DEAL FIELDS (already on file — the CURRENT values). Only return a key be
 - Current 2nd deposit: ${ctx.deposit2Amount != null ? fmtMoneyShort(ctx.deposit2Amount) : "(not set)"}, due ${ctx.deposit2Date || "(not set)"}, status ${ctx.deposit2Status || "Not Due"}
 - Other deposits already on file: ${ctx.extraDepositLabels && ctx.extraDepositLabels.length ? ctx.extraDepositLabels.join("; ") : "(none)"}
 
-DOCUMENT TEXT (mechanically extracted — may include OCR/layout noise; use your judgment):
+SOURCE TEXT (either mechanically extracted from a document — may include OCR/layout noise — or a short note someone typed directly; use your judgment either way):
 """
 ${ctx.text}
 """
 
 Return ONLY a JSON object with exactly these keys:
-- "docType": your best guess at what this document is — one of "PSA", "LOI", "Amendment", "Other"
-- "docSummary": one short plain sentence describing this specific document, for someone scanning a list of uploaded files (e.g. "Executed PSA dated 10/27/25" or "First amendment extending the site plan approval date to 5/4/2026")
+- "docType": your best guess at what this is — one of "PSA", "LOI", "Amendment", "Other" (use "Other" for a freeform update note that isn't itself a contract document)
+- "docSummary": one short plain sentence describing this specific document or update, for someone scanning a list of uploaded files (e.g. "Executed PSA dated 10/27/25", "First amendment extending the site plan approval date to 5/4/2026", or "Update: $100k deposit due, closing moved to 12/15/26")
 - "psaStatus": one of ${JSON.stringify(PSA_STATUS_OPTIONS)}, only if this document makes the status clear and it's different from "Current PSA status" above — otherwise null
 - "purchasePrice": numeric dollars, no symbols/commas, or null
 - "lotSizeAcres": numeric acres (convert from square feet by dividing by 43560 if that's what's given), or null
@@ -10749,13 +10894,16 @@ Return ONLY a JSON object with exactly these keys:
 - "extraDeposits": an array of any OTHER deposits this document describes beyond the first/second above (e.g. an extension deposit) that aren't already among "Other deposits already on file" — each as {"label": short description, "amount": numeric dollars, "date": ISO date or "", "status": one of ${JSON.stringify(DEPOSIT_STATUS_OPTIONS)}}. Empty array if none.
 - "notesAddition": 2-5 sentences of plain-language, non-numeric context worth recording in the deal's notes — seller name, escrow/title company, commission structure and who pays it, intended use, or any other condition worth a human knowing about. Empty string if this document adds nothing new here.
 
-If this text doesn't look like a real estate contract at all, still return this exact JSON shape with every field null/empty and "docType":"Other".`;
+If this text doesn't describe any real estate deal terms at all (neither a contract nor an update note), still return this exact JSON shape with every field null/empty and "docType":"Other".`;
 
 /* Reads plain text out of an uploaded contract file the same way OM/listing extraction already
-   does (extractPdfText/loadPdfJs, defined above) — PDF via pdf.js, .txt/.md read directly. */
-async function extractContractDocText(file){
+   does (extractPdfText/loadPdfJs, defined above) — PDF via pdf.js (falling back to OCR for a
+   scanned document with no text layer), .docx via mammoth.js, .txt/.md read directly. */
+async function extractContractDocText(file, onStatus){
   const isPdf = /\.pdf$/i.test(file.name) || (file.type||"")==="application/pdf";
-  if(isPdf) return await extractPdfText(file);
+  const isDocx = /\.docx$/i.test(file.name) || (file.type||"")==="application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if(isPdf) return await extractPdfText(file, onStatus);
+  if(isDocx) return await extractDocxText(file);
   return (await file.text()) || "";
 }
 
@@ -10768,8 +10916,8 @@ function contractDocStatus(msg, isWarn){
 
 async function handleContractDocUpload(dealId, file, statusEl){
   if(!sb){ contractDocStatus("File storage isn't connected.", true); return; }
-  if(!/\.(pdf|txt|md)$/i.test(file.name)){
-    contractDocStatus("Only .pdf, .txt, or .md files are supported right now — open it and paste the key terms into Notes instead.", true);
+  if(!/\.(pdf|txt|md|docx)$/i.test(file.name)){
+    contractDocStatus("Only .pdf, .docx, .txt, or .md files are supported right now — open it and paste the key terms into Notes instead.", true);
     return;
   }
   if(file.size > 50*1024*1024){
@@ -10795,9 +10943,9 @@ async function handleContractDocUpload(dealId, file, statusEl){
   renderContractDocsList();
   try{
     contractDocStatus("Reading " + file.name + "…");
-    const text = await extractContractDocText(file);
+    const text = await extractContractDocText(file, msg=>contractDocStatus(msg));
     if(!text || !text.trim()){
-      contractDocStatus("Uploaded, but couldn't find readable text in " + file.name + " (it may be a scanned image) — paste the key terms into Notes instead.", true);
+      contractDocStatus("Uploaded, but couldn't find readable text in " + file.name + " — " + (/\.pdf$/i.test(file.name) ? "even after trying OCR (it may be a low-quality scan)" : "paste the key terms into Notes instead") + ".", true);
       return;
     }
     await runContractExtraction(dealId, docIndex, text);
@@ -10823,12 +10971,12 @@ async function rerunContractDocExtraction(dealId, docIndex){
     if(!res.ok) throw new Error("HTTP "+res.status);
     const blob = await res.blob();
     const file = new File([blob], doc.name, {type: blob.type});
-    const text = await extractContractDocText(file);
+    contractDocStatus("Reading " + doc.name + "…");
+    const text = await extractContractDocText(file, msg=>contractDocStatus(msg));
     if(!text || !text.trim()){
-      contractDocStatus("Couldn't find readable text in " + doc.name + ".", true);
+      contractDocStatus("Couldn't find readable text in " + doc.name + (/\.pdf$/i.test(doc.name) ? ", even after trying OCR." : "."), true);
       return;
     }
-    contractDocStatus("Reading " + doc.name + "…");
     await runContractExtraction(dealId, docIndex, text);
   }catch(err){
     console.error("Re-run contract extraction failed:", err);
@@ -10837,9 +10985,38 @@ async function rerunContractDocExtraction(dealId, docIndex){
   renderContractDocsList();
 }
 
+function quickUpdateStatus(msg, isWarn){
+  const el = document.getElementById("quickUpdateStatus");
+  if(!el) return;
+  el.textContent = msg||"";
+  el.classList.toggle("warn", !!isWarn);
+}
+
+/* The "Quick update" box: same AI extraction + review pipeline as an uploaded contract document
+   (runContractExtraction below), just fed typed text directly instead of text pulled from a file
+   — there's no document to add to the Contract documents list, so docIndex is null throughout. */
+async function handleQuickUpdate(dealId){
+  const ta = document.getElementById("quickUpdateText");
+  const text = (ta.value||"").trim();
+  if(!text){ quickUpdateStatus("Type an update first.", true); return; }
+  const btn = document.getElementById("quickUpdateApplyBtn");
+  btn.disabled = true;
+  quickUpdateStatus("Reading your update…");
+  try{
+    await runContractExtraction(dealId, null, text, "your update", quickUpdateStatus);
+    if(pendingContractExtraction) ta.value = "";
+  }catch(err){
+    console.error("Quick update extraction failed:", err);
+    quickUpdateStatus("Couldn't read that" + (err && err.detail ? " — "+err.detail : "") + " — try rephrasing, or fill the fields in manually.", true);
+  }finally{
+    btn.disabled = false;
+  }
+}
+
 let pendingContractExtraction = null; // {dealId, docIndex, result, diffs, notesAddition}
 
-async function runContractExtraction(dealId, docIndex, text){
+async function runContractExtraction(dealId, docIndex, text, docNameOverride, statusFn){
+  statusFn = statusFn || contractDocStatus;
   const d = deals.get(dealId) || {};
   const ctx = {
     name: d.name, address: d.address, psaStatus: d.psaStatus,
@@ -10849,20 +11026,24 @@ async function runContractExtraction(dealId, docIndex, text){
     deposit1Amount: d.deposit1Amount, deposit1Date: d.deposit1Date, deposit1Status: d.deposit1Status,
     deposit2Amount: d.deposit2Amount, deposit2Date: d.deposit2Date, deposit2Status: d.deposit2Status,
     extraDepositLabels: (d.extraDeposits||[]).map(dep=> dep.label).filter(Boolean),
+    today: new Date().toISOString().slice(0,10),
     text: text.slice(0, 24000),
   };
   const result = await sampleApi.json(CONTRACT_EXTRACT_PROMPT(ctx), {modelTier:"default"});
   if(!result || typeof result !== "object") throw new Error("Unexpected response shape");
 
-  // Record what this document is, regardless of whether it turns up any field changes.
+  // Record what this document is, regardless of whether it turns up any field changes. Only
+  // applies when this came from an actual uploaded file (docIndex!=null) — a quick-update note
+  // typed directly has no contractDocs entry of its own to annotate.
   const docs = (deals.get(dealId)||{}).contractDocs ? (deals.get(dealId).contractDocs).slice() : [];
-  if(docs[docIndex]){
+  if(docIndex!=null && docs[docIndex]){
     docs[docIndex] = Object.assign({}, docs[docIndex], {
       docType: (result.docType && CONTRACT_DOCTYPE_META[result.docType]) ? result.docType : "Other",
       docSummary: result.docSummary || "",
     });
     await updateDeal(dealId, {contractDocs: docs});
   }
+  const docName = (docIndex!=null && docs[docIndex]) ? docs[docIndex].name : (docNameOverride || "this document");
 
   const diffs = [];
   Object.keys(CONTRACT_FIELD_LABELS).forEach(key=>{
@@ -10878,12 +11059,12 @@ async function runContractExtraction(dealId, docIndex, text){
 
   if(!diffs.length && !extraDepositsNew.length && !notesAddition){
     pendingContractExtraction = null;
-    contractDocStatus("Read " + (docs[docIndex]?docs[docIndex].name:"the document") + " — nothing new found to apply (terms already match what's on file).");
+    statusFn("Read " + docName + " — nothing new found to apply (terms already match what's on file).");
     renderContractExtractReview();
     return;
   }
-  pendingContractExtraction = {dealId, docIndex, diffs, extraDepositsNew, notesAddition, docName: docs[docIndex]?docs[docIndex].name:"this document"};
-  contractDocStatus("");
+  pendingContractExtraction = {dealId, docIndex, diffs, extraDepositsNew, notesAddition, docName};
+  statusFn("");
   renderContractExtractReview();
 }
 
@@ -10894,7 +11075,7 @@ function renderContractExtractReview(){
   if(!p || p.dealId !== openDealId){ wrap.innerHTML = ""; return; }
   wrap.innerHTML = `
     <div class="contract-extract-review">
-      <div class="contract-extract-review-head">Found in "${escapeHtml(p.docName)}" — review before applying:</div>
+      <div class="contract-extract-review-head">${p.docIndex!=null ? `Found in "${escapeHtml(p.docName)}"` : `Found in ${escapeHtml(p.docName)}`} — review before applying:</div>
       <div class="contract-extract-review-rows">
         ${p.diffs.map((diff,i)=>`
           <label class="contract-extract-review-row">
@@ -11184,18 +11365,22 @@ function openConfirm(message, onConfirm, confirmLabel, onCancel){
   document.getElementById("confirmYes").addEventListener("click", ()=>{ close(); onConfirm(); });
 }
 
-/* Gate for moving a deal INTO Onboarded — the point where a project stops being merely
+/* Gate for moving a deal INTO Signed PSA or Onboarded — the two points in the flow chart where a
+   project commits to something binding: Signed PSA is where the IC gate (G3, Go-Hard) is supposed
+   to sit before a PSA gets executed, and Onboarded is where a project stops being merely
    underwritten/negotiated and becomes a committed, resourced project. If there's no recorded
    Go decision from the Investment Criteria / Go-No-Go panel, this asks for confirmation
-   instead of silently onboarding an unreviewed deal. `apply` runs on confirm (or immediately
+   instead of silently advancing an unreviewed deal. `apply` runs on confirm (or immediately
    if no gate applies); `cancel` runs only if the user backs out, so callers can reset any
    UI (e.g. a <select>) that already changed visually. */
 function confirmStageChange(d, newStage, apply, cancel){
-  if(newStage==="onboarded" && (d.icDecision||"")!=="go"){
+  const GATE_STAGES = new Set(["signed_psa","onboarded"]);
+  if(GATE_STAGES.has(newStage) && (d.icDecision||"")!=="go"){
     const cur = IC_DECISION_META[d.icDecision||""] || IC_DECISION_META[""];
+    const stageTitle = (DEAL_STAGES.find(s=>s.key===newStage)||{}).title || newStage;
     openConfirm(
-      `This deal doesn't have a recorded <strong>Go</strong> decision (currently: ${escapeHtml(cur.label)}). Move to <strong>Onboarded</strong> anyway?`,
-      apply, "Move to Onboarded anyway", cancel
+      `This deal doesn't have a recorded <strong>Go</strong> decision (currently: ${escapeHtml(cur.label)}). Move to <strong>${escapeHtml(stageTitle)}</strong> anyway?`,
+      apply, `Move to ${escapeHtml(stageTitle)} anyway`, cancel
     );
   } else {
     apply();
