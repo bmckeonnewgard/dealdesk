@@ -5274,7 +5274,9 @@ function renderDashboard(){
       <div class="upcoming-list" id="upcomingList"></div>
     </div>
     ${pageDividerHtml("Activity")}
-    ${weeklySummaryCardHtml()}`;
+    ${weeklySummaryCardHtml()}
+    ${pageDividerHtml("Hit rate")}
+    ${passedDealsCardHtml(dashboardDealsFiltered)}`;
   renderPipelineMap(byState, byMarket);
   const pipelineMapModeToggle = document.getElementById("pipelineMapModeToggle");
   if(pipelineMapModeToggle) pipelineMapModeToggle.querySelectorAll("button").forEach(btn=>{
@@ -6182,6 +6184,53 @@ function dealQualityCardHtml(dealMap){
       <div class="quality-group-title">By meets-target-criteria</div>
       ${targetRows.map(g=>qualityRowHtml(g.key==="yes"?"Meets target criteria":"Doesn't meet target criteria", g)).join("")}
     </div>` : ""}
+  </div>`;
+}
+
+/* =================== dashboard: passed deals & hit rate =================== */
+/* How many deals have been marked Dead/Passed, when, and what share of *decided* deals (passed +
+   actually signed/closed) that represents — the same converted-vs-dead split dealQualityCardHtml
+   already computes above, just as one overall number plus the actual list of passed deals, since
+   "how many and when" was the ask, not another breakdown by decision/recommendation. Pass dates
+   come from the stage-change activity log (see logDealActivity) — the same source
+   buildDealGanttRow already relies on for its per-deal timeline — falling back to the deal's
+   last-updated timestamp for a deal that predates activity logging, and to its created date if
+   even that's missing, so nothing shows up dateless just because it's old. */
+function dealPassedAt(id, d){
+  const hit = activityLog.find(a=> a.dealId===id && !a.created && Array.isArray(a.changes)
+    && a.changes.some(c=>c.field==="stage" && c.to==="Dead / Passed"));
+  return (hit && hit.at) || d.updatedAt || d.createdAt || null;
+}
+function passedDealsCardHtml(dealMap){
+  const passed = [...dealMap.entries()]
+    .filter(([id,d])=> (d.stage||"prospecting")==="dead")
+    .map(([id,d])=> ({id, d, at: dealPassedAt(id,d)}))
+    .sort((a,b)=> (b.at||"").localeCompare(a.at||""));
+  const convertedCount = [...dealMap.values()].filter(d=>{
+    const s = d.stage||"prospecting";
+    return s==="signed_psa_dd" || s==="onboarded";
+  }).length;
+  const decided = passed.length + convertedCount;
+  const rate = decided ? Math.round(convertedCount/decided*100) : null;
+  const now = Date.now();
+  const last30 = passed.filter(p=> p.at && now-new Date(p.at).getTime() <= 30*86400000).length;
+  const last90 = passed.filter(p=> p.at && now-new Date(p.at).getTime() <= 90*86400000).length;
+  const rowsHtml = passed.length ? passed.slice(0,50).map(({id,d,at})=>{
+    const bits = [dealMarketLabel(d), d.purchasePrice ? fmtMoneyShort(d.purchasePrice) : ""].filter(Boolean).join(" · ");
+    return `<div class="weekly-row" data-deal="${escapeAttr(id)}">
+      <span class="weekly-row-name">${escapeHtml(d.name||d.address||"Untitled deal")}</span>
+      <span class="weekly-row-text">${escapeHtml(bits)}</span>
+      <span class="weekly-row-meta">${at ? fmtDate(at.slice(0,10)) : "—"}</span>
+    </div>`;
+  }).join("") : "";
+  return `<div class="dash-card" style="margin-top:16px;">
+    <h4 class="section-label">Passed deals &amp; hit rate</h4>
+    <div class="kpi-grid" style="margin-bottom:14px;">
+      <div class="kpi-tile"><span class="kpi-label">Passed / dead</span><span class="kpi-value">${passed.length}</span><span class="kpi-sub">${last30} in last 30 days · ${last90} in last 90</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Signed / closed</span><span class="kpi-value good">${convertedCount}</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Hit rate</span><span class="kpi-value">${rate!==null?rate+"%":"—"}</span><span class="kpi-sub">${decided} decided deal${decided===1?"":"s"} so far</span></div>
+    </div>
+    ${passed.length ? `<div class="weekly-group">${rowsHtml}</div>` : `<div class="empty-hint">No deals have been marked Dead / Passed yet.</div>`}
   </div>`;
 }
 
