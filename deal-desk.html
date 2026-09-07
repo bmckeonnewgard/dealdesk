@@ -37,6 +37,7 @@
     --font-body:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;
     --font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
     --radius:10px;
+    --slideover-w:720px;
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
@@ -680,10 +681,20 @@
   /* ---------- slideover (deal detail) ---------- */
   .slide-overlay{ position:fixed; inset:0; background:rgba(16,22,29,.42); z-index:90; }
   .slideover{
-    position:fixed; top:0; right:0; bottom:0; width:min(560px,100%); background:var(--surface);
+    position:fixed; top:0; right:0; bottom:0; width:min(var(--slideover-w,720px),96vw); background:var(--surface);
     box-shadow:-18px 0 40px -20px rgba(0,0,0,.35); z-index:91; display:flex; flex-direction:column;
     border-left:1px solid var(--border);
   }
+  /* Drag handle on the panel's left edge so the analyst can widen or narrow it to taste — the
+     width lives in --slideover-w (see slideoverWidth/initSlideResizeHandle in the script), and
+     is remembered per browser like the pipeline density and theme prefs. Hidden on narrow
+     viewports, where the panel is already effectively full-width and there's no room to drag. */
+  .slide-resize-handle{ position:absolute; left:-6px; top:0; bottom:0; width:12px; cursor:col-resize; z-index:92; touch-action:none; }
+  .slide-resize-handle::after{ content:""; position:absolute; left:5px; top:0; bottom:0; width:2px; background:transparent; transition:background .12s; }
+  .slide-resize-handle:hover::after, .slide-resize-handle.dragging::after{ background:var(--brass); }
+  body.slide-resizing{ cursor:col-resize !important; user-select:none; }
+  body.slide-resizing .slide-overlay{ pointer-events:none; }
+  @media (max-width:760px){ .slide-resize-handle{ display:none; } }
   .slide-head{ padding:20px 22px 14px; border-bottom:1px solid var(--border); }
   .slide-head-top{ display:flex; align-items:flex-start; gap:10px; }
   .slide-title-input{
@@ -2603,6 +2614,18 @@ let calendarRangeMonths = (()=>{
 })();
 let dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:"", modelStatus:"", zoningStatus:"", demoStatus:"", openQuestions:""};
 let pipelineDensity = (()=>{ try{ return localStorage.getItem("dealdesk_pipeline_density")||"compact"; }catch(e){ return "compact"; } })();
+/* Deal-detail slideover width — adjustable by dragging the handle on its left edge (see
+   initSlideResizeHandle, wired inside openDealDetail), remembered per browser like the density
+   and theme prefs above. Lives in a CSS variable on :root rather than the panel's own inline
+   style, so it survives openDealDetail rebuilding the panel's markup from scratch on every open. */
+let slideoverWidth = (()=>{
+  try{ const v = Number(localStorage.getItem("dealdesk_slideover_width")); return (v>=420 && v<=1400) ? v : 720; }
+  catch(e){ return 720; }
+})();
+function applySlideoverWidth(){
+  document.documentElement.style.setProperty("--slideover-w", slideoverWidth+"px");
+}
+applySlideoverWidth();
 /* Light / dark / system theme toggle. "system" (the default) sets no data-theme attribute at
    all, so the existing prefers-color-scheme CSS keeps deciding automatically; "light"/"dark"
    pin the :root[data-theme] override defined at the top of the stylesheet. Remembered per
@@ -3222,7 +3245,7 @@ async function boot(){
       renderBoard(); renderCounts();
       if(view==="brokers") renderBrokersView();
       if(openBrokerId) renderBrokerModalContent();
-      if(openDealId){ renderDDSection(); renderUwTiles(deals.get(openDealId)); renderCapTiles(deals.get(openDealId)); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderModelFileSection(); renderContractDocsList(); }
+      if(openDealId){ renderDDSection(); renderUwTiles(deals.get(openDealId)); renderCapTiles(deals.get(openDealId)); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderModelFileSection(); renderContractDocsList(); refreshSiteCondPreview(); }
     }, ()=>{});
     db.doc("settings/categories").onSnapshot(snap=>{
       const data = snap.data();
@@ -3357,7 +3380,7 @@ async function createDeal(data){
 }
 async function updateDeal(id, data){
   if(db){ logDealActivity(id, deals.get(id), data); await db.doc("deals/"+id).update(data); }
-  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDSection(); renderUwTiles(deals.get(id)); renderCapTiles(deals.get(id)); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderModelFileSection(); renderContractDocsList(); } }
+  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDSection(); renderUwTiles(deals.get(id)); renderCapTiles(deals.get(id)); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderModelFileSection(); renderContractDocsList(); refreshSiteCondPreview(); } }
 }
 async function deleteDeal(id){
   if(db){ await db.doc("deals/"+id).delete(); }
@@ -4873,6 +4896,11 @@ function openIcMemoModal(id){
         </div>
 
         ${mediaGridHtml}
+
+        <div>
+          <h4 class="section-label">Site conditions</h4>
+          ${siteConditionsPanelHtml(d)}
+        </div>
 
         <div>
           <h4 class="section-label">Financial model ${modelIsFull ? `<span class="pill pill-neutral" style="font-size:10px;vertical-align:middle;">Full model</span>` : `<span class="pill pill-neutral" style="font-size:10px;vertical-align:middle;">Back-of-envelope</span>`}</h4>
@@ -7512,6 +7540,50 @@ function setSlideTab(tab){
   boeBtn.setAttribute("aria-selected", tab==="boe");
 }
 
+/* Drag-to-resize for the deal detail slideover's left edge. Re-wired every time openDealDetail
+   runs (it rebuilds the panel's markup from scratch each open, so any listener bound to the old
+   handle element is already gone) — each drag/touch session adds its own move/end listeners and
+   tears them down on release, so nothing accumulates across repeated opens. The width itself is
+   read from and written back to the module-level slideoverWidth/--slideover-w (see above), not
+   fixed here, so it's already correct the instant this panel opens. */
+function initSlideResizeHandle(){
+  const handle = document.getElementById("slideResizeHandle");
+  if(!handle) return;
+  const MIN_W = 420;
+  const maxW = ()=> Math.min(1400, Math.round(window.innerWidth*0.96));
+  function beginResize(startX, startWidth){
+    document.body.classList.add("slide-resizing");
+    handle.classList.add("dragging");
+    function move(clientX){
+      const w = Math.min(maxW(), Math.max(MIN_W, startWidth + (startX - clientX)));
+      document.documentElement.style.setProperty("--slideover-w", w+"px");
+    }
+    function onMouseMove(e){ move(e.clientX); }
+    function onTouchMove(e){ if(e.touches[0]){ move(e.touches[0].clientX); e.preventDefault(); } }
+    function end(){
+      document.body.classList.remove("slide-resizing");
+      handle.classList.remove("dragging");
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", end);
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", end);
+      const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--slideover-w"), 10);
+      if(w){ slideoverWidth = w; try{ localStorage.setItem("dealdesk_slideover_width", String(w)); }catch(e){} }
+    }
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", end);
+    document.addEventListener("touchmove", onTouchMove, {passive:false});
+    document.addEventListener("touchend", end);
+  }
+  handle.addEventListener("mousedown", e=>{ e.preventDefault(); beginResize(e.clientX, slideoverWidth); });
+  handle.addEventListener("touchstart", e=>{ if(e.touches[0]) beginResize(e.touches[0].clientX, slideoverWidth); }, {passive:true});
+  handle.addEventListener("dblclick", ()=>{
+    slideoverWidth = 720;
+    applySlideoverWidth();
+    try{ localStorage.setItem("dealdesk_slideover_width", "720"); }catch(e){}
+  });
+}
+
 function openDealDetail(id){
   openDealId = id;
   const root = document.getElementById("slideoverRoot");
@@ -7519,6 +7591,7 @@ function openDealDetail(id){
   root.innerHTML = `
     <div class="slide-overlay" id="slideOverlay"></div>
     <aside class="slideover" role="dialog" aria-modal="true" aria-labelledby="slideTitle">
+      <div class="slide-resize-handle" id="slideResizeHandle" title="Drag to resize (double-click to reset)"></div>
       <div class="slide-head">
         <div class="slide-head-top">
           <input class="slide-title-input" id="slideTitle" type="text" value="${escapeAttr(d.name||"")}" placeholder="Project name">
@@ -7644,6 +7717,50 @@ function openDealDetail(id){
               <button type="button" class="field-tool-btn" id="zoningAiDraftBtn">✨ AI draft</button>
               <span class="field-tool-note">AI drafts are a starting guess from general knowledge — always verify against the county record.</span>
             </div>
+          </div>
+        </div>
+
+        <div id="siteCondEditWrap">
+          <h4 class="section-label">Site conditions &amp; overlay maps</h4>
+          <div class="deal-fields">
+            <div class="field-row">
+              <div class="field"><label for="slideSiteLat">Latitude</label><input id="slideSiteLat" type="number" step="0.00001" placeholder="e.g. 26.12345"></div>
+              <div class="field"><label for="slideSiteLng">Longitude</label><input id="slideSiteLng" type="number" step="0.00001" placeholder="e.g. -80.12345"></div>
+            </div>
+            <div class="field-tools" id="siteLookupTools"></div>
+            <span class="field-tool-note">Deal Desk can't query FEMA, NWI, NRCS or EPA from the page — these open the authoritative viewer, you record what it says below. Screening only: NWI is not a delineation and the NFHL is not an elevation certificate.</span>
+            <div class="field-row">
+              <div class="field"><label for="slideFloodZone">Flood zone</label><input id="slideFloodZone" type="text" placeholder="e.g. X, AE, VE"></div>
+              <div class="field"><label for="slideFloodPanel">FIRM panel</label><input id="slideFloodPanel" type="text" placeholder="e.g. 12086C0312L"></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="slideFloodPanelDate">Panel effective date</label><input id="slideFloodPanelDate" type="text" placeholder="e.g. 8/18/2014 (note preliminary if pending)"></div>
+              <div class="field"><label for="slideFloodBfe">Base flood elevation</label><input id="slideFloodBfe" type="text" placeholder="e.g. 9 ft NAVD88, or n/a"></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="slideWetlandsStatus">Wetlands</label>
+                <select id="slideWetlandsStatus"></select>
+              </div>
+              <div class="field"><label for="slideEnvSummary">Environmental</label><input id="slideEnvSummary" type="text" placeholder="e.g. 2 RCRA sites within 1/4 mi"></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="slideFloodMapUrl">Flood overlay image URL</label><input id="slideFloodMapUrl" type="text" placeholder="https://…"></div>
+              <div class="field"><label for="slideWetlandsMapUrl">Wetlands overlay image URL</label><input id="slideWetlandsMapUrl" type="text" placeholder="https://…"></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="slideSoilsMapUrl">Soils overlay image URL</label><input id="slideSoilsMapUrl" type="text" placeholder="https://…"></div>
+              <div class="field"><label for="slideEnvMapUrl">Environmental overlay image URL</label><input id="slideEnvMapUrl" type="text" placeholder="https://…"></div>
+            </div>
+            <div class="field"><label for="slideSiteCondNote">Site conditions note</label><textarea id="slideSiteCondNote" placeholder="What the overlays mean for this deal — elevation, fill, insurance, permitting…"></textarea></div>
+          </div>
+          <div class="repeat-list-head">
+            <span class="wealth-preview-label" style="margin:0;">Layers checked</span>
+            <button type="button" class="btn btn-ghost" id="addSiteConditionBtn">+ Add layer</button>
+          </div>
+          <div id="siteConditionsList"></div>
+          <div class="wealth-preview-wrap">
+            <div class="wealth-preview-label">Memo preview</div>
+            <div id="siteCondPreview"></div>
           </div>
         </div>
 
@@ -7924,6 +8041,7 @@ function openDealDetail(id){
       </div>
     </aside>`;
 
+  initSlideResizeHandle();
   document.getElementById("slideAddress").value = d.address||"";
   document.getElementById("slideStage").value = d.stage||"prospecting";
   document.getElementById("slidePsa").value = d.psaStatus||"Not Started";
@@ -7940,6 +8058,25 @@ function openDealDetail(id){
   document.getElementById("slideMapAddress").value = d.mapAddress||"";
   document.getElementById("slideZoning").value = d.zoningDesignation||"";
   document.getElementById("slideZoningMapUrl").value = d.zoningMapUrl||"";
+  const wetlandsSelEl = document.getElementById("slideWetlandsStatus");
+  if(wetlandsSelEl && !wetlandsSelEl.options.length){
+    WETLANDS_STATUS_OPTIONS.forEach(o=>{
+      const opt = document.createElement("option"); opt.value = o==="Not checked" ? "" : o; opt.textContent = o;
+      wetlandsSelEl.appendChild(opt);
+    });
+  }
+  Object.entries(SITE_FIELD_MAP).forEach(([elId, map])=>{
+    const el = document.getElementById(elId);
+    if(el) el.value = d[map.field]??"";
+  });
+  const siteToolsEl = document.getElementById("siteLookupTools");
+  if(siteToolsEl){
+    siteToolsEl.innerHTML = siteLookupLinks(d).map(l=>
+      `<a class="field-tool-btn" id="${l.id}" href="${escapeAttr(l.url)}" target="_blank" rel="noopener">${l.label}</a>`
+    ).join("");
+  }
+  renderRepeatableList(id, "siteConditions", "siteConditionsList");
+  refreshSiteCondPreview();
   Object.entries(DEMO_FIELD_MAP).forEach(([elId, map])=>{
     const el = document.getElementById(elId);
     if(el) el.value = d[map.field]??"";
@@ -8102,6 +8239,28 @@ function openDealDetail(id){
   document.getElementById("slideZoning").addEventListener("change", e=>{ save({zoningDesignation: e.target.value.trim()}); d.zoningDesignation = e.target.value.trim(); });
   document.getElementById("slideZoningMapUrl").addEventListener("change", e=>{ save({zoningMapUrl: e.target.value.trim()}); d.zoningMapUrl = e.target.value.trim(); });
   document.getElementById("zoningAiDraftBtn").addEventListener("click", ()=> aiDraftField(id, "zoning"));
+  document.getElementById("siteCondEditWrap").addEventListener("change", e=>{
+    const map = SITE_FIELD_MAP[e.target.id];
+    if(!map) return;
+    let v;
+    if(map.type==="text") v = e.target.value.trim();
+    else v = e.target.value==="" ? null : Number(e.target.value);
+    save({[map.field]: v});
+    d[map.field] = v;
+    if(map.field==="siteLat" || map.field==="siteLng"){
+      const toolsEl = document.getElementById("siteLookupTools");
+      if(toolsEl) siteLookupLinks(d).forEach(l=>{
+        const a = document.getElementById(l.id);
+        if(a) a.href = l.url;
+      });
+    }
+    refreshSiteCondPreview();
+  });
+  document.getElementById("addSiteConditionBtn").addEventListener("click", ()=>{
+    addRepeatableRow(id, "siteConditions", "siteConditionsList");
+    refreshSiteCondPreview();
+  });
+  document.getElementById("siteConditionsList").addEventListener("change", ()=> setTimeout(refreshSiteCondPreview, 0));
   document.getElementById("demoEditWrap").addEventListener("change", e=>{
     const map = DEMO_FIELD_MAP[e.target.id];
     if(!map) return;
@@ -8790,6 +8949,18 @@ function repeatableListSpecs(){
       ],
       row: ()=>({name:"", status:"Planned", distanceMi:null, notes:""}),
     },
+    siteConditions: {
+      empty: "No site-condition layers checked yet.",
+      cols: [
+        {key:"layer", type:"select", options:SITE_LAYERS, flex:2},
+        {key:"finding", type:"text", placeholder:"What the layer says (e.g. Zone X, 0.2% annual chance)", flex:3},
+        {key:"sourceDate", type:"text", placeholder:"Effective / published", flex:1},
+        {key:"captured", type:"date", flex:1},
+        {key:"by", type:"text", placeholder:"Checked by", flex:1},
+        {key:"url", type:"text", placeholder:"https://… viewer link", flex:2},
+      ],
+      row: ()=>({layer:SITE_LAYERS[0], finding:"", sourceDate:"", captured:new Date().toISOString().slice(0,10), by:(whoName()||""), url:""}),
+    },
     dealHistory: {
       empty: "No prior IC history on this deal.",
       cols: [
@@ -8925,6 +9096,140 @@ function refreshMarketFieldInputs(){
   if(employersEl) employersEl.value = d.majorEmployers||"";
   const trafficEl = document.getElementById("slideTrafficNote");
   if(trafficEl) trafficEl.value = d.trafficNote||"";
+}
+
+/* ---------- site conditions & overlay maps ----------
+   Same sandbox limit as the lookups above: the page can't query FEMA / USFWS / NRCS / EPA live,
+   so site conditions are entered by hand and backed by one-click deep links to each layer's
+   authoritative viewer. What makes an overlay diligence rather than decoration is the stamp on
+   every row — what the layer said, the source's own effective or published date, and who checked
+   it when. A layer nobody has checked prints as "Not checked" in the memo rather than vanishing.
+   Screening is not determination: NWI is not a wetlands delineation and the NFHL is not an
+   elevation certificate; each row names the report that will eventually replace it. */
+const SITE_LAYERS = [
+  "Flood (FEMA NFHL)",
+  "Wetlands (USFWS NWI)",
+  "Soils (NRCS)",
+  "Environmental (EPA)",
+  "Opportunity zone",
+  "Zoning / parcel",
+  "Traffic (state DOT)",
+  "Airport / height",
+  "Other",
+];
+const WETLANDS_STATUS_OPTIONS = ["Not checked","None mapped on site","Mapped nearby","Mapped on site","Delineation ordered"];
+const SITE_FIELD_MAP = {
+  slideSiteLat:        {field:"siteLat",        type:"float"},
+  slideSiteLng:        {field:"siteLng",        type:"float"},
+  slideFloodZone:      {field:"floodZone",      type:"text"},
+  slideFloodPanel:     {field:"floodPanel",     type:"text"},
+  slideFloodPanelDate: {field:"floodPanelDate", type:"text"},
+  slideFloodBfe:       {field:"floodBfe",       type:"text"},
+  slideWetlandsStatus: {field:"wetlandsStatus", type:"text"},
+  slideEnvSummary:     {field:"envSummary",     type:"text"},
+  slideSiteCondNote:   {field:"siteCondNote",   type:"text"},
+  slideFloodMapUrl:    {field:"floodMapUrl",    type:"text"},
+  slideWetlandsMapUrl: {field:"wetlandsMapUrl", type:"text"},
+  slideSoilsMapUrl:    {field:"soilsMapUrl",    type:"text"},
+  slideEnvMapUrl:      {field:"envMapUrl",      type:"text"},
+};
+function siteCoords(d){
+  const lat = Number(d && d.siteLat), lng = Number(d && d.siteLng);
+  if(!isFinite(lat) || !isFinite(lng) || (lat===0 && lng===0)) return null;
+  return {lat, lng};
+}
+function siteAddressFor(d){ return ((d && (d.mapAddress || d.address)) || "").trim(); }
+/* FEMA's Map Service Center is the authoritative flood source (it's what produces the FIRMette
+   the lender will ask for). If the address parameter is ever dropped the link still lands on the
+   search page, so the button degrades to "one click closer" rather than breaking. */
+function femaFloodUrl(d){
+  const a = siteAddressFor(d);
+  return a ? `https://msc.fema.gov/portal/search?AddressQuery=${encodeURIComponent(a)}` : "https://msc.fema.gov/portal/search";
+}
+function nfhlViewerUrl(d){
+  const a = siteAddressFor(d);
+  const base = "https://www.arcgis.com/apps/webappviewer/index.html?id=8b0adb51996444d4879338b5529aa9cd";
+  return a ? `${base}&find=${encodeURIComponent(a)}` : base;
+}
+function wetlandsMapperUrl(){ return "https://fwsprimary.wim.usgs.gov/wetlands/apps/wetlands-mapper/"; }
+/* Web Soil Survey takes a bounding box in the URL as (upperLeftLng upperLeftLat, lowerRightLng
+   lowerRightLat) — so a lat/long on the deal record opens it already zoomed to the parcel. */
+function soilSurveyUrl(d){
+  const c = siteCoords(d);
+  const base = "https://websoilsurvey.nrcs.usda.gov/app/WebSoilSurvey.aspx";
+  if(!c) return base;
+  const dd = 0.006;
+  const box = `(${(c.lng-dd).toFixed(5)} ${(c.lat+dd).toFixed(5)},${(c.lng+dd).toFixed(5)} ${(c.lat-dd).toFixed(5)})`;
+  return `${base}?location=${encodeURIComponent(box)}`;
+}
+function nepAssistUrl(){ return "https://nepassisttool.epa.gov/nepassist/entry.html"; }
+function ozMapUrl(){ return "https://www.cdfifund.gov/cims"; }
+function siteLookupLinks(d){
+  return [
+    {id:"floodLookupLink",    label:"🌊 FEMA flood map",   url: femaFloodUrl(d)},
+    {id:"nfhlLookupLink",     label:"🗺 NFHL viewer",       url: nfhlViewerUrl(d)},
+    {id:"wetlandsLookupLink", label:"🪷 Wetlands (NWI)",    url: wetlandsMapperUrl()},
+    {id:"soilsLookupLink",    label:"⛰ Soils (NRCS)",      url: soilSurveyUrl(d)},
+    {id:"envLookupLink",      label:"🏭 EPA NEPAssist",     url: nepAssistUrl()},
+    {id:"ozLookupLink",       label:"💠 Opportunity zone",  url: ozMapUrl()},
+  ];
+}
+/* Shared renderer — the slideover preview and the printed IC memo both call this, so the two can't
+   drift apart (same contract as demographicsPanelHtml). */
+function siteConditionsPanelHtml(d){
+  const rows = (d.siteConditions || []).filter(r=> r && (r.layer || r.finding));
+  const tiles = [
+    ["Flood zone", d.floodZone || "Not checked", !d.floodZone],
+    ["Wetlands", d.wetlandsStatus || "Not checked", !d.wetlandsStatus || d.wetlandsStatus==="Not checked"],
+    ["Environmental", d.envSummary || "Not checked", !d.envSummary],
+  ];
+  const tilesHtml = `<div class="wealth-tiles">${tiles.map(([l,v,unset])=>`
+    <div class="wealth-tile">
+      <div class="wealth-tile-label">${escapeHtml(l)}</div>
+      <div class="wealth-tile-value" style="font-size:15px;${unset?"color:var(--ink-faint);font-weight:600;":""}">${escapeHtml(String(v))}</div>
+    </div>`).join("")}</div>`;
+  const floodBits = [
+    d.floodPanel ? `FIRM panel ${d.floodPanel}` : "",
+    d.floodPanelDate ? `effective ${d.floodPanelDate}` : "",
+    d.floodBfe ? `BFE ${d.floodBfe}` : "",
+  ].filter(Boolean).join(" · ");
+  const c = siteCoords(d);
+  const stampBits = [
+    floodBits,
+    c ? `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}` : "No coordinates on file — soils and wetlands links open unzoomed",
+  ].filter(Boolean).join("  ·  ");
+  const stampHtml = `<p class="wealth-source-note" style="margin-top:8px;">${escapeHtml(stampBits)}</p>`;
+  const tableHtml = rows.length ? `<table class="memo-table ic-scorecard-table" style="margin-top:12px;">
+    <thead><tr><th>Layer</th><th>Finding</th><th>Source date</th><th>Checked</th><th>Link</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr>
+      <td class="memo-td">${escapeHtml(r.layer||"—")}</td>
+      <td class="memo-td ic-scorecard-req">${escapeHtml(r.finding||"—")}</td>
+      <td class="memo-td">${escapeHtml(r.sourceDate||"—")}</td>
+      <td class="memo-td">${r.captured?fmtDate(r.captured):"—"}${r.by?` · ${escapeHtml(r.by)}`:""}</td>
+      <td class="memo-td">${r.url?`<a href="${escapeAttr(normalizeUrl(r.url))}" target="_blank" rel="noopener">Open →</a>`:"—"}</td>
+    </tr>`).join("")}</tbody>
+  </table>` : `<p class="ic-memo-notes" style="font-style:italic;color:var(--ink-faint);margin-top:12px;">No layers checked yet — flood, wetlands, soils and environmental should each be logged before this deal goes to IC.</p>`;
+  const unchecked = SITE_LAYERS.slice(0,5).filter(l=> !rows.some(r=> r.layer===l));
+  const gapHtml = (rows.length && unchecked.length) ? `<p class="wealth-source-note">Not checked: ${escapeHtml(unchecked.join(", "))}</p>` : "";
+  const maps = [
+    ["Flood zones", d.floodMapUrl],
+    ["Wetlands", d.wetlandsMapUrl],
+    ["Soils", d.soilsMapUrl],
+    ["Environmental", d.envMapUrl],
+  ].filter(([,u])=> !!u);
+  const mapsHtml = maps.length ? `<div class="ic-memo-media-grid" style="margin-top:14px;">${maps.map(([label,u])=>`
+    <div class="ic-memo-media-box">
+      <div class="ic-memo-media-label">${escapeHtml(label)} overlay</div>
+      <img src="${escapeAttr(normalizeUrl(u))}" onerror="this.closest('.ic-memo-media-box').style.display='none'">
+    </div>`).join("")}</div>` : "";
+  const noteHtml = d.siteCondNote ? `<p class="ic-memo-notes" style="margin-top:10px;">${escapeHtml(d.siteCondNote)}</p>` : "";
+  return `${tilesHtml}${stampHtml}${tableHtml}${gapHtml}${mapsHtml}${noteHtml}`;
+}
+function refreshSiteCondPreview(){
+  const wrap = document.getElementById("siteCondPreview");
+  if(!wrap) return;
+  const d = deals.get(openDealId);
+  wrap.innerHTML = d ? siteConditionsPanelHtml(d) : "";
 }
 
 /* ---------- demographics / wealth profile panel ----------
