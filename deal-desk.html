@@ -14,11 +14,6 @@
      artifact). Free, no API key. -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<!-- SheetJS (xlsx) — Community Edition, MIT licensed. Parses an uploaded Excel workbook entirely
-     in the browser so its contents can be turned into a short, readable "gist" via the AI
-     screening endpoint (see extractModelGist below). Nothing about the spreadsheet's bytes ever
-     needs a server-side parser. -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --bg:#F6F9F9; --surface:#FFFFFF; --surface-2:#E9F1F2;
@@ -568,25 +563,6 @@
   .field-tool-btn:hover{ border-color:var(--accent); color:var(--accent); }
   .field-tool-note{ font-size:10.5px; color:var(--ink-faint); font-style:italic; }
 
-  /* ---------- financial model toggle (back-of-envelope vs full model) ---------- */
-  .model-toggle-row{ display:flex; align-items:center; gap:10px; margin-bottom:10px; }
-  .model-toggle{
-    display:flex; border:1px solid var(--border-strong); border-radius:8px; overflow:hidden; flex:none;
-  }
-  .model-toggle button{
-    border:none; background:var(--surface); color:var(--ink-soft); font-size:12px; font-weight:600;
-    padding:7px 13px; cursor:pointer; font-family:var(--font-body);
-  }
-  .model-toggle button + button{ border-left:1px solid var(--border-strong); }
-  .model-toggle button.active{ background:var(--accent); color:var(--accent-ink); }
-  .sensitivity-table{ width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
-  .sensitivity-table th{ text-align:right; padding:5px 8px; color:var(--ink-faint); font-weight:700; font-size:10px; text-transform:uppercase; letter-spacing:.03em; border-bottom:1px solid var(--border); }
-  .sensitivity-table th:first-child{ text-align:left; }
-  .sensitivity-table td{ text-align:right; padding:6px 8px; font-family:var(--font-mono); border-bottom:1px solid var(--border); }
-  .sensitivity-table td:first-child{ text-align:left; font-family:var(--font-body); font-weight:600; color:var(--ink); }
-  .sensitivity-table tr:last-child td{ border-bottom:none; }
-  .sensitivity-table tr.base-case td{ color:var(--ink); font-weight:700; }
-
   .progress-row{ display:flex; align-items:center; gap:7px; }
   .progress-track{ flex:1; height:5px; border-radius:4px; background:var(--neutral-soft); overflow:hidden; }
   .progress-fill{ height:100%; background:var(--accent); border-radius:4px; }
@@ -747,8 +723,6 @@
     padding:5px 7px; font-size:12px; font-family:var(--font-body); width:100%; box-sizing:border-box;
   }
   .wealth-derived{ font-size:12.5px; color:var(--ink-soft); padding:5px 2px; }
-  .wealth-preview-wrap{ margin-top:16px; padding-top:14px; border-top:1px dashed var(--border-strong); }
-  .wealth-preview-label{ font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); font-weight:700; margin-bottom:8px; }
 
   /* ---------- weekly agenda: section reordering + special comments ---------- */
   .agenda-reorder{ display:inline-flex; gap:2px; margin-left:auto; }
@@ -826,12 +800,7 @@
   .gate-history-row{ display:flex; justify-content:space-between; gap:8px; font-size:11.5px; color:var(--ink-soft); padding:4px 0 0 4px; }
   .gate-history-answer{ font-weight:600; flex:none; }
   .gate-history-meta{ color:var(--ink-faint); text-align:right; }
-  .uw-tiles{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-  .uw-tile{ background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:10px 12px; display:flex; flex-direction:column; gap:3px; min-width:0; }
   .uw-label{ font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); font-weight:700; }
-  .uw-value{ font-family:var(--font-mono); font-weight:700; font-size:16px; overflow-wrap:anywhere; }
-  .uw-value.good{ color:var(--good); } .uw-value.warn{ color:var(--warn); } .uw-value.bad{ color:var(--bad); }
-  .uw-sub{ font-size:11px; font-weight:500; color:var(--ink-faint); }
 
   /* ---------- key metrics (Northspyre-style "Target returns" tiles) ---------- */
   .metric-tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr)); gap:9px; }
@@ -1537,12 +1506,10 @@
   .broker-log-file-label input[type=file]{ display:none; }
   .broker-log-attach-status{ font-size:11px; color:var(--ink-faint); }
   .broker-log-attach-status.warn{ color:var(--warn); }
-  /* ---------- deal Excel-model upload + AI-extracted "gist" (Financial model / Full model built
-     out) — same visual pattern as the broker call-log's file attachments (upload pill, status
-     line) but scoped to a single file per deal rather than a list, plus a summary panel below. ---------- */
+  /* ---------- shared "file attach / status line" pattern — same visual pattern as the broker
+     call-log's file attachments above; used by Quick update's apply-status line and Contract
+     documents' upload chip/status. ---------- */
   .model-file-attach-area{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:2px; }
-  .model-file-open{ cursor:pointer; }
-  .model-file-open:hover{ text-decoration:underline; }
   .model-file-label{
     display:inline-flex; align-items:center; gap:5px; cursor:pointer; font-size:11.5px; font-weight:600;
     color:var(--ink-soft); border:1px dashed var(--border-strong); border-radius:6px; padding:5px 10px;
@@ -1551,13 +1518,6 @@
   .model-file-label input[type=file]{ display:none; }
   .model-file-status{ font-size:11px; color:var(--ink-faint); }
   .model-file-status.warn{ color:var(--warn); }
-  .model-gist-box{ border:1px solid var(--border-strong); border-radius:8px; padding:12px 14px; margin-top:10px; background:var(--surface-2); }
-  .model-gist-summary{ font-size:12.5px; color:var(--ink); line-height:1.55; margin:0; white-space:pre-wrap; }
-  .model-gist-figures{ display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:8px; margin-top:10px; }
-  .model-gist-figure{ display:flex; flex-direction:column; gap:1px; }
-  .model-gist-figure-label{ font-size:9.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); font-weight:700; }
-  .model-gist-figure-value{ font-size:13px; font-weight:700; color:var(--ink); font-family:var(--font-mono); }
-  .model-gist-meta{ font-size:10.5px; color:var(--ink-faint); margin-top:10px; }
 
   /* ---------- Contract documents (PSA/LOI/amendment upload + AI term extraction) — a list
      rather than the single-file model upload above, since a deal accumulates an LOI, then a PSA,
@@ -2695,20 +2655,6 @@ function dealPassesFilters(d){
     if(f.icDecision==="none"){ if(d.icDecision) return false; }
     else if((d.icDecision||"")!==f.icDecision) return false;
   }
-  if(f.modelStatus){
-    const status = d.modelStatus||"boe";
-    if(status!==f.modelStatus) return false;
-  }
-  if(f.zoningStatus){
-    const hasZoning = !!(d.zoningDesignation||"").trim();
-    if(f.zoningStatus==="done" && !hasZoning) return false;
-    if(f.zoningStatus==="missing" && hasZoning) return false;
-  }
-  if(f.openQuestions){
-    const hasOpen = Array.isArray(d.openQuestions) && d.openQuestions.some(q=>(q.status||"Open")==="Open" && (q.question||"").trim());
-    if(f.openQuestions==="yes" && !hasOpen) return false;
-    if(f.openQuestions==="no" && hasOpen) return false;
-  }
   return true;
 }
 function anyDashboardFilterActive(){
@@ -2761,7 +2707,7 @@ let calendarRangeMonths = (()=>{
   try{ const v = Number(localStorage.getItem("dealdesk_calendar_range")); return [12,24,36].includes(v) ? v : 12; }
   catch(e){ return 12; }
 })();
-let dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:"", modelStatus:"", zoningStatus:"", openQuestions:""};
+let dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:""};
 let pipelineDensity = (()=>{ try{ return localStorage.getItem("dealdesk_pipeline_density")||"compact"; }catch(e){ return "compact"; } })();
 /* Deal-detail slideover width — adjustable by dragging the handle on its left edge (see
    initSlideResizeHandle, wired inside openDealDetail), remembered per browser like the density
@@ -2867,6 +2813,49 @@ function fmtMoneyShort(n){
   if(Math.abs(num)>=1000000) return "$"+(num/1000000).toFixed(num%1000000===0?0:1)+"M";
   if(Math.abs(num)>=1000) return "$"+(num/1000).toFixed(num%1000===0?0:1)+"K";
   return "$"+num.toLocaleString();
+}
+/* Full, non-abbreviating dollar formatting for editable amount inputs (fmtMoneyShort above is for
+   read-only display and deliberately abbreviates to $1.5M/$820K — wrong for a field someone is
+   editing, where the exact number matters). fmtMoneyInput shows the full comma-grouped amount
+   with a leading $; parseMoneyStr strips any $/commas back out so it can be saved/computed on —
+   safe to run on a plain unformatted number too (a no-op), so existing numeric fields that route
+   through numOrNull don't need special-casing. */
+function fmtMoneyInput(n){
+  if(n===undefined||n===null||n==="") return "";
+  const num = Number(n);
+  if(isNaN(num)) return "";
+  return "$"+num.toLocaleString("en-US", {maximumFractionDigits:0});
+}
+/* Same as fmtMoneyInput but without the leading $ — for inputs already sitting inside a
+   ".money-field" wrapper whose separate ".money-field-prefix" span renders the $ beside them
+   (slideDep1Amt/slideDep2Amt, .deposit-extra-amount, .debt-source-amount). */
+function fmtMoneyInputPlain(n){
+  if(n===undefined||n===null||n==="") return "";
+  const num = Number(n);
+  if(isNaN(num)) return "";
+  return num.toLocaleString("en-US", {maximumFractionDigits:0});
+}
+function parseMoneyStr(v){
+  if(v===undefined||v===null) return null;
+  const cleaned = String(v).replace(/[^0-9.\-]/g,"");
+  if(cleaned===""||cleaned==="-") return null;
+  const num = Number(cleaned);
+  return isNaN(num) ? null : num;
+}
+/* Money-input UX: show the exact typed digits while focused (easiest to edit), snap to the
+   formatted $ display once the field is blurred. Call once per input at wiring time; pass
+   plain:true for a field inside a ".money-field" wrapper that already shows its own $ prefix,
+   so the input itself only ever holds comma-grouped digits. */
+function wireMoneyInputDisplay(el, plain){
+  if(!el) return;
+  const fmt = plain ? fmtMoneyInputPlain : fmtMoneyInput;
+  el.addEventListener("focus", ()=>{
+    const n = parseMoneyStr(el.value);
+    el.value = n===null ? "" : String(n);
+  });
+  el.addEventListener("blur", ()=>{
+    el.value = fmt(parseMoneyStr(el.value));
+  });
 }
 function fmtAcres(n){
   if(n===undefined||n===null||n==="") return "";
@@ -3000,7 +2989,11 @@ function numOrNull(id){
   const el = document.getElementById(id);
   if(!el) return null;
   const v = el.value;
-  return v===""?null:Number(v);
+  if(v==="") return null;
+  // Strips a leading $ and thousands-commas so this stays correct for money-formatted text
+  // inputs (slidePrice etc.) as well as the plain numeric fields (uwSf and similar) it already
+  // served — parseMoneyStr's cleanup is a no-op on an already-plain number string.
+  return parseMoneyStr(v);
 }
 function whoName(){ return (document.getElementById("whoInput").value||"").trim(); }
 function escapeAttr(s){ return String(s||"").replace(/"/g,"&quot;"); }
@@ -3359,7 +3352,7 @@ async function boot(){
       renderBoard(); renderCounts();
       if(view==="brokers") renderBrokersView();
       if(openBrokerId) renderBrokerModalContent();
-      if(openDealId){ renderDDSection(); renderDDWorkSection(); renderUwTiles(deals.get(openDealId)); renderCapTiles(deals.get(openDealId)); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderModelFileSection(); renderContractDocsList(); refreshSiteCondPreview(); renderGateLogSummary(); }
+      if(openDealId){ renderDDSection(); renderDDWorkSection(); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderContractDocsList(); renderGateLogSummary(); }
     }, ()=>{});
     db.doc("settings/categories").onSnapshot(snap=>{
       const data = snap.data();
@@ -3494,7 +3487,7 @@ async function createDeal(data){
 }
 async function updateDeal(id, data){
   if(db){ logDealActivity(id, deals.get(id), data); await db.doc("deals/"+id).update(data); }
-  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDSection(); renderDDWorkSection(); renderUwTiles(deals.get(id)); renderCapTiles(deals.get(id)); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderModelFileSection(); renderContractDocsList(); refreshSiteCondPreview(); renderGateLogSummary(); } }
+  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDSection(); renderDDWorkSection(); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderContractDocsList(); renderGateLogSummary(); } }
 }
 async function deleteDeal(id){
   if(db){ await db.doc("deals/"+id).delete(); }
@@ -4177,7 +4170,7 @@ function renderPipelineStages(){
   board.appendChild(toolbar);
   const clearBtn = toolbar.querySelector("#pipelineFilterClearBtn");
   if(clearBtn) clearBtn.addEventListener("click", ()=>{
-    dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:"", modelStatus:"", zoningStatus:"", openQuestions:""};
+    dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:""};
     renderPipelineStages();
   });
   toolbar.querySelector("#densityCompactBtn").addEventListener("click", ()=> setPipelineDensity("compact"));
@@ -4907,47 +4900,27 @@ function openIcMemoModal(id){
   };
 
   const recMeta = REC_META[d.recommendation];
-  const mapAddr = (d.mapAddress || d.address || "").trim();
-  const hasMedia = photos.length || d.sitePlanUrl || mapAddr || d.zoningMapUrl;
+  const mapAddr = (d.address || "").trim();
+  const hasMedia = photos.length || mapAddr;
   const mediaGridHtml = hasMedia ? `<div class="ic-memo-media-grid">
     ${photos.map(p=>`<div class="ic-memo-media-box"><div class="ic-memo-media-label">Photo</div><img src="${escapeAttr(normalizeUrl(p))}" onerror="this.closest('.ic-memo-media-box').style.display='none'"></div>`).join("")}
-    ${d.sitePlanUrl ? `<div class="ic-memo-media-box"><div class="ic-memo-media-label">Site plan / test fit</div><img src="${escapeAttr(normalizeUrl(d.sitePlanUrl))}" onerror="this.closest('.ic-memo-media-box').style.display='none'"></div>` : ""}
     ${mapAddr ? `<div class="ic-memo-media-box">
       <div class="ic-memo-media-label">Location, map</div>
       <div class="ic-memo-map-loading no-print" id="icMemoMapSlot">Loading map…</div>
       <div class="ic-memo-map-fallback">${escapeHtml(mapAddr)}<br><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapAddr)}" target="_blank" rel="noopener">Open in Google Maps →</a></div>
     </div>` : ""}
-    ${d.zoningMapUrl ? `<div class="ic-memo-media-box"><div class="ic-memo-media-label">Zoning map</div><img src="${escapeAttr(normalizeUrl(d.zoningMapUrl))}" onerror="this.closest('.ic-memo-media-box').style.display='none'"></div>` : ""}
   </div>` : "";
-  const proformaTilesHtml = `<div class="ic-memo-proforma">
+  const financialModelHtml = `<div class="ic-memo-proforma">
     <div class="ic-memo-proforma-tile"><span class="ic-memo-proforma-tile-label">Purchase price</span><span class="ic-memo-proforma-tile-value">${d.purchasePrice ? fmtMoneyShort(d.purchasePrice) : "—"}</span></div>
-    <div class="ic-memo-proforma-tile"><span class="ic-memo-proforma-tile-label">Total capital needed</span><span class="ic-memo-proforma-tile-value">${cap ? fmtMoneyShort(cap.basis) : "—"}</span></div>
-    <div class="ic-memo-proforma-tile"><span class="ic-memo-proforma-tile-label">Debt / Equity</span><span class="ic-memo-proforma-tile-value" style="font-size:13px;">${cap?fmtMoneyShort(cap.debtAmount):"—"} / ${cap?fmtMoneyShort(cap.equityAmount):"—"}</span></div>
-    <div class="ic-memo-proforma-tile"><span class="ic-memo-proforma-tile-label">Margin (on revenue)</span><span class="ic-memo-proforma-tile-value">${(uw && uw.marginRevenue!=null) ? (uw.marginRevenue*100).toFixed(1)+"%" : "—"}</span></div>
-    ${d.proformaUrl ? `<a class="ic-memo-proforma-link" href="${escapeAttr(normalizeUrl(d.proformaUrl))}" target="_blank" rel="noopener">📈 Open full pro forma →</a>` : ""}
+    ${d.proformaUrl ? `<a class="ic-memo-proforma-link" href="${escapeAttr(normalizeUrl(d.proformaUrl))}" target="_blank" rel="noopener">📈 Open project pro forma →</a>` : `<div class="locked-note" style="margin-top:4px;">No pro forma link on file yet.</div>`}
   </div>`;
-  const modelIsFull = d.modelStatus==="full";
-  const financialModelHtml = modelIsFull ? `<div class="ic-memo-proforma">
-    <div class="ic-memo-proforma-tile"><span class="ic-memo-proforma-tile-label">Headline returns</span><span class="ic-memo-proforma-tile-value" style="font-size:13px;">${d.modelHeadlineReturns?escapeHtml(d.modelHeadlineReturns):"—"}</span></div>
-    <div class="ic-memo-proforma-tile"><span class="ic-memo-proforma-tile-label">Model last updated</span><span class="ic-memo-proforma-tile-value" style="font-size:13px;">${d.modelLastUpdated?fmtDate(d.modelLastUpdated):"—"}</span></div>
-    <div class="ic-memo-proforma-tile"><span class="ic-memo-proforma-tile-label">What changed</span><span class="ic-memo-proforma-tile-value" style="font-size:12px;">${d.modelChangeNote?escapeHtml(d.modelChangeNote):"—"}</span></div>
-    ${d.proformaUrl ? `<a class="ic-memo-proforma-link" href="${escapeAttr(normalizeUrl(d.proformaUrl))}" target="_blank" rel="noopener">📈 Open full Excel model →</a>` : `<div class="locked-note" style="margin-top:4px;">No Excel link on file yet.</div>`}
-  </div>${d.modelGist && d.modelGist.summary ? `<div class="model-gist-box" style="margin-top:10px;">
-      <p class="model-gist-summary">${escapeHtml(d.modelGist.summary)}</p>
-      ${d.modelGist.keyFigures && d.modelGist.keyFigures.length ? `<div class="model-gist-figures">${d.modelGist.keyFigures.map(f=>`<div class="model-gist-figure"><span class="model-gist-figure-label">${escapeHtml(f.label)}</span><span class="model-gist-figure-value">${escapeHtml(f.value)}</span></div>`).join("")}</div>` : ""}
-    </div>` : ""}` : `${proformaTilesHtml}<div style="margin-top:10px;">${sensitivityTableHtml(d)}</div>`;
   const propertyBasicsRows = [
     ["Purchase price", d.purchasePrice ? fmtMoneyShort(d.purchasePrice) : "—"],
     ["Lot size", d.lotSizeAcres ? d.lotSizeAcres+" ac" : "—"],
     ["Targeted units", d.targetUnits ? Number(d.targetUnits).toLocaleString() : "—"],
-    ["Zoning designation", d.zoningDesignation || "—"],
     ["Deal type", d.dealType || "—"],
     ["PSA status", d.psaStatus || "—"],
   ];
-  const openQuestionsTableHtml = memoListTableHtml(d.openQuestions, [
-    {key:"question", label:"Question / condition"}, {key:"owner", label:"Owner"}, {key:"status", label:"Status"},
-  ]);
-
   const overlay = document.createElement("div");
   overlay.className = "overlay";
   overlay.id = "icMemoOverlay";
@@ -4973,12 +4946,6 @@ function openIcMemoModal(id){
           ${dealProgressBarHtml(d,{size:"sm",showLabel:false})}
           <span class="ic-memo-dd">DD ${complete}/${applicable} complete (${ddPct}%)</span>
         </div>
-        <div class="ic-memo-execbox">
-          <div class="ic-memo-exec-head"><span class="ic-memo-exec-label">Exec summary</span></div>
-          ${d.execSummary ? `<p class="ic-memo-exec-text">${escapeHtml(d.execSummary)}</p>` : `<p class="ic-memo-exec-text" style="color:var(--ink-faint);font-style:italic;">No exec summary written yet.</p>`}
-          ${d.risks ? `<div><span class="ic-memo-risks-label">Key risks</span><p class="ic-memo-exec-text">${escapeHtml(d.risks)}</p></div>` : ""}
-        </div>
-
         <div class="ic-memo-execbox ${recMeta ? "ic-memo-execbox-"+recMeta.cls.replace("pill-","") : ""}">
           <div class="ic-memo-exec-head">
             <span class="ic-memo-exec-label">Recommendation — Brendan McKeon:</span>
@@ -5004,11 +4971,6 @@ function openIcMemoModal(id){
         </div>
 
         <div>
-          <h4 class="section-label">Points for response</h4>
-          ${openQuestionsTableHtml}
-        </div>
-
-        <div>
           <h4 class="section-label">Screening criteria</h4>
           ${icScorecardHtml}
         </div>
@@ -5027,12 +4989,7 @@ function openIcMemoModal(id){
         ${mediaGridHtml}
 
         <div>
-          <h4 class="section-label">Site conditions</h4>
-          ${siteConditionsPanelHtml(d)}
-        </div>
-
-        <div>
-          <h4 class="section-label">Financial model ${modelIsFull ? `<span class="pill pill-neutral" style="font-size:10px;vertical-align:middle;">Full model</span>` : `<span class="pill pill-neutral" style="font-size:10px;vertical-align:middle;">Back-of-envelope</span>`}</h4>
+          <h4 class="section-label">Financial model</h4>
           ${financialModelHtml}
         </div>
 
@@ -5250,9 +5207,6 @@ function renderDashboard(){
       <select id="filterRecommendation"><option value="">All recommendations</option><option value="pursue">Pursue</option><option value="watch">Watch</option><option value="pass">Pass</option></select>
       <select id="filterMarketTier"><option value="">All market tiers</option><option value="1">Tier 1</option><option value="2">Tier 2</option><option value="3">Tier 3</option></select>
       <select id="filterIcDecision"><option value="">All IC decisions</option><option value="none">Not decided</option>${Object.entries(IC_DECISION_META).filter(([k])=>k).map(([k,m])=>`<option value="${k}">${m.label}</option>`).join("")}</select>
-      <select id="filterModelStatus"><option value="">All model stages</option><option value="boe">Back-of-envelope only</option><option value="full">Full model built out</option></select>
-      <select id="filterZoningStatus"><option value="">Zoning — any</option><option value="done">Zoning identified</option><option value="missing">Zoning missing</option></select>
-      <select id="filterOpenQuestions"><option value="">Open questions — any</option><option value="yes">Has open questions</option><option value="no">No open questions</option></select>
       ${filtersActive ? `<button type="button" class="btn-icon" id="filterClearBtn">✕ Clear filters</button>` : ""}
       ${filtersActive ? `<span class="filter-note">Showing ${filtered.length} of ${all.length} deals</span>` : ""}
       <button type="button" class="btn-icon" id="onePagerBtn" style="margin-left:auto;">🖨 One-pager</button>
@@ -5391,9 +5345,6 @@ function renderDashboard(){
   document.getElementById("filterRecommendation").value = dashboardFilters.recommendation;
   document.getElementById("filterMarketTier").value = dashboardFilters.marketTier;
   document.getElementById("filterIcDecision").value = dashboardFilters.icDecision;
-  document.getElementById("filterModelStatus").value = dashboardFilters.modelStatus;
-  document.getElementById("filterZoningStatus").value = dashboardFilters.zoningStatus;
-  document.getElementById("filterOpenQuestions").value = dashboardFilters.openQuestions;
   document.getElementById("filterStage").addEventListener("change", e=>{ dashboardFilters.stage=e.target.value; renderDashboard(); });
   document.getElementById("filterProductLine").addEventListener("change", e=>{ dashboardFilters.productLine=e.target.value; renderDashboard(); });
   document.getElementById("filterSource").addEventListener("change", e=>{ dashboardFilters.source=e.target.value; renderDashboard(); });
@@ -5403,12 +5354,9 @@ function renderDashboard(){
   document.getElementById("filterRecommendation").addEventListener("change", e=>{ dashboardFilters.recommendation=e.target.value; renderDashboard(); });
   document.getElementById("filterMarketTier").addEventListener("change", e=>{ dashboardFilters.marketTier=e.target.value; renderDashboard(); });
   document.getElementById("filterIcDecision").addEventListener("change", e=>{ dashboardFilters.icDecision=e.target.value; renderDashboard(); });
-  document.getElementById("filterModelStatus").addEventListener("change", e=>{ dashboardFilters.modelStatus=e.target.value; renderDashboard(); });
-  document.getElementById("filterZoningStatus").addEventListener("change", e=>{ dashboardFilters.zoningStatus=e.target.value; renderDashboard(); });
-  document.getElementById("filterOpenQuestions").addEventListener("change", e=>{ dashboardFilters.openQuestions=e.target.value; renderDashboard(); });
   const clearBtn = document.getElementById("filterClearBtn");
   if(clearBtn) clearBtn.addEventListener("click", ()=>{
-    dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:"", modelStatus:"", zoningStatus:"", openQuestions:""};
+    dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:""};
     renderDashboard();
   });
   wrap.querySelectorAll(".attn-row").forEach(row=>{
@@ -7107,7 +7055,7 @@ async function extractOm(){
     const data = await sample.json(OM_EXTRACT_PROMPT(text), {modelTier:"default"});
     if(data.name) document.getElementById("dName").value = data.name;
     if(data.address) document.getElementById("dAddress").value = data.address;
-    if(data.purchasePrice) document.getElementById("dPrice").value = data.purchasePrice;
+    if(data.purchasePrice) document.getElementById("dPrice").value = fmtMoneyInput(data.purchasePrice);
     if(data.lotSizeAcres) document.getElementById("dLot").value = Math.round(data.lotSizeAcres*100)/100;
     if(data.targetUnits) document.getElementById("dUnits").value = data.targetUnits;
     if(data.propertyType && propertyTypeOptions.includes(data.propertyType)) document.getElementById("dPropType").value = data.propertyType;
@@ -7159,7 +7107,7 @@ function openEditDealModal(){
           <div class="field"><label for="dAddress">Address</label><input id="dAddress" type="text" placeholder="Street, city, state"></div>
           <div class="field-row">
             <div class="field"><label for="dLot">Lot size (acres)</label><input id="dLot" type="number" step="0.1" placeholder="0"></div>
-            <div class="field"><label for="dPrice">Purchase price</label><input id="dPrice" type="number" placeholder="0"></div>
+            <div class="field"><label for="dPrice">Purchase price</label><input id="dPrice" type="text" inputmode="numeric" placeholder="$0"></div>
           </div>
           <div class="field"><label for="dState">State</label><select id="dState"><option value="">Auto (from address)</option>${STATE_OPTIONS}</select></div>
           <div class="field"><label for="dLead">Deal lead</label><input id="dLead" type="text" placeholder="Name"></div>
@@ -7226,7 +7174,7 @@ function openEditDealModal(){
       name,
       address: document.getElementById("dAddress").value.trim(),
       lotSizeAcres: document.getElementById("dLot").value ? Number(document.getElementById("dLot").value) : null,
-      purchasePrice: document.getElementById("dPrice").value ? Number(document.getElementById("dPrice").value) : null,
+      purchasePrice: parseMoneyStr(document.getElementById("dPrice").value),
       state: document.getElementById("dState").value,
       lead: document.getElementById("dLead").value.trim(),
       notes: document.getElementById("dNotes").value.trim(),
@@ -7254,6 +7202,7 @@ function openEditDealModal(){
     }, omExtractedExtra));
     close();
   });
+  wireMoneyInputDisplay(document.getElementById("dPrice"));
   setTimeout(()=>document.getElementById("dName").focus(), 10);
 }
 
@@ -7471,8 +7420,6 @@ function openDealDetail(id){
         <div class="slide-tab-panel" id="slideTabOverview">
         <div class="photo-strip-wrap" id="photoStripWrap"></div>
 
-        <div id="keyMetricsWrap"></div>
-
         <div class="deal-location-map-wrap" id="dealLocationMapWrap"></div>
 
         <div>
@@ -7480,7 +7427,7 @@ function openDealDetail(id){
           <div class="deal-fields">
             <div class="field-row">
               <div class="field"><label for="slideLot">Lot size (acres)</label><input id="slideLot" type="number" step="0.1"></div>
-              <div class="field"><label for="slidePrice">Purchase price ($)</label><input id="slidePrice" type="number"></div>
+              <div class="field"><label for="slidePrice">Purchase price ($)</label><input id="slidePrice" type="text" inputmode="numeric" placeholder="$0"></div>
             </div>
             <div class="field-row">
               <div class="field"><label for="slideUnits">Targeted units</label><input id="slideUnits" type="number" step="1" placeholder="0"></div>
@@ -7488,9 +7435,7 @@ function openDealDetail(id){
             </div>
             <div class="calc-line">Price per acre: <span class="mono" id="calcPerAcre">—</span></div>
             <div class="calc-line">Price per unit: <span class="mono" id="calcPerUnit">—</span></div>
-          </div>
-          <div class="field-tools" style="margin-top:8px;">
-            <button type="button" class="field-tool-btn" id="openFinancialModelBtn">📊 Financial model &amp; underwriting →</button>
+            <div class="field"><label for="slideProforma">Project pro forma (OneDrive/SharePoint link)</label><input id="slideProforma" type="text" placeholder="https://…"></div>
           </div>
         </div>
 
@@ -7557,14 +7502,14 @@ function openDealDetail(id){
           <h4 class="section-label">Deposits</h4>
           <div class="deal-fields">
             <div class="field-row">
-              <div class="field"><label for="slideDep1Amt">1st deposit amount</label><div class="money-field"><span class="money-field-prefix">$</span><input id="slideDep1Amt" type="number"></div></div>
+              <div class="field"><label for="slideDep1Amt">1st deposit amount</label><div class="money-field"><span class="money-field-prefix">$</span><input id="slideDep1Amt" type="text" inputmode="numeric"></div></div>
               <div class="field"><label for="slideDep1Date">1st deposit date</label><input id="slideDep1Date" type="date"></div>
               <div class="field"><label for="slideDep1Status">1st deposit status</label>
                 <select id="slideDep1Status">${DEPOSIT_STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join("")}</select>
               </div>
             </div>
             <div class="field-row">
-              <div class="field"><label for="slideDep2Amt">2nd deposit amount</label><div class="money-field"><span class="money-field-prefix">$</span><input id="slideDep2Amt" type="number"></div></div>
+              <div class="field"><label for="slideDep2Amt">2nd deposit amount</label><div class="money-field"><span class="money-field-prefix">$</span><input id="slideDep2Amt" type="text" inputmode="numeric"></div></div>
               <div class="field"><label for="slideDep2Date">2nd deposit date</label><input id="slideDep2Date" type="date"></div>
               <div class="field"><label for="slideDep2Status">2nd deposit status</label>
                 <select id="slideDep2Status">${DEPOSIT_STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join("")}</select>
@@ -7624,85 +7569,10 @@ function openDealDetail(id){
         </div>
 
         <div>
-          <h4 class="section-label">Investment case (for the IC memo)</h4>
-          <div class="deal-fields">
-            <div class="field"><label for="slideExecSummary">Exec summary — the case for/against this deal</label><textarea id="slideExecSummary" placeholder="2-3 sentences: what this deal is, why it fits (or doesn't), and your recommendation…"></textarea></div>
-            <div class="field"><label for="slideRisks">Key risks</label><textarea id="slideRisks" placeholder="What could go wrong / open questions…"></textarea></div>
-            <div class="field-row">
-              <div class="field"><label for="slideSitePlan">Site plan / test fit image URL</label><input id="slideSitePlan" type="url" placeholder="https://…"></div>
-              <div class="field"><label for="slideMapAddress">Map address override</label><input id="slideMapAddress" type="text" placeholder="Defaults to the deal address"></div>
-            </div>
-          </div>
-          <div class="repeat-list-head">
-            <span class="cdate-label" style="font-weight:700;">Points for response — open questions the IC needs answered</span>
-            <button type="button" class="btn-icon" id="addOpenQuestionBtn">+ Add question</button>
-          </div>
-          <div id="openQuestionsList"></div>
-        </div>
-
-        <div>
-          <h4 class="section-label">Zoning &amp; site</h4>
-          <div class="deal-fields">
-            <div class="field"><label for="slideZoning">Zoning designation</label><textarea id="slideZoning" placeholder="e.g. C-2 Commercial…"></textarea></div>
-            <div class="field"><label for="slideZoningMapUrl">Zoning map URL</label><input id="slideZoningMapUrl" type="url" placeholder="https://…"></div>
-            <div class="field-tools">
-              <a class="field-tool-btn" id="zoningLookupLink" href="#" target="_blank" rel="noopener">🔎 Look up zoning</a>
-              <button type="button" class="field-tool-btn" id="zoningAiDraftBtn">✨ AI draft</button>
-              <span class="field-tool-note">AI drafts are a starting guess from general knowledge — always verify against the county record.</span>
-            </div>
-          </div>
-        </div>
-
-        <div id="siteCondEditWrap">
-          <h4 class="section-label">Site conditions &amp; overlay maps</h4>
-          <div class="deal-fields">
-            <div class="field-row">
-              <div class="field"><label for="slideSiteLat">Latitude</label><input id="slideSiteLat" type="number" step="0.00001" placeholder="e.g. 26.12345"></div>
-              <div class="field"><label for="slideSiteLng">Longitude</label><input id="slideSiteLng" type="number" step="0.00001" placeholder="e.g. -80.12345"></div>
-            </div>
-            <div class="field-tools" id="siteLookupTools"></div>
-            <span class="field-tool-note">Deal Desk can't query FEMA, NWI, NRCS or EPA from the page — these open the authoritative viewer, you record what it says below. Screening only: NWI is not a delineation and the NFHL is not an elevation certificate.</span>
-            <div class="field-row">
-              <div class="field"><label for="slideFloodZone">Flood zone</label><input id="slideFloodZone" type="text" placeholder="e.g. X, AE, VE"></div>
-              <div class="field"><label for="slideFloodPanel">FIRM panel</label><input id="slideFloodPanel" type="text" placeholder="e.g. 12086C0312L"></div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label for="slideFloodPanelDate">Panel effective date</label><input id="slideFloodPanelDate" type="text" placeholder="e.g. 8/18/2014 (note preliminary if pending)"></div>
-              <div class="field"><label for="slideFloodBfe">Base flood elevation</label><input id="slideFloodBfe" type="text" placeholder="e.g. 9 ft NAVD88, or n/a"></div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label for="slideWetlandsStatus">Wetlands</label>
-                <select id="slideWetlandsStatus"></select>
-              </div>
-              <div class="field"><label for="slideEnvSummary">Environmental</label><input id="slideEnvSummary" type="text" placeholder="e.g. 2 RCRA sites within 1/4 mi"></div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label for="slideFloodMapUrl">Flood overlay image URL</label><input id="slideFloodMapUrl" type="text" placeholder="https://…"></div>
-              <div class="field"><label for="slideWetlandsMapUrl">Wetlands overlay image URL</label><input id="slideWetlandsMapUrl" type="text" placeholder="https://…"></div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label for="slideSoilsMapUrl">Soils overlay image URL</label><input id="slideSoilsMapUrl" type="text" placeholder="https://…"></div>
-              <div class="field"><label for="slideEnvMapUrl">Environmental overlay image URL</label><input id="slideEnvMapUrl" type="text" placeholder="https://…"></div>
-            </div>
-            <div class="field"><label for="slideSiteCondNote">Site conditions note</label><textarea id="slideSiteCondNote" placeholder="What the overlays mean for this deal — elevation, fill, insurance, permitting…"></textarea></div>
-          </div>
-          <div class="repeat-list-head">
-            <span class="wealth-preview-label" style="margin:0;">Layers checked</span>
-            <button type="button" class="btn btn-ghost" id="addSiteConditionBtn">+ Add layer</button>
-          </div>
-          <div id="siteConditionsList"></div>
-          <div class="wealth-preview-wrap">
-            <div class="wealth-preview-label">Memo preview</div>
-            <div id="siteCondPreview"></div>
-          </div>
-        </div>
-
-        <div>
           <h4 class="section-label">Links</h4>
           <div class="deal-fields">
             ${d.address ? `<a class="btn" style="align-self:flex-start;text-decoration:none;" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(d.address)}" target="_blank" rel="noopener">📍 Open "${escapeHtml(d.address)}" in Google Maps</a>` : `<div class="locked-note">Add a street address above to get a Google Maps link for this site.</div>`}
             <div class="field"><label for="slideFolder">Project folder URL</label><input id="slideFolder" type="text" placeholder="Paste a OneDrive/SharePoint/Drive share link…"></div>
-            <div class="field"><label for="slideProforma">Pro forma URL</label><input id="slideProforma" type="text" placeholder="https://…"></div>
           </div>
         </div>
 
@@ -7767,36 +7637,9 @@ function openDealDetail(id){
   document.getElementById("slideMarketTier").value = d.marketTier||"";
   document.getElementById("slideNextStep").value = d.nextStep||"";
   document.getElementById("slideDecisionRequired").value = d.decisionRequired||"";
-  document.getElementById("slideExecSummary").value = d.execSummary||"";
-  document.getElementById("slideRisks").value = d.risks||"";
-  document.getElementById("slideSitePlan").value = d.sitePlanUrl||"";
-  document.getElementById("slideMapAddress").value = d.mapAddress||"";
-  document.getElementById("slideZoning").value = d.zoningDesignation||"";
-  document.getElementById("slideZoningMapUrl").value = d.zoningMapUrl||"";
-  const wetlandsSelEl = document.getElementById("slideWetlandsStatus");
-  if(wetlandsSelEl && !wetlandsSelEl.options.length){
-    WETLANDS_STATUS_OPTIONS.forEach(o=>{
-      const opt = document.createElement("option"); opt.value = o==="Not checked" ? "" : o; opt.textContent = o;
-      wetlandsSelEl.appendChild(opt);
-    });
-  }
-  Object.entries(SITE_FIELD_MAP).forEach(([elId, map])=>{
-    const el = document.getElementById(elId);
-    if(el) el.value = d[map.field]??"";
-  });
-  const siteToolsEl = document.getElementById("siteLookupTools");
-  if(siteToolsEl){
-    siteToolsEl.innerHTML = siteLookupLinks(d).map(l=>
-      `<a class="field-tool-btn" id="${l.id}" href="${escapeAttr(l.url)}" target="_blank" rel="noopener">${l.label}</a>`
-    ).join("");
-  }
-  renderRepeatableList(id, "siteConditions", "siteConditionsList");
-  refreshSiteCondPreview();
-  const zoningLookupLinkEl = document.getElementById("zoningLookupLink");
-  if(zoningLookupLinkEl) zoningLookupLinkEl.href = zoningLookupUrl(d.address);
-  renderRepeatableList(id, "openQuestions", "openQuestionsList");
   document.getElementById("slideLot").value = d.lotSizeAcres??"";
-  document.getElementById("slidePrice").value = d.purchasePrice??"";
+  document.getElementById("slidePrice").value = fmtMoneyInput(d.purchasePrice);
+  wireMoneyInputDisplay(document.getElementById("slidePrice"));
   document.getElementById("slideUnits").value = d.targetUnits??"";
   document.getElementById("uwSf").value = d.grossDevelopableSf??"";
   document.getElementById("slideFund").value = d.fund||"";
@@ -7812,10 +7655,12 @@ function openDealDetail(id){
     document.getElementById(f.id).value = d[f.field]||"";
     updateCdateMark(f);
   });
-  document.getElementById("slideDep1Amt").value = d.deposit1Amount??"";
+  document.getElementById("slideDep1Amt").value = fmtMoneyInputPlain(d.deposit1Amount);
+  wireMoneyInputDisplay(document.getElementById("slideDep1Amt"), true);
   document.getElementById("slideDep1Date").value = d.deposit1Date||"";
   document.getElementById("slideDep1Status").value = d.deposit1Status||"Not Due";
-  document.getElementById("slideDep2Amt").value = d.deposit2Amount??"";
+  document.getElementById("slideDep2Amt").value = fmtMoneyInputPlain(d.deposit2Amount);
+  wireMoneyInputDisplay(document.getElementById("slideDep2Amt"), true);
   document.getElementById("slideDep2Date").value = d.deposit2Date||"";
   document.getElementById("slideDep2Status").value = d.deposit2Status||"Not Due";
   document.getElementById("slideFolder").value = d.folderUrl||"";
@@ -7828,7 +7673,7 @@ function openDealDetail(id){
   renderOverviewGrid(d);
   renderPhotoStrip(d);
   renderExtraDeposits();
-  renderDealLocationMap(id, d.mapAddress || d.address || "");
+  renderDealLocationMap(id, d.address || "");
   renderContractDocsList();
   document.getElementById("contractDocInput").addEventListener("change", (e)=>{
     const f = e.target.files[0];
@@ -7836,7 +7681,6 @@ function openDealDetail(id){
     if(f) handleContractDocUpload(id, f, document.getElementById("contractDocStatus"));
   });
   document.getElementById("quickUpdateApplyBtn").addEventListener("click", ()=> handleQuickUpdate(id));
-  document.getElementById("openFinancialModelBtn").addEventListener("click", ()=> openFinancialModelModal(id));
 
   function updateCdateMark(f){
     const val = document.getElementById(f.id).value;
@@ -7879,7 +7723,7 @@ function openDealDetail(id){
   document.getElementById("slideAddress").addEventListener("change", e=>{
     const v = e.target.value.trim();
     save({address: v}); d.address = v;
-    renderDealLocationMap(id, document.getElementById("slideMapAddress").value.trim() || v);
+    renderDealLocationMap(id, v);
   });
   document.getElementById("slideStage").addEventListener("change", e=>{
     const newStage = e.target.value, prevStage = d.stage||"prospecting";
@@ -7896,43 +7740,9 @@ function openDealDetail(id){
   document.getElementById("slideMarketTier").addEventListener("change", e=>{ save({marketTier: e.target.value}); d.marketTier = e.target.value; });
   document.getElementById("slideNextStep").addEventListener("change", e=> save({nextStep: e.target.value.trim()}));
   document.getElementById("slideDecisionRequired").addEventListener("change", e=> save({decisionRequired: e.target.value.trim()}));
-  document.getElementById("slideExecSummary").addEventListener("change", e=> save({execSummary: e.target.value.trim()}));
-  document.getElementById("slideRisks").addEventListener("change", e=> save({risks: e.target.value.trim()}));
-  document.getElementById("slideSitePlan").addEventListener("change", e=> save({sitePlanUrl: e.target.value.trim()}));
-  document.getElementById("slideMapAddress").addEventListener("change", e=>{
-    const v = e.target.value.trim();
-    save({mapAddress: v}); d.mapAddress = v;
-    renderDealLocationMap(id, v || document.getElementById("slideAddress").value.trim());
-  });
-  document.getElementById("addOpenQuestionBtn").addEventListener("click", ()=> addRepeatableRow(id, "openQuestions", "openQuestionsList"));
-  document.getElementById("slideZoning").addEventListener("change", e=>{ save({zoningDesignation: e.target.value.trim()}); d.zoningDesignation = e.target.value.trim(); });
-  document.getElementById("slideZoningMapUrl").addEventListener("change", e=>{ save({zoningMapUrl: e.target.value.trim()}); d.zoningMapUrl = e.target.value.trim(); });
-  document.getElementById("zoningAiDraftBtn").addEventListener("click", ()=> aiDraftField(id, "zoning"));
-  document.getElementById("siteCondEditWrap").addEventListener("change", e=>{
-    const map = SITE_FIELD_MAP[e.target.id];
-    if(!map) return;
-    let v;
-    if(map.type==="text") v = e.target.value.trim();
-    else v = e.target.value==="" ? null : Number(e.target.value);
-    save({[map.field]: v});
-    d[map.field] = v;
-    if(map.field==="siteLat" || map.field==="siteLng"){
-      const toolsEl = document.getElementById("siteLookupTools");
-      if(toolsEl) siteLookupLinks(d).forEach(l=>{
-        const a = document.getElementById(l.id);
-        if(a) a.href = l.url;
-      });
-    }
-    refreshSiteCondPreview();
-  });
-  document.getElementById("addSiteConditionBtn").addEventListener("click", ()=>{
-    addRepeatableRow(id, "siteConditions", "siteConditionsList");
-    refreshSiteCondPreview();
-  });
-  document.getElementById("siteConditionsList").addEventListener("change", ()=> setTimeout(refreshSiteCondPreview, 0));
   document.getElementById("slideLot").addEventListener("change", e=>{ save({lotSizeAcres: e.target.value?Number(e.target.value):null}); d.lotSizeAcres = e.target.value?Number(e.target.value):null; updateCalcPerAcre(); });
   document.getElementById("slidePrice").addEventListener("input", ()=>{ updateCalcPerAcre(); keyMetricsLivePreview(); });
-  document.getElementById("slidePrice").addEventListener("change", e=>{ save({purchasePrice: e.target.value?Number(e.target.value):null}); d.purchasePrice = e.target.value?Number(e.target.value):null; updateCalcPerAcre(); renderKeyMetrics(d); });
+  document.getElementById("slidePrice").addEventListener("change", e=>{ const n = parseMoneyStr(e.target.value); save({purchasePrice: n}); d.purchasePrice = n; updateCalcPerAcre(); renderKeyMetrics(d); });
   document.getElementById("slideUnits").addEventListener("input", ()=>{ updateCalcPerAcre(); keyMetricsLivePreview(); });
   document.getElementById("slideUnits").addEventListener("change", e=>{ save({targetUnits: e.target.value?Number(e.target.value):null}); d.targetUnits = e.target.value?Number(e.target.value):null; updateCalcPerAcre(); renderKeyMetrics(d); });
   document.getElementById("uwSf").addEventListener("input", ()=> keyMetricsLivePreview());
@@ -7986,7 +7796,7 @@ function openDealDetail(id){
       }
     });
   });
-  document.getElementById("slideDep1Amt").addEventListener("change", e=> save({deposit1Amount: e.target.value?Number(e.target.value):null}));
+  document.getElementById("slideDep1Amt").addEventListener("change", e=> save({deposit1Amount: parseMoneyStr(e.target.value)}));
   document.getElementById("slideDep1Date").addEventListener("change", e=>{
     save({deposit1Date: e.target.value});
     d.deposit1Date = e.target.value;
@@ -8000,7 +7810,7 @@ function openDealDetail(id){
     }
   });
   document.getElementById("slideDep1Status").addEventListener("change", e=> save({deposit1Status: e.target.value}));
-  document.getElementById("slideDep2Amt").addEventListener("change", e=> save({deposit2Amount: e.target.value?Number(e.target.value):null}));
+  document.getElementById("slideDep2Amt").addEventListener("change", e=> save({deposit2Amount: parseMoneyStr(e.target.value)}));
   document.getElementById("slideDep2Date").addEventListener("change", e=> save({deposit2Date: e.target.value}));
   document.getElementById("slideDep2Status").addEventListener("change", e=> save({deposit2Status: e.target.value}));
   document.getElementById("addDepositBtn").addEventListener("click", ()=>{
@@ -8014,7 +7824,7 @@ function openDealDetail(id){
   document.getElementById("slideNotes").addEventListener("change", e=> save({notes: e.target.value}));
 
   function updateCalcPerAcre(){
-    const price = Number(document.getElementById("slidePrice").value||0);
+    const price = parseMoneyStr(document.getElementById("slidePrice").value)||0;
     const lot = Number(document.getElementById("slideLot").value||0);
     const el = document.getElementById("calcPerAcre");
     el.textContent = (price>0 && lot>0) ? fmtMoneyShort(price/lot)+"/ac" : "—";
@@ -8071,8 +7881,7 @@ function openDealDetail(id){
 
 /* Wires the "record a gate decision" form once per deal-detail open — deliberately not rebuilt by
    the derived-render hooks (unlike renderGateLogSummary below it) so an in-progress note or answer
-   selection survives an unrelated field's realtime update, matching how the site-conditions
-   repeatable rows are kept separate from refreshSiteCondPreview. */
+   selection survives an unrelated field's realtime update. */
 function wireGateLogForm(dealId){
   const gateSel = document.getElementById("gateLogGate");
   const answerSel = document.getElementById("gateLogAnswer");
@@ -8121,181 +7930,10 @@ function wireGateLogForm(dealId){
   });
 }
 
-function renderUwTiles(dealLike){
-  const tilesEl = document.getElementById("uwTiles");
-  const spreadEl = document.getElementById("uwSpread");
-  if(!tilesEl) return;
-  const uw = calcUnderwriting(dealLike);
-  if(!uw || !uw.sf){
-    tilesEl.innerHTML = `<div class="locked-note">Fill in gross SF, build cost, and sale price to see the math.</div>`;
-    if(spreadEl) spreadEl.textContent = "";
-    return;
-  }
-  const mCls = uw.marginRevenue===null ? "" : (uw.marginRevenue>=0.20?"good":uw.marginRevenue>=0.10?"warn":"bad");
-  tilesEl.innerHTML = `
-    <div class="uw-tile"><span class="uw-label">Total dev. cost</span><span class="uw-value">${fmtMoneyShort(uw.totalDevCost)}</span></div>
-    <div class="uw-tile"><span class="uw-label">Gross revenue</span><span class="uw-value">${uw.grossRevenue?fmtMoneyShort(uw.grossRevenue):"—"}</span></div>
-    <div class="uw-tile"><span class="uw-label">Net profit</span><span class="uw-value${uw.netProfit<0?" bad":""}">${fmtMoneyShort(uw.netProfit)}</span></div>
-    <div class="uw-tile"><span class="uw-label">Margin · profit on cost</span><span class="uw-value ${mCls}">${uw.marginRevenue!==null?(uw.marginRevenue*100).toFixed(1)+"%":"—"}<span class="uw-sub"> / ${uw.marginCost!==null?(uw.marginCost*100).toFixed(1)+"%":"—"}</span></span></div>`;
-  if(spreadEl){
-    spreadEl.textContent = uw.costPerSf!==null
-      ? `All-in cost ${fmtMoneyShort(uw.costPerSf)}/SF vs. sale ${uw.salePerSf?fmtMoneyShort(uw.salePerSf):"—"}/SF${uw.spreadPerSf!==null?` → ${fmtMoneyShort(uw.spreadPerSf)}/SF spread`:""}`
-      : "";
-  }
-}
-
-function renderCapTiles(dealLike){
-  const tilesEl = document.getElementById("capTiles");
-  if(!tilesEl) return;
-  const cap = calcCapitalStack(dealLike);
-  if(!cap){
-    tilesEl.innerHTML = `<div class="locked-note">Enter a purchase price (or fill in the underwriting above) to see the capital stack.</div>`;
-    return;
-  }
-  tilesEl.innerHTML = `
-    <div class="uw-tile"><span class="uw-label">${cap.fromFullUw?"Total capital needed":"Capital needed (price only)"}</span><span class="uw-value">${fmtMoneyShort(cap.basis)}</span></div>
-    <div class="uw-tile"><span class="uw-label">Debt · ${cap.debtPct.toFixed(0)}% LTC</span><span class="uw-value">${fmtMoneyShort(cap.debtAmount)}</span></div>
-    <div class="uw-tile"><span class="uw-label">Equity required</span><span class="uw-value good">${fmtMoneyShort(cap.equityAmount)}</span></div>`;
-}
-
-/* Financial model modal — everything that used to live on the deal card's Back-of-Envelope tab
-   (the full-model toggle/upload, the underwriting inputs, and the capital stack), now tucked
-   behind a single "Financial model" link on the main card. Lot size / purchase price / targeted
-   units / developable SF stay on the main card as always-visible basics (see the Deal basics
-   section in openDealDetail) — this modal reads grossDevelopableSf/purchasePrice/targetUnits off
-   the deal object directly rather than asking for them again. */
-function openFinancialModelModal(id){
-  const existing = document.getElementById("financialModelOverlay");
-  if(existing) existing.remove();
-  const d = deals.get(id) || {};
-  const overlay = document.createElement("div");
-  overlay.className = "overlay";
-  overlay.id = "financialModelOverlay";
-  overlay.innerHTML = `<div class="modal" style="width:min(720px,94vw);">
-    <div class="modal-head"><h2>Financial model</h2><button type="button" class="btn-icon" id="finModelCloseBtn" style="margin-left:auto;">✕ Close</button></div>
-    <div class="modal-body">
-      <div>
-        <h4 class="section-label">Financial model</h4>
-        <div class="model-toggle-row">
-          <div class="model-toggle" id="modelToggle">
-            <button type="button" data-val="boe">Back-of-envelope</button>
-            <button type="button" data-val="full">Full model built out</button>
-          </div>
-        </div>
-        <div class="deal-fields" id="modelFullFields" hidden>
-          <div class="field"><label for="slideModelReturns">Headline returns (from full model)</label><textarea id="slideModelReturns" placeholder="e.g. Untrended IRR 18.2%, equity multiple 1.6x, yield-on-cost 7.1%…"></textarea></div>
-          <div class="field-row">
-            <div class="field"><label for="slideModelUpdated">Model last updated</label><input id="slideModelUpdated" type="date"></div>
-            <div class="field"><label for="slideModelChange">What changed since last update</label><input id="slideModelChange" type="text" placeholder="e.g. Refined construction budget after GC bid"></div>
-          </div>
-          <div class="locked-note">Upload the workbook below for a quick AI-read summary, and/or link it under Links → Project folder URL on the Overview tab if it lives on OneDrive/SharePoint too.</div>
-          <div id="modelFileWrap"></div>
-        </div>
-      </div>
-
-      <div style="margin-top:16px;">
-        <h4 class="section-label">Back-of-envelope underwriting</h4>
-        <div class="deal-fields">
-          <div class="field-row">
-            <div class="field"><label for="uwBuild">Build cost ($/SF)</label><input id="uwBuild" type="number" step="1" placeholder="0"></div>
-            <div class="field"><label for="uwSoft">Soft costs (% of build)</label><input id="uwSoft" type="number" step="1"></div>
-          </div>
-          <div class="field-row">
-            <div class="field"><label for="uwCont">Contingency (% of build+soft)</label><input id="uwCont" type="number" step="1"></div>
-            <div class="field"><label for="uwSale">Sale price ($/SF)</label><input id="uwSale" type="number" step="1" placeholder="0"></div>
-          </div>
-          <div class="field-row">
-            <div class="field"><label for="uwSell">Selling costs (% of revenue)</label><input id="uwSell" type="number" step="1"></div>
-          </div>
-        </div>
-        <div class="uw-tiles" id="uwTiles" style="margin-top:12px;"></div>
-        <div class="calc-line" id="uwSpread" style="margin-top:8px;"></div>
-        <div style="margin-top:14px;">
-          <div class="cdate-label" style="font-weight:700;margin-bottom:6px;">Margin sensitivity</div>
-          <div id="sensitivityTableWrap"></div>
-        </div>
-      </div>
-
-      <div style="margin-top:16px;">
-        <h4 class="section-label">Capital stack</h4>
-        <div class="deal-fields">
-          <div class="field"><label for="uwDebtPct">Loan-to-cost (debt %)</label><input id="uwDebtPct" type="number" step="1" min="0" max="100" placeholder="65"></div>
-        </div>
-        <div class="uw-tiles" id="capTiles" style="margin-top:12px;"></div>
-      </div>
-    </div>
-    <div class="modal-foot"><button type="button" class="btn" id="finModelDoneBtn">Done</button></div>
-  </div>`;
-  document.body.appendChild(overlay);
-  overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
-  document.getElementById("finModelCloseBtn").addEventListener("click", ()=> overlay.remove());
-  document.getElementById("finModelDoneBtn").addEventListener("click", ()=> overlay.remove());
-
-  document.getElementById("slideModelReturns").value = d.modelHeadlineReturns||"";
-  document.getElementById("slideModelUpdated").value = d.modelLastUpdated||"";
-  document.getElementById("slideModelChange").value = d.modelChangeNote||"";
-  document.getElementById("uwBuild").value = d.buildCostPerSf??"";
-  document.getElementById("uwSoft").value = (d.softCostPct===null||d.softCostPct===undefined)?20:d.softCostPct;
-  document.getElementById("uwCont").value = (d.contingencyPct===null||d.contingencyPct===undefined)?5:d.contingencyPct;
-  document.getElementById("uwSale").value = d.salePricePerSf??"";
-  document.getElementById("uwSell").value = (d.sellingCostPct===null||d.sellingCostPct===undefined)?6:d.sellingCostPct;
-  document.getElementById("uwDebtPct").value = (d.debtPct===null||d.debtPct===undefined)?65:d.debtPct;
-
-  function setModelToggle(val){
-    document.querySelectorAll("#modelToggle button").forEach(b=> b.classList.toggle("active", b.dataset.val===val));
-    document.getElementById("modelFullFields").hidden = (val!=="full");
-  }
-  setModelToggle(d.modelStatus||"boe");
-  document.querySelectorAll("#modelToggle button").forEach(b=>{
-    b.addEventListener("click", ()=>{
-      setModelToggle(b.dataset.val);
-      updateDeal(id, {modelStatus: b.dataset.val}); d.modelStatus = b.dataset.val;
-    });
-  });
-  document.getElementById("slideModelReturns").addEventListener("change", e=>{ updateDeal(id,{modelHeadlineReturns: e.target.value.trim()}); d.modelHeadlineReturns=e.target.value.trim(); });
-  document.getElementById("slideModelUpdated").addEventListener("change", e=>{ updateDeal(id,{modelLastUpdated: e.target.value}); d.modelLastUpdated=e.target.value; });
-  document.getElementById("slideModelChange").addEventListener("change", e=>{ updateDeal(id,{modelChangeNote: e.target.value.trim()}); d.modelChangeNote=e.target.value.trim(); });
-  renderModelFileSection();
-
-  /* Same live-preview approach the old Back-of-Envelope tab used — merge the modal's own inputs
-     onto the persisted deal (grossDevelopableSf/purchasePrice/targetUnits come from the main card,
-     via d, unchanged) so the tiles/sensitivity table/key-metrics tiles react as you type, without
-     committing anything until "change" (blur) fires. */
-  function uwLivePreview(){
-    const merged = Object.assign({}, d, {
-      buildCostPerSf: numOrNull("uwBuild"),
-      softCostPct: numOrNull("uwSoft"),
-      contingencyPct: numOrNull("uwCont"),
-      salePricePerSf: numOrNull("uwSale"),
-      sellingCostPct: numOrNull("uwSell"),
-      debtPct: numOrNull("uwDebtPct"),
-    });
-    renderUwTiles(merged);
-    renderCapTiles(merged);
-    renderKeyMetrics(merged);
-    const sensWrap = document.getElementById("sensitivityTableWrap");
-    if(sensWrap) sensWrap.innerHTML = sensitivityTableHtml(merged);
-  }
-  ["uwBuild","uwSoft","uwCont","uwSale","uwSell","uwDebtPct"].forEach(elId=>{
-    document.getElementById(elId).addEventListener("input", uwLivePreview);
-  });
-  document.getElementById("uwBuild").addEventListener("change", e=>{ const v=numOrNull("uwBuild"); updateDeal(id,{buildCostPerSf:v}); d.buildCostPerSf=v; });
-  document.getElementById("uwSoft").addEventListener("change", e=>{ const v=numOrNull("uwSoft"); updateDeal(id,{softCostPct:v}); d.softCostPct=v; });
-  document.getElementById("uwCont").addEventListener("change", e=>{ const v=numOrNull("uwCont"); updateDeal(id,{contingencyPct:v}); d.contingencyPct=v; });
-  document.getElementById("uwSale").addEventListener("change", e=>{ const v=numOrNull("uwSale"); updateDeal(id,{salePricePerSf:v}); d.salePricePerSf=v; });
-  document.getElementById("uwSell").addEventListener("change", e=>{ const v=numOrNull("uwSell"); updateDeal(id,{sellingCostPct:v}); d.sellingCostPct=v; });
-  document.getElementById("uwDebtPct").addEventListener("change", e=>{ const v=numOrNull("uwDebtPct"); updateDeal(id,{debtPct:v}); d.debtPct=v; });
-
-  renderUwTiles(d);
-  renderCapTiles(d);
-  const sensWrap = document.getElementById("sensitivityTableWrap");
-  if(sensWrap) sensWrap.innerHTML = sensitivityTableHtml(d);
-}
-
-/* Key-metrics-at-a-glance — Northspyre "Target returns"-style bold tiles, gated on the same
-   stage threshold that unlocks the DD checklist (DD_UNLOCK_STAGES). Sourced entirely from the
-   back-of-envelope underwriting inputs and targeted unit count already tracked per deal, so it
-   needs no new data entry beyond what's in the Financial model link/modal. */
+/* Key-metrics-at-a-glance tiles — dead code as of the deal-card simplification: #keyMetricsWrap no
+   longer exists anywhere in the card, so this always no-ops at the line below. Left in place
+   (rather than chasing every call site) the same way other now-unreachable render functions are
+   elsewhere in this file — harmless, and removing it added no functional value. */
 function renderKeyMetrics(dealLike){
   const wrap = document.getElementById("keyMetricsWrap");
   if(!wrap) return;
@@ -8744,12 +8382,13 @@ function renderExtraDeposits(){
     row.className = "deposit-extra-row";
     row.innerHTML = `
       <input class="deposit-extra-label" type="text" placeholder="e.g. Extension fee 1">
-      <div class="money-field deposit-extra-amount-wrap"><span class="money-field-prefix">$</span><input class="deposit-extra-amount" type="number" placeholder="Amount"></div>
+      <div class="money-field deposit-extra-amount-wrap"><span class="money-field-prefix">$</span><input class="deposit-extra-amount" type="text" inputmode="numeric" placeholder="Amount"></div>
       <input class="deposit-extra-date" type="date">
       <select class="deposit-extra-status"></select>
       <button type="button" class="btn-icon deposit-extra-remove" title="Remove deposit">✕</button>`;
     row.querySelector(".deposit-extra-label").value = dep.label||"";
-    row.querySelector(".deposit-extra-amount").value = dep.amount??"";
+    row.querySelector(".deposit-extra-amount").value = fmtMoneyInputPlain(dep.amount);
+    wireMoneyInputDisplay(row.querySelector(".deposit-extra-amount"), true);
     row.querySelector(".deposit-extra-date").value = dep.date||"";
     const sel = row.querySelector(".deposit-extra-status");
     DEPOSIT_STATUS_OPTIONS.forEach(s=>{
@@ -8763,7 +8402,7 @@ function renderExtraDeposits(){
       const next = (cur.extraDeposits||[]).slice();
       next[i] = {
         label: row.querySelector(".deposit-extra-label").value.trim(),
-        amount: row.querySelector(".deposit-extra-amount").value ? Number(row.querySelector(".deposit-extra-amount").value) : null,
+        amount: parseMoneyStr(row.querySelector(".deposit-extra-amount").value),
         date: row.querySelector(".deposit-extra-date").value,
         status: sel.value,
       };
@@ -8793,15 +8432,6 @@ function renderExtraDeposits(){
    add/edit/remove for free, backed by a plain array field on the deal. */
 function repeatableListSpecs(){
   return {
-    openQuestions: {
-      empty: "No open questions yet.",
-      cols: [
-        {key:"question", type:"text", placeholder:"Open question or condition…", flex:3},
-        {key:"owner", type:"text", placeholder:"Owner", flex:1},
-        {key:"status", type:"select", options:["Open","Answered"], flex:1},
-      ],
-      row: ()=>({question:"", owner:"", status:"Open"}),
-    },
     landComps: {
       empty: "No land comps yet.",
       cols: [
@@ -8841,18 +8471,6 @@ function repeatableListSpecs(){
         {key:"notes", type:"text", placeholder:"Notes", flex:2},
       ],
       row: ()=>({name:"", status:"Planned", distanceMi:null, notes:""}),
-    },
-    siteConditions: {
-      empty: "No site-condition layers checked yet.",
-      cols: [
-        {key:"layer", type:"select", options:SITE_LAYERS, flex:2},
-        {key:"finding", type:"text", placeholder:"What the layer says (e.g. Zone X, 0.2% annual chance)", flex:3},
-        {key:"sourceDate", type:"text", placeholder:"Effective / published", flex:1},
-        {key:"captured", type:"date", flex:1},
-        {key:"by", type:"text", placeholder:"Checked by", flex:1},
-        {key:"url", type:"text", placeholder:"https://… viewer link", flex:2},
-      ],
-      row: ()=>({layer:SITE_LAYERS[0], finding:"", sourceDate:"", captured:new Date().toISOString().slice(0,10), by:(whoName()||""), url:""}),
     },
     dealHistory: {
       empty: "No prior IC history on this deal.",
@@ -8940,9 +8558,6 @@ function addRepeatableRow(dealId, fieldKey, containerId){
 function censusExplorerUrl(address){
   return `https://data.census.gov/all?q=${encodeURIComponent(address||"")}`;
 }
-function zoningLookupUrl(address){
-  return `https://www.google.com/search?q=${encodeURIComponent((address||"")+" zoning map parcel")}`;
-}
 function trafficLookupUrl(address, state){
   return `https://www.google.com/search?q=${encodeURIComponent((address||"")+" "+(state||"")+" annual average daily traffic count DOT")}`;
 }
@@ -8989,140 +8604,6 @@ function refreshMarketFieldInputs(){
   if(employersEl) employersEl.value = d.majorEmployers||"";
   const trafficEl = document.getElementById("slideTrafficNote");
   if(trafficEl) trafficEl.value = d.trafficNote||"";
-}
-
-/* ---------- site conditions & overlay maps ----------
-   Same sandbox limit as the lookups above: the page can't query FEMA / USFWS / NRCS / EPA live,
-   so site conditions are entered by hand and backed by one-click deep links to each layer's
-   authoritative viewer. What makes an overlay diligence rather than decoration is the stamp on
-   every row — what the layer said, the source's own effective or published date, and who checked
-   it when. A layer nobody has checked prints as "Not checked" in the memo rather than vanishing.
-   Screening is not determination: NWI is not a wetlands delineation and the NFHL is not an
-   elevation certificate; each row names the report that will eventually replace it. */
-const SITE_LAYERS = [
-  "Flood (FEMA NFHL)",
-  "Wetlands (USFWS NWI)",
-  "Soils (NRCS)",
-  "Environmental (EPA)",
-  "Opportunity zone",
-  "Zoning / parcel",
-  "Traffic (state DOT)",
-  "Airport / height",
-  "Other",
-];
-const WETLANDS_STATUS_OPTIONS = ["Not checked","None mapped on site","Mapped nearby","Mapped on site","Delineation ordered"];
-const SITE_FIELD_MAP = {
-  slideSiteLat:        {field:"siteLat",        type:"float"},
-  slideSiteLng:        {field:"siteLng",        type:"float"},
-  slideFloodZone:      {field:"floodZone",      type:"text"},
-  slideFloodPanel:     {field:"floodPanel",     type:"text"},
-  slideFloodPanelDate: {field:"floodPanelDate", type:"text"},
-  slideFloodBfe:       {field:"floodBfe",       type:"text"},
-  slideWetlandsStatus: {field:"wetlandsStatus", type:"text"},
-  slideEnvSummary:     {field:"envSummary",     type:"text"},
-  slideSiteCondNote:   {field:"siteCondNote",   type:"text"},
-  slideFloodMapUrl:    {field:"floodMapUrl",    type:"text"},
-  slideWetlandsMapUrl: {field:"wetlandsMapUrl", type:"text"},
-  slideSoilsMapUrl:    {field:"soilsMapUrl",    type:"text"},
-  slideEnvMapUrl:      {field:"envMapUrl",      type:"text"},
-};
-function siteCoords(d){
-  const lat = Number(d && d.siteLat), lng = Number(d && d.siteLng);
-  if(!isFinite(lat) || !isFinite(lng) || (lat===0 && lng===0)) return null;
-  return {lat, lng};
-}
-function siteAddressFor(d){ return ((d && (d.mapAddress || d.address)) || "").trim(); }
-/* FEMA's Map Service Center is the authoritative flood source (it's what produces the FIRMette
-   the lender will ask for). If the address parameter is ever dropped the link still lands on the
-   search page, so the button degrades to "one click closer" rather than breaking. */
-function femaFloodUrl(d){
-  const a = siteAddressFor(d);
-  return a ? `https://msc.fema.gov/portal/search?AddressQuery=${encodeURIComponent(a)}` : "https://msc.fema.gov/portal/search";
-}
-function nfhlViewerUrl(d){
-  const a = siteAddressFor(d);
-  const base = "https://www.arcgis.com/apps/webappviewer/index.html?id=8b0adb51996444d4879338b5529aa9cd";
-  return a ? `${base}&find=${encodeURIComponent(a)}` : base;
-}
-function wetlandsMapperUrl(){ return "https://fwsprimary.wim.usgs.gov/wetlands/apps/wetlands-mapper/"; }
-/* Web Soil Survey takes a bounding box in the URL as (upperLeftLng upperLeftLat, lowerRightLng
-   lowerRightLat) — so a lat/long on the deal record opens it already zoomed to the parcel. */
-function soilSurveyUrl(d){
-  const c = siteCoords(d);
-  const base = "https://websoilsurvey.nrcs.usda.gov/app/WebSoilSurvey.aspx";
-  if(!c) return base;
-  const dd = 0.006;
-  const box = `(${(c.lng-dd).toFixed(5)} ${(c.lat+dd).toFixed(5)},${(c.lng+dd).toFixed(5)} ${(c.lat-dd).toFixed(5)})`;
-  return `${base}?location=${encodeURIComponent(box)}`;
-}
-function nepAssistUrl(){ return "https://nepassisttool.epa.gov/nepassist/entry.html"; }
-function ozMapUrl(){ return "https://www.cdfifund.gov/cims"; }
-function siteLookupLinks(d){
-  return [
-    {id:"floodLookupLink",    label:"🌊 FEMA flood map",   url: femaFloodUrl(d)},
-    {id:"nfhlLookupLink",     label:"🗺 NFHL viewer",       url: nfhlViewerUrl(d)},
-    {id:"wetlandsLookupLink", label:"🪷 Wetlands (NWI)",    url: wetlandsMapperUrl()},
-    {id:"soilsLookupLink",    label:"⛰ Soils (NRCS)",      url: soilSurveyUrl(d)},
-    {id:"envLookupLink",      label:"🏭 EPA NEPAssist",     url: nepAssistUrl()},
-    {id:"ozLookupLink",       label:"💠 Opportunity zone",  url: ozMapUrl()},
-  ];
-}
-/* Shared renderer — the slideover preview and the printed IC memo both call this, so the two can't
-   drift apart (same contract as demographicsPanelHtml). */
-function siteConditionsPanelHtml(d){
-  const rows = (d.siteConditions || []).filter(r=> r && (r.layer || r.finding));
-  const tiles = [
-    ["Flood zone", d.floodZone || "Not checked", !d.floodZone],
-    ["Wetlands", d.wetlandsStatus || "Not checked", !d.wetlandsStatus || d.wetlandsStatus==="Not checked"],
-    ["Environmental", d.envSummary || "Not checked", !d.envSummary],
-  ];
-  const tilesHtml = `<div class="wealth-tiles">${tiles.map(([l,v,unset])=>`
-    <div class="wealth-tile">
-      <div class="wealth-tile-label">${escapeHtml(l)}</div>
-      <div class="wealth-tile-value" style="font-size:15px;${unset?"color:var(--ink-faint);font-weight:600;":""}">${escapeHtml(String(v))}</div>
-    </div>`).join("")}</div>`;
-  const floodBits = [
-    d.floodPanel ? `FIRM panel ${d.floodPanel}` : "",
-    d.floodPanelDate ? `effective ${d.floodPanelDate}` : "",
-    d.floodBfe ? `BFE ${d.floodBfe}` : "",
-  ].filter(Boolean).join(" · ");
-  const c = siteCoords(d);
-  const stampBits = [
-    floodBits,
-    c ? `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}` : "No coordinates on file — soils and wetlands links open unzoomed",
-  ].filter(Boolean).join("  ·  ");
-  const stampHtml = `<p class="wealth-source-note" style="margin-top:8px;">${escapeHtml(stampBits)}</p>`;
-  const tableHtml = rows.length ? `<table class="memo-table ic-scorecard-table" style="margin-top:12px;">
-    <thead><tr><th>Layer</th><th>Finding</th><th>Source date</th><th>Checked</th><th>Link</th></tr></thead>
-    <tbody>${rows.map(r=>`<tr>
-      <td class="memo-td">${escapeHtml(r.layer||"—")}</td>
-      <td class="memo-td ic-scorecard-req">${escapeHtml(r.finding||"—")}</td>
-      <td class="memo-td">${escapeHtml(r.sourceDate||"—")}</td>
-      <td class="memo-td">${r.captured?fmtDate(r.captured):"—"}${r.by?` · ${escapeHtml(r.by)}`:""}</td>
-      <td class="memo-td">${r.url?`<a href="${escapeAttr(normalizeUrl(r.url))}" target="_blank" rel="noopener">Open →</a>`:"—"}</td>
-    </tr>`).join("")}</tbody>
-  </table>` : `<p class="ic-memo-notes" style="font-style:italic;color:var(--ink-faint);margin-top:12px;">No layers checked yet — flood, wetlands, soils and environmental should each be logged before this deal goes to IC.</p>`;
-  const unchecked = SITE_LAYERS.slice(0,5).filter(l=> !rows.some(r=> r.layer===l));
-  const gapHtml = (rows.length && unchecked.length) ? `<p class="wealth-source-note">Not checked: ${escapeHtml(unchecked.join(", "))}</p>` : "";
-  const maps = [
-    ["Flood zones", d.floodMapUrl],
-    ["Wetlands", d.wetlandsMapUrl],
-    ["Soils", d.soilsMapUrl],
-    ["Environmental", d.envMapUrl],
-  ].filter(([,u])=> !!u);
-  const mapsHtml = maps.length ? `<div class="ic-memo-media-grid" style="margin-top:14px;">${maps.map(([label,u])=>`
-    <div class="ic-memo-media-box">
-      <div class="ic-memo-media-label">${escapeHtml(label)} overlay</div>
-      <img src="${escapeAttr(normalizeUrl(u))}" onerror="this.closest('.ic-memo-media-box').style.display='none'">
-    </div>`).join("")}</div>` : "";
-  const noteHtml = d.siteCondNote ? `<p class="ic-memo-notes" style="margin-top:10px;">${escapeHtml(d.siteCondNote)}</p>` : "";
-  return `${tilesHtml}${stampHtml}${tableHtml}${gapHtml}${mapsHtml}${noteHtml}`;
-}
-function refreshSiteCondPreview(){
-  const wrap = document.getElementById("siteCondPreview");
-  if(!wrap) return;
-  const d = deals.get(openDealId);
-  wrap.innerHTML = d ? siteConditionsPanelHtml(d) : "";
 }
 
 /* ---------- demographics / wealth profile panel ----------
@@ -9310,10 +8791,9 @@ function renderDDWorkSection(){
 
 /* =================== Gate log — Screen to Close decision checkpoints =================== */
 /* Read-only summary (status pill + latest decider/date + history) for all six gates, rebuilt on
-   every derived-render pass — mirrors refreshSiteCondPreview's split of a safe-to-rebuild preview
-   from the separately-wired "record a decision" form (see wireGateLogForm, built once in
-   openDealDetail so an in-progress form entry never gets wiped by an unrelated field's realtime
-   update). */
+   every derived-render pass, separate from the "record a decision" form (see wireGateLogForm,
+   built once in openDealDetail so an in-progress form entry never gets wiped by an unrelated
+   field's realtime update). */
 function gateHistoryRowHtml(e){
   return `<div class="gate-history-row">
     <span class="gate-history-answer">${escapeHtml(e.answer||"—")}</span>
@@ -9453,7 +8933,7 @@ function debtSourceRowHtml(dealId, source, idx){
       ${DEBT_STATUS_OPTIONS.map(k=>`<option value="${k}"${k===status?" selected":""}>${DEBT_STATUS_META[k].label}</option>`).join("")}
     </select>
     <input type="text" class="debt-source-lender" placeholder="Lender" value="${escapeAttr(source.lenderName||"")}">
-    <input type="number" class="debt-source-amount" placeholder="Amount" value="${source.committedAmount!=null?source.committedAmount:""}">
+    <input type="text" inputmode="numeric" class="debt-source-amount" placeholder="Amount" value="${escapeAttr(fmtMoneyInput(source.committedAmount))}">
     <input type="date" class="debt-source-date" value="${escapeAttr(source.commitmentDate||"")}">
     <button type="button" class="btn-icon debt-source-remove" title="Remove debt source">✕</button>
   </div>`;
@@ -9506,7 +8986,8 @@ function wireDebtView(wrap){
     });
     row.querySelector(".debt-source-type").addEventListener("change", e=> commit({type: e.target.value.trim()}));
     row.querySelector(".debt-source-lender").addEventListener("change", e=> commit({lenderName: e.target.value.trim()}));
-    row.querySelector(".debt-source-amount").addEventListener("change", e=>{ commit({committedAmount: e.target.value===""?null:Number(e.target.value)}); renderDebtView(); });
+    wireMoneyInputDisplay(row.querySelector(".debt-source-amount"));
+    row.querySelector(".debt-source-amount").addEventListener("change", e=>{ commit({committedAmount: parseMoneyStr(e.target.value)}); renderDebtView(); });
     row.querySelector(".debt-source-date").addEventListener("change", e=> commit({commitmentDate: e.target.value}));
     row.querySelector(".debt-source-remove").addEventListener("click", ()=>{
       const next = (d.debtSources||[]).slice();
@@ -9603,7 +9084,7 @@ function equitySourceRowHtml(dealId, source, idx){
       ${EQUITY_STATUS_OPTIONS.map(k=>`<option value="${k}"${k===status?" selected":""}>${EQUITY_STATUS_META[k].label}</option>`).join("")}
     </select>
     <input type="text" class="debt-source-lender" placeholder="Investor" value="${escapeAttr(source.lenderName||"")}">
-    <input type="number" class="debt-source-amount" placeholder="Amount" value="${source.committedAmount!=null?source.committedAmount:""}">
+    <input type="text" inputmode="numeric" class="debt-source-amount" placeholder="Amount" value="${escapeAttr(fmtMoneyInput(source.committedAmount))}">
     <input type="date" class="debt-source-date" value="${escapeAttr(source.commitmentDate||"")}">
     <button type="button" class="btn-icon debt-source-remove" title="Remove equity source">✕</button>
   </div>`;
@@ -9656,7 +9137,8 @@ function wireEquityView(wrap){
     });
     row.querySelector(".debt-source-type").addEventListener("change", e=> commit({type: e.target.value.trim()}));
     row.querySelector(".debt-source-lender").addEventListener("change", e=> commit({lenderName: e.target.value.trim()}));
-    row.querySelector(".debt-source-amount").addEventListener("change", e=>{ commit({committedAmount: e.target.value===""?null:Number(e.target.value)}); renderEquityView(); });
+    wireMoneyInputDisplay(row.querySelector(".debt-source-amount"));
+    row.querySelector(".debt-source-amount").addEventListener("change", e=>{ commit({committedAmount: parseMoneyStr(e.target.value)}); renderEquityView(); });
     row.querySelector(".debt-source-date").addEventListener("change", e=> commit({commitmentDate: e.target.value}));
     row.querySelector(".debt-source-remove").addEventListener("click", ()=>{
       const next = (d.equitySources||[]).slice();
@@ -10080,221 +9562,29 @@ async function handleBrokerLogFileUpload(entryIdx, fileList, statusEl){
   renderBrokerActivityLog();
 }
 
-/* =================== deal Excel-model upload + AI-extracted "gist" =================== */
-/* The prompt asks the model to read the RAW, mechanically-flattened contents of an uploaded
-   underwriting workbook (see flattenWorkbookText) and pull out whatever headline figures it can
-   actually find — spreadsheet layouts vary wildly deal to deal, so this deliberately doesn't
-   assume fixed cell positions the way a "real" Excel integration might; it leans on the model's
-   reading comprehension instead, the same way OM/listing extraction already does for prose. */
-const MODEL_GIST_PROMPT = (ctx)=> `You are a real estate acquisitions analyst at Newgard Development Group. You've been given the raw extracted contents of an Excel underwriting/financial model for a deal, and asked to produce a quick, readable summary of it for someone who doesn't want to open the spreadsheet themselves.
-
-KNOWN DEAL FIELDS (already entered by the analyst — treat as ground truth):
-- Project name: ${ctx.name || "(not given)"}
-- Address: ${ctx.address || "(not given)"}
-- Product line: ${ctx.productLine || "(not given)"}
-- Purchase price: ${ctx.purchasePrice != null ? ctx.purchasePrice : "(not given)"}
-
-RAW MODEL CONTENTS (mechanically extracted from the spreadsheet's cells, sheet by sheet as CSV — labels and values may be jumbled or repeated since this is not a clean export; use your judgment to find the real headline figures):
-"""
-${ctx.modelText || "(none)"}
-"""
-
-Return ONLY a JSON object with exactly these keys:
-- "summary": 2-4 plain-language sentences on what this model shows — the deal's economics in a nutshell. This is the main "gist" someone would read instead of opening the spreadsheet.
-- "keyFigures": an array of up to 8 objects {"label": short label, "value": short formatted value as a string} for the headline figures you can actually find in the extracted text (e.g. IRR, equity multiple, yield on cost, cap rate, total development cost, net margin, cash-on-cash, exit value — whichever of these the model actually contains). Only include a figure if you can point to where it came from in the text — never invent or estimate one.
-- "risks": 1-2 sentences flagging anything in the model worth double-checking (a thin margin, an aggressive assumption, a stale-looking date) — or an empty string if nothing stands out.
-
-If the extracted text doesn't look like a financial model at all (e.g. it's mostly blank, or clearly some other kind of document), still return the JSON shape above, but with "summary" explaining that you couldn't find recognizable model content, an empty "keyFigures" array, and an empty "risks" string.`;
-
-/* Flattens every sheet in a parsed workbook to plain CSV-ish text, sheet by sheet, capped in
-   length the same way OM/listing text extraction already is elsewhere in this file — the AI
-   prompt above is what does the actual "reading", this just gets the raw cell contents to it. */
-function flattenWorkbookText(workbook){
-  const parts = [];
-  (workbook.SheetNames||[]).forEach(name=>{
-    const sheet = workbook.Sheets[name];
-    if(!sheet) return;
-    let csv = "";
-    try{ csv = XLSX.utils.sheet_to_csv(sheet, {blankrows:false}); }catch(e){ csv = ""; }
-    if(csv.trim()) parts.push(`--- Sheet: ${name} ---\n${csv.trim()}`);
-  });
-  return parts.join("\n\n").slice(0, 24000);
-}
-
-async function extractModelGist(dealId, arrayBuffer, statusEl){
-  if(typeof XLSX === "undefined"){
-    if(statusEl){ statusEl.textContent = "Uploaded — the summary tool didn't load. Refresh the page and try \"Regenerate summary\"."; statusEl.classList.add("warn"); }
-    return;
-  }
-  let workbook;
-  try{ workbook = XLSX.read(arrayBuffer, {type:"array"}); }
-  catch(err){
-    console.error("Workbook parse failed:", err);
-    if(statusEl){ statusEl.textContent = "Uploaded, but couldn't read that as an Excel file — is it a valid .xlsx/.xls?"; statusEl.classList.add("warn"); }
-    return;
-  }
-  const modelText = flattenWorkbookText(workbook);
-  if(!modelText.trim()){
-    if(statusEl){ statusEl.textContent = "Uploaded, but the file looks empty — no summary generated."; statusEl.classList.add("warn"); }
-    return;
-  }
-  if(!sampleApi){
-    if(statusEl){ statusEl.textContent = "Uploaded — AI summarizing isn't available in this view."; statusEl.classList.add("warn"); }
-    return;
-  }
-  const d = deals.get(dealId) || {};
-  if(statusEl){ statusEl.textContent = "Summarizing…"; statusEl.classList.remove("warn"); }
-  try{
-    const result = await sampleApi.json(MODEL_GIST_PROMPT({name:d.name, address:d.address, productLine:d.productLine, purchasePrice:d.purchasePrice, modelText}), {modelTier:"default"});
-    if(!result || typeof result.summary!=="string") throw new Error("Unexpected response shape");
-    await updateDeal(dealId, {modelGist: {
-      summary: result.summary || "",
-      keyFigures: Array.isArray(result.keyFigures) ? result.keyFigures.filter(f=>f && f.label && f.value).slice(0,8) : [],
-      risks: result.risks || "",
-      generatedAt: new Date().toISOString(),
-    }});
-    if(statusEl){ statusEl.textContent = ""; statusEl.classList.remove("warn"); }
-  }catch(err){
-    console.error("Model summary failed:", err);
-    if(statusEl){ statusEl.textContent = "Uploaded, but summarizing failed" + (err && err.detail ? " — "+err.detail : "") + "."; statusEl.classList.add("warn"); }
-  }
-}
-
-async function handleModelFileUpload(dealId, file, statusEl){
-  if(!sb){ if(statusEl){ statusEl.textContent = "File storage isn't connected."; statusEl.classList.add("warn"); } return; }
-  if(!/\.(xlsx|xls)$/i.test(file.name)){
-    if(statusEl){ statusEl.textContent = "Only .xlsx/.xls files are supported."; statusEl.classList.add("warn"); }
-    return;
-  }
-  if(file.size > 50*1024*1024){
-    if(statusEl){ statusEl.textContent = file.name + " is over the 50MB limit — try a smaller file."; statusEl.classList.add("warn"); }
-    return;
-  }
-  if(statusEl){ statusEl.textContent = "Uploading " + file.name + "…"; statusEl.classList.remove("warn"); }
-  const prevFile = (deals.get(dealId)||{}).proformaFile;
-  try{
-    const safeName = file.name.replace(/[^\w.\-]+/g, "_");
-    const path = dealId + "/" + Date.now() + "_" + Math.random().toString(36).slice(2,8) + "_" + safeName;
-    const { error } = await sb.storage.from("deal-files").upload(path, file);
-    if(error) throw error;
-    await updateDeal(dealId, {proformaFile: {path, name: file.name, size: file.size, uploadedAt: new Date().toISOString()}, modelGist: null});
-    if(prevFile && prevFile.path){
-      try{ await sb.storage.from("deal-files").remove([prevFile.path]); }
-      catch(e){ console.error("Storage cleanup failed (old model file may be orphaned, harmless):", e); }
-    }
-  }catch(err){
-    console.error("Model file upload failed:", err);
-    if(statusEl){ statusEl.textContent = "Couldn't upload " + file.name + " — " + ((err && err.message) || "try again"); statusEl.classList.add("warn"); }
-    return;
-  }
-  renderModelFileSection();
-  try{
-    if(statusEl){ statusEl.textContent = "Reading the model…"; }
-    const buf = await file.arrayBuffer();
-    await extractModelGist(dealId, buf, statusEl);
-  }catch(err){
-    console.error("Model parse failed:", err);
-    if(statusEl){ statusEl.textContent = "Uploaded, but couldn't read the file to summarize it — " + ((err && err.message)||"try again") + "."; statusEl.classList.add("warn"); }
-  }
-  renderModelFileSection();
-}
-
-async function regenerateModelGist(dealId, statusEl){
-  const d = deals.get(dealId) || {};
-  const file = d.proformaFile;
-  if(!file || !sb) return;
-  if(statusEl){ statusEl.textContent = "Fetching model…"; statusEl.classList.remove("warn"); }
-  try{
-    const { data, error } = await sb.storage.from("deal-files").createSignedUrl(file.path, 300);
-    if(error) throw error;
-    const res = await fetch(data.signedUrl);
-    if(!res.ok) throw new Error("HTTP "+res.status);
-    const buf = await res.arrayBuffer();
-    await extractModelGist(dealId, buf, statusEl);
-  }catch(err){
-    console.error("Regenerate model summary failed:", err);
-    if(statusEl){ statusEl.textContent = "Couldn't re-read the file — " + ((err && err.message)||"try again") + "."; statusEl.classList.add("warn"); }
-    return;
-  }
-  renderModelFileSection();
-}
-
-async function openModelFile(path){
-  if(!sb){ showToast("File storage isn't connected", "bad"); return; }
-  try{
-    const { data, error } = await sb.storage.from("deal-files").createSignedUrl(path, 3600);
-    if(error) throw error;
-    window.open(data.signedUrl, "_blank", "noopener");
-  }catch(err){ console.error("Couldn't open model file:", err); showToast("Couldn't open that file", "bad"); }
-}
-
-async function removeModelFile(dealId){
-  const d = deals.get(dealId) || {};
-  const file = d.proformaFile;
-  if(!file) return;
-  await updateDeal(dealId, {proformaFile: null, modelGist: null});
-  if(sb){
-    try{ await sb.storage.from("deal-files").remove([file.path]); }
-    catch(e){ console.error("Storage cleanup failed (harmless):", e); }
-  }
-  renderModelFileSection();
-}
-
-/* Re-rendered on open, after upload/remove/regenerate, and whenever this deal's data changes
-   underneath the open panel (same conservative-realtime pattern as renderBrokerModalContent) —
-   safe to always re-render since nothing here is a text input the analyst could be mid-typing in. */
-function renderModelFileSection(){
-  if(!openDealId) return;
-  const wrap = document.getElementById("modelFileWrap");
-  if(!wrap) return;
-  const d = deals.get(openDealId) || {};
-  const file = d.proformaFile;
-  const gist = d.modelGist;
-  wrap.innerHTML = `
-    <div class="model-file-attach-area">
-      ${file ? `<span class="pill pill-neutral tag-pill">
-          <span class="model-file-open" id="modelFileOpenBtn">📎 ${escapeHtml(file.name)}${file.size!=null?` (${fmtFileSize(file.size)})`:""}</span>
-          <span class="tag-pill-remove" id="modelFileRemoveBtn" title="Remove file">✕</span>
-        </span>
-        <button type="button" class="btn-icon" id="modelGistRegenBtn" title="Re-run the summary from this file">↻ Regenerate summary</button>`
-        : `<label class="model-file-label">📎 Upload Excel model<input type="file" id="modelFileInput" accept=".xlsx,.xls"></label>`}
-      <span class="model-file-status" id="modelFileStatus"></span>
-    </div>
-    ${gist ? `<div class="model-gist-box">
-      <p class="model-gist-summary">${escapeHtml(gist.summary||"")}</p>
-      ${gist.keyFigures && gist.keyFigures.length ? `<div class="model-gist-figures">${gist.keyFigures.map(f=>`<div class="model-gist-figure"><span class="model-gist-figure-label">${escapeHtml(f.label)}</span><span class="model-gist-figure-value">${escapeHtml(f.value)}</span></div>`).join("")}</div>` : ""}
-      ${gist.risks ? `<p class="model-gist-summary" style="margin-top:8px;"><strong>Worth double-checking:</strong> ${escapeHtml(gist.risks)}</p>` : ""}
-      <div class="model-gist-meta">Summarized ${gist.generatedAt?fmtDate(gist.generatedAt.slice(0,10)):""} from the uploaded file — always verify in the actual model before presenting to IC.</div>
-    </div>` : (file ? `<div class="empty-hint" style="margin-top:8px;">No summary yet — click "Regenerate summary" above, or re-upload the file.</div>` : "")}
-  `;
-  if(file){
-    const openBtn = document.getElementById("modelFileOpenBtn");
-    if(openBtn) openBtn.addEventListener("click", ()=> openModelFile(file.path));
-    const removeBtn = document.getElementById("modelFileRemoveBtn");
-    if(removeBtn) removeBtn.addEventListener("click", ()=> removeModelFile(openDealId));
-    const regenBtn = document.getElementById("modelGistRegenBtn");
-    if(regenBtn) regenBtn.addEventListener("click", ()=> regenerateModelGist(openDealId, document.getElementById("modelFileStatus")));
-  } else {
-    const fileInput = document.getElementById("modelFileInput");
-    if(fileInput) fileInput.addEventListener("change", (e)=>{
-      const f = e.target.files[0];
-      e.target.value = "";
-      if(f) handleModelFileUpload(openDealId, f, document.getElementById("modelFileStatus"));
-    });
-  }
-}
-
 /* =================== contract documents (PSA/LOI/amendment upload + AI term extraction) =================== */
-/* Unlike the single Excel-model file above, a deal accumulates contract documents over time — an
-   LOI, then a PSA, then amendments that change specific terms — so this is a growing list
-   (d.contractDocs), each entry its own upload with its own extraction pass. And unlike the model
-   gist (a read-only summary), extraction results here are actual deal field values (purchase
+/* A deal accumulates contract documents over time — an LOI, then a PSA, then amendments that
+   change specific terms — so this is a growing list (d.contractDocs), each entry its own upload
+   with its own extraction pass. Extraction results here are actual deal field values (purchase
    price, dates, deposits) that would otherwise require re-typing by hand — so every extraction
    goes through a review step (checkboxes, current value shown struck through next to the
    proposed one) before anything is written, rather than auto-applying. The same review flow
    naturally handles amendments too: re-uploading a later document just runs another pass against
    the deal's current values, and only what that document actually restates or changes shows up
    as a proposed change — nothing to special-case. */
+
+/* Files live in Supabase Storage (bucket "deal-files", set up by supabase.sql), not the docs
+   table — only the {path,name,size,uploadedAt} pointer is stored on the deal. The bucket is
+   private, so opening a file means asking Storage for a fresh short-lived signed URL each time. */
+async function openModelFile(path){
+  if(!sb){ showToast("File storage isn't connected", "bad"); return; }
+  try{
+    const { data, error } = await sb.storage.from("deal-files").createSignedUrl(path, 3600);
+    if(error) throw error;
+    window.open(data.signedUrl, "_blank", "noopener");
+  }catch(err){ console.error("Couldn't open file:", err); showToast("Couldn't open that file", "bad"); }
+}
+
 const CONTRACT_DOCTYPE_META = {
   PSA:       {label:"PSA",       color:"accent"},
   LOI:       {label:"LOI",       color:"warn"},
@@ -10635,13 +9925,13 @@ async function applyContractExtraction(){
 function refreshSlideFieldsAfterExternalPatch(patch){
   if(!openDealId) return;
   const setVal = (id, v)=>{ const el = document.getElementById(id); if(el) el.value = v; };
-  if("purchasePrice" in patch) setVal("slidePrice", patch.purchasePrice ?? "");
+  if("purchasePrice" in patch) setVal("slidePrice", fmtMoneyInput(patch.purchasePrice));
   if("lotSizeAcres" in patch) setVal("slideLot", patch.lotSizeAcres ?? "");
   if("psaStatus" in patch) setVal("slidePsa", patch.psaStatus || "Not Started");
-  if("deposit1Amount" in patch) setVal("slideDep1Amt", patch.deposit1Amount ?? "");
+  if("deposit1Amount" in patch) setVal("slideDep1Amt", fmtMoneyInputPlain(patch.deposit1Amount));
   if("deposit1Date" in patch) setVal("slideDep1Date", patch.deposit1Date || ""); // mirrors cdEarnest below (same field)
   if("deposit1Status" in patch) setVal("slideDep1Status", patch.deposit1Status || "Not Due");
-  if("deposit2Amount" in patch) setVal("slideDep2Amt", patch.deposit2Amount ?? "");
+  if("deposit2Amount" in patch) setVal("slideDep2Amt", fmtMoneyInputPlain(patch.deposit2Amount));
   if("deposit2Date" in patch) setVal("slideDep2Date", patch.deposit2Date || "");
   if("deposit2Status" in patch) setVal("slideDep2Status", patch.deposit2Status || "Not Due");
   if("notes" in patch) setVal("slideNotes", patch.notes || "");
@@ -10654,7 +9944,7 @@ function refreshSlideFieldsAfterExternalPatch(patch){
   if("purchasePrice" in patch || "lotSizeAcres" in patch){
     // updateCalcPerAcre() itself is scoped inside openDealDetail's closure and isn't reachable
     // from here — inline the same calculation rather than reaching in for it.
-    const price = Number(document.getElementById("slidePrice").value||0);
+    const price = parseMoneyStr(document.getElementById("slidePrice").value)||0;
     const lot = Number(document.getElementById("slideLot").value||0);
     const units = Number(document.getElementById("slideUnits").value||0);
     const perAcreEl = document.getElementById("calcPerAcre");
