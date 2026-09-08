@@ -1444,7 +1444,6 @@
 
   /* ---------- brokers (CRM) ---------- */
   .brokers-wrap{ padding:2px 0; }
-  .screen-wrap{ padding:2px 0; }
   .screen-card{ max-width:820px; }
   .screen-section-label{ font-weight:800; font-size:12px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.04em; margin:0 0 8px; }
   .screen-actions{ display:flex; gap:8px; align-items:center; margin-top:14px; flex-wrap:wrap; }
@@ -1651,9 +1650,6 @@
       <button class="tab-btn" id="tabBrokersBtn" role="tab" aria-selected="false" onclick="setView('brokers')">
         Brokers <span class="count" id="brokersCount">0</span>
       </button>
-      <button class="tab-btn" id="tabScreenBtn" role="tab" aria-selected="false" onclick="setView('screen')">
-        Screen
-      </button>
       <button class="tab-btn" id="tabCriteriaBtn" role="tab" aria-selected="false" onclick="setView('criteria')">
         Criteria
       </button>
@@ -1687,7 +1683,6 @@
     <div class="suggested-tasks-wrap" id="suggestedTasksWrap" style="display:none"></div>
     <div class="dashboard-wrap" id="dashboardWrap"></div>
     <div class="dashboard-wrap" id="agendaWrap" style="display:none"></div>
-    <div class="screen-wrap" id="screenWrap" style="display:none"></div>
     <div class="criteria-wrap" id="criteriaWrap" style="display:none"></div>
     <div class="ddtasks-wrap" id="ddTasksWrap" style="display:none"></div>
     <div class="brokers-wrap" id="brokersWrap" style="display:none"></div>
@@ -2709,11 +2704,6 @@ function dealPassesFilters(d){
     if(f.zoningStatus==="done" && !hasZoning) return false;
     if(f.zoningStatus==="missing" && hasZoning) return false;
   }
-  if(f.demoStatus){
-    const hasDemo = d.demoWealthIndex!=null || d.demoHh200k_5!=null || d.demoHomeValue_5!=null || d.demoPopulation!=null;
-    if(f.demoStatus==="done" && !hasDemo) return false;
-    if(f.demoStatus==="missing" && hasDemo) return false;
-  }
   if(f.openQuestions){
     const hasOpen = Array.isArray(d.openQuestions) && d.openQuestions.some(q=>(q.status||"Open")==="Open" && (q.question||"").trim());
     if(f.openQuestions==="yes" && !hasOpen) return false;
@@ -2762,10 +2752,6 @@ let dealWorkChecklistUnsub = null;
 let omExtractedExtra = {};
 let omExtractedNotes = "";
 let omExtractedBroker = null;
-let screenViewBuilt = false;
-let lastScreenResult = null;
-let lastScreenAnswers = null;
-let lastScreenCriteria = null;
 let criteriaSets = {}; // product line (string) -> array of {key,label,requirement}
 let criteriaViewSelectedLine = "";
 let criteriaViewBuilt = false;
@@ -2775,7 +2761,7 @@ let calendarRangeMonths = (()=>{
   try{ const v = Number(localStorage.getItem("dealdesk_calendar_range")); return [12,24,36].includes(v) ? v : 12; }
   catch(e){ return 12; }
 })();
-let dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:"", modelStatus:"", zoningStatus:"", demoStatus:"", openQuestions:""};
+let dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:"", modelStatus:"", zoningStatus:"", openQuestions:""};
 let pipelineDensity = (()=>{ try{ return localStorage.getItem("dealdesk_pipeline_density")||"compact"; }catch(e){ return "compact"; } })();
 /* Deal-detail slideover width — adjustable by dragging the handle on its left edge (see
    initSlideResizeHandle, wired inside openDealDetail), remembered per browser like the density
@@ -3626,18 +3612,17 @@ function setView(v){
   document.getElementById("tabAgendaBtn").setAttribute("aria-selected", v==="agenda");
   document.getElementById("tabBrokersBtn").setAttribute("aria-selected", v==="brokers");
   document.getElementById("tabCapitalBtn").setAttribute("aria-selected", v==="capital");
-  document.getElementById("tabScreenBtn").setAttribute("aria-selected", v==="screen");
   document.getElementById("tabCriteriaBtn").setAttribute("aria-selected", v==="criteria");
-  document.getElementById("addBtn").style.display = (v==="dashboard"||v==="agenda"||v==="ddchecklist"||v==="capital"||v==="screen"||v==="criteria") ? "none" : "";
+  document.getElementById("addBtn").style.display = (v==="dashboard"||v==="agenda"||v==="ddchecklist"||v==="capital"||v==="criteria") ? "none" : "";
   document.getElementById("addBtn").textContent = v==="tasks" ? "+ Add task" : v==="brokers" ? "+ Add broker" : "+ Add deal";
-  document.getElementById("searchInput").style.display = (v==="dashboard"||v==="agenda"||v==="capital"||v==="screen"||v==="criteria") ? "none" : "";
+  document.getElementById("searchInput").style.display = (v==="dashboard"||v==="agenda"||v==="capital"||v==="criteria") ? "none" : "";
   document.getElementById("searchInput").value = "";
   document.getElementById("searchInput").placeholder = v==="tasks" ? "Filter tasks…" : v==="ddchecklist" ? "Filter projects…" : v==="brokers" ? "Filter brokers…" : "Filter deals…";
   document.getElementById("autoClearSelect").style.display = v==="tasks" ? "" : "none";
   document.getElementById("metaCrumb").textContent =
-    v==="tasks" ? "Deal Desk / Tasks" : v==="pipeline" ? "Deal Desk / Acquisitions Pipeline" : v==="ddchecklist" ? "Deal Desk / DD Checklist" : v==="brokers" ? "Deal Desk / Brokers" : v==="capital" ? "Deal Desk / Capital" : v==="screen" ? "Deal Desk / Screen" : v==="criteria" ? "Deal Desk / Criteria" : v==="agenda" ? "Deal Desk / Weekly Agenda" : "Deal Desk / Dashboard";
+    v==="tasks" ? "Deal Desk / Tasks" : v==="pipeline" ? "Deal Desk / Acquisitions Pipeline" : v==="ddchecklist" ? "Deal Desk / DD Checklist" : v==="brokers" ? "Deal Desk / Brokers" : v==="capital" ? "Deal Desk / Capital" : v==="criteria" ? "Deal Desk / Criteria" : v==="agenda" ? "Deal Desk / Weekly Agenda" : "Deal Desk / Dashboard";
   document.getElementById("viewHeroTitle").textContent =
-    v==="tasks" ? "Tasks" : v==="pipeline" ? "Acquisitions Pipeline" : v==="ddchecklist" ? "DD Checklist" : v==="brokers" ? "Brokers" : v==="capital" ? "Capital" : v==="screen" ? "Screen a New Deal" : v==="criteria" ? "Screening Criteria" : v==="agenda" ? "Weekly Agenda" : "Dashboard";
+    v==="tasks" ? "Tasks" : v==="pipeline" ? "Acquisitions Pipeline" : v==="ddchecklist" ? "DD Checklist" : v==="brokers" ? "Brokers" : v==="capital" ? "Capital" : v==="criteria" ? "Screening Criteria" : v==="agenda" ? "Weekly Agenda" : "Dashboard";
   document.getElementById("viewHeroSub").textContent = v==="tasks"
     ? "Every task on one board, organized by status."
     : v==="pipeline"
@@ -3648,17 +3633,14 @@ function setView(v){
     ? "Who's active, what they've sent us, and how it's going."
     : v==="capital"
     ? "Debt and equity financing status for every deal under contract — committed, in progress, or still missing."
-    : v==="screen"
-    ? "Paste an OM or listing, answer a few basics, and get a quick read before it enters the pipeline."
     : v==="criteria"
-    ? "What makes a fit, by product line — this drives the screening scorecard and the Screen tab's quick read."
+    ? "What makes a fit, by product line — this drives each deal's investment-criteria scorecard."
     : v==="agenda"
     ? "Everything to walk Harvey and Jay through this week, urgent items first."
     : "Capital needed, deal mix, and where the pipeline sits nationally.";
-  document.getElementById("board").style.display = (v==="dashboard"||v==="agenda"||v==="ddchecklist"||v==="brokers"||v==="capital"||v==="screen"||v==="criteria") ? "none" : "";
+  document.getElementById("board").style.display = (v==="dashboard"||v==="agenda"||v==="ddchecklist"||v==="brokers"||v==="capital"||v==="criteria") ? "none" : "";
   document.getElementById("dashboardWrap").style.display = v==="dashboard" ? "" : "none";
   document.getElementById("agendaWrap").style.display = v==="agenda" ? "" : "none";
-  document.getElementById("screenWrap").style.display = v==="screen" ? "" : "none";
   document.getElementById("criteriaWrap").style.display = v==="criteria" ? "" : "none";
   document.getElementById("ddTasksWrap").style.display = v==="ddchecklist" ? "" : "none";
   document.getElementById("brokersWrap").style.display = v==="brokers" ? "" : "none";
@@ -3689,7 +3671,6 @@ function matchesFilter(text, q){ return text.toLowerCase().includes(q); }
 function renderBoard(){
   if(view==="dashboard"){ renderDashboard(); return; }
   if(view==="agenda"){ renderAgendaView(); return; }
-  if(view==="screen"){ renderScreenView(); return; }
   if(view==="criteria"){ renderCriteriaView(); return; }
   if(view==="ddchecklist"){ renderDdTasksView(); return; }
   if(view==="brokers"){ renderBrokersView(); return; }
@@ -4196,7 +4177,7 @@ function renderPipelineStages(){
   board.appendChild(toolbar);
   const clearBtn = toolbar.querySelector("#pipelineFilterClearBtn");
   if(clearBtn) clearBtn.addEventListener("click", ()=>{
-    dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:"", modelStatus:"", zoningStatus:"", demoStatus:"", openQuestions:""};
+    dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:"", modelStatus:"", zoningStatus:"", openQuestions:""};
     renderPipelineStages();
   });
   toolbar.querySelector("#densityCompactBtn").addEventListener("click", ()=> setPipelineDensity("compact"));
@@ -4892,7 +4873,6 @@ function openIcMemoModal(id){
     ["Est. margin (on cost)", (uw && uw.marginCost!=null) ? (uw.marginCost*100).toFixed(1)+"%" : "—"],
   ];
   const dateRows = CRITICAL_DATE_FIELDS.map(f=> [f.label, d[f.field] ? fmtDate(d[f.field]) : "—"]);
-  const ownerRows = DEAL_STAGES.filter(s=>s.key!=="dead").map(s=> [s.title, (d.stageOwners && d.stageOwners[s.key]) || "—"]);
   const criteriaCacheForDeal = criteriaCache.get(id) || new Map();
   const icScorecardRows = activeIcCriteria(d).map(item=>{
     const v = criteriaCacheForDeal.get(item.key) || {status:"tbd", notes:"", actual:"", rating:null};
@@ -4964,26 +4944,8 @@ function openIcMemoModal(id){
     ["Deal type", d.dealType || "—"],
     ["PSA status", d.psaStatus || "—"],
   ];
-  const demographicsHtml = demographicsPanelHtml(d);
   const openQuestionsTableHtml = memoListTableHtml(d.openQuestions, [
     {key:"question", label:"Question / condition"}, {key:"owner", label:"Owner"}, {key:"status", label:"Status"},
-  ]);
-  const landCompsTableHtml = memoListTableHtml(d.landComps, [
-    {key:"address", label:"Address / parcel"}, {key:"saleDate", label:"Sale date", fmt:v=>v?fmtDate(v):"—"},
-    {key:"pricePerAcre", label:"$ / acre", fmt:v=>v?fmtMoneyShort(v):"—"}, {key:"source", label:"Source"},
-  ]);
-  const productCompsTableHtml = memoListTableHtml(d.productComps, [
-    {key:"name", label:"Project"}, {key:"url", label:"Link", link:true},
-    {key:"pricePerUnit", label:"$ / unit", fmt:v=>v?fmtMoneyShort(v):"—"}, {key:"unitSizeSf", label:"Unit SF", fmt:v=>v?Number(v).toLocaleString():"—"},
-  ]);
-  const trafficCountsTableHtml = memoListTableHtml(d.trafficCounts, [
-    {key:"roadName", label:"Road"}, {key:"vpd", label:"Vehicles / day", fmt:v=>v?Number(v).toLocaleString():"—"}, {key:"year", label:"Year"}, {key:"source", label:"Source"},
-  ]);
-  const competitiveSupplyTableHtml = memoListTableHtml(d.competitiveSupply, [
-    {key:"name", label:"Project"}, {key:"status", label:"Status"}, {key:"distanceMi", label:"Miles away"}, {key:"notes", label:"Notes"},
-  ]);
-  const dealHistoryTableHtml = memoListTableHtml(d.dealHistory, [
-    {key:"date", label:"Date", fmt:v=>v?fmtDate(v):"—"}, {key:"decision", label:"What was decided"}, {key:"notes", label:"Notes"},
   ]);
 
   const overlay = document.createElement("div");
@@ -5083,43 +5045,6 @@ function openIcMemoModal(id){
             <h4 class="section-label">Economics &amp; market tier</h4>
             ${tableHtml(econRows.concat([["Market tier", MARKET_TIER_META[d.marketTier] ? MARKET_TIER_META[d.marketTier].label : "Not tiered"]]))}
           </div>
-        </div>
-
-        <div>
-          <h4 class="section-label">Demographics</h4>
-          ${demographicsHtml}
-        </div>
-
-        <div class="ic-memo-grid">
-          <div>
-            <h4 class="section-label">Land pricing, comps</h4>
-            ${landCompsTableHtml}
-          </div>
-          <div>
-            <h4 class="section-label">Car condo comps</h4>
-            ${productCompsTableHtml}
-          </div>
-        </div>
-
-        <div>
-          <h4 class="section-label">Traffic counts</h4>
-          ${d.trafficNote ? `<p class="ic-memo-notes" style="margin-bottom:8px;">${escapeHtml(d.trafficNote)}</p>` : ""}
-          ${trafficCountsTableHtml}
-        </div>
-
-        <div>
-          <h4 class="section-label">Competitive supply pipeline</h4>
-          ${competitiveSupplyTableHtml}
-        </div>
-
-        ${(d.dealHistory && d.dealHistory.length) ? `<div>
-          <h4 class="section-label">Deal history / prior IC touches</h4>
-          ${dealHistoryTableHtml}
-        </div>` : ""}
-
-        <div>
-          <h4 class="section-label">Responsible party by stage</h4>
-          ${tableHtml(ownerRows)}
         </div>
 
         ${d.notes ? `<div><h4 class="section-label">Notes</h4><p class="ic-memo-notes">${escapeHtml(d.notes)}</p></div>` : ""}
@@ -5327,7 +5252,6 @@ function renderDashboard(){
       <select id="filterIcDecision"><option value="">All IC decisions</option><option value="none">Not decided</option>${Object.entries(IC_DECISION_META).filter(([k])=>k).map(([k,m])=>`<option value="${k}">${m.label}</option>`).join("")}</select>
       <select id="filterModelStatus"><option value="">All model stages</option><option value="boe">Back-of-envelope only</option><option value="full">Full model built out</option></select>
       <select id="filterZoningStatus"><option value="">Zoning — any</option><option value="done">Zoning identified</option><option value="missing">Zoning missing</option></select>
-      <select id="filterDemoStatus"><option value="">Demographics — any</option><option value="done">Demographics pulled</option><option value="missing">Demographics missing</option></select>
       <select id="filterOpenQuestions"><option value="">Open questions — any</option><option value="yes">Has open questions</option><option value="no">No open questions</option></select>
       ${filtersActive ? `<button type="button" class="btn-icon" id="filterClearBtn">✕ Clear filters</button>` : ""}
       ${filtersActive ? `<span class="filter-note">Showing ${filtered.length} of ${all.length} deals</span>` : ""}
@@ -5469,7 +5393,6 @@ function renderDashboard(){
   document.getElementById("filterIcDecision").value = dashboardFilters.icDecision;
   document.getElementById("filterModelStatus").value = dashboardFilters.modelStatus;
   document.getElementById("filterZoningStatus").value = dashboardFilters.zoningStatus;
-  document.getElementById("filterDemoStatus").value = dashboardFilters.demoStatus;
   document.getElementById("filterOpenQuestions").value = dashboardFilters.openQuestions;
   document.getElementById("filterStage").addEventListener("change", e=>{ dashboardFilters.stage=e.target.value; renderDashboard(); });
   document.getElementById("filterProductLine").addEventListener("change", e=>{ dashboardFilters.productLine=e.target.value; renderDashboard(); });
@@ -5482,11 +5405,10 @@ function renderDashboard(){
   document.getElementById("filterIcDecision").addEventListener("change", e=>{ dashboardFilters.icDecision=e.target.value; renderDashboard(); });
   document.getElementById("filterModelStatus").addEventListener("change", e=>{ dashboardFilters.modelStatus=e.target.value; renderDashboard(); });
   document.getElementById("filterZoningStatus").addEventListener("change", e=>{ dashboardFilters.zoningStatus=e.target.value; renderDashboard(); });
-  document.getElementById("filterDemoStatus").addEventListener("change", e=>{ dashboardFilters.demoStatus=e.target.value; renderDashboard(); });
   document.getElementById("filterOpenQuestions").addEventListener("change", e=>{ dashboardFilters.openQuestions=e.target.value; renderDashboard(); });
   const clearBtn = document.getElementById("filterClearBtn");
   if(clearBtn) clearBtn.addEventListener("click", ()=>{
-    dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:"", modelStatus:"", zoningStatus:"", demoStatus:"", openQuestions:""};
+    dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:"", modelStatus:"", zoningStatus:"", openQuestions:""};
     renderDashboard();
   });
   wrap.querySelectorAll(".attn-row").forEach(row=>{
@@ -7078,7 +7000,7 @@ async function ocrPdfDocument(doc, onStatus){
     return "";
   }
 }
-/* onStatus(msg) is optional — callers that show a status line (OM extraction, Screen tab,
+/* onStatus(msg) is optional — callers that show a status line (OM extraction,
    contract documents) pass one in so "running OCR" progress shows up somewhere, but it's fine to
    omit. Returns "" (never throws for a text-layer miss) so every caller's existing "couldn't find
    readable text" handling still works — OCR is just tried first now, silently, before giving up. */
@@ -7335,359 +7257,10 @@ function openEditDealModal(){
   setTimeout(()=>document.getElementById("dName").focus(), 10);
 }
 
-/* =================== screen a new deal =================== */
-/* A lightweight front door for prospecting: paste/upload an OM, answer a few basics, get a
-   quick AI read (pursue/watch/pass + why), then confirm to drop it into the pipeline as a
-   Prospecting-stage deal. renderScreenView() only builds the form once per visit (guarded by
-   screenViewBuilt) because renderBoard() re-runs on every realtime deals/tasks update from any
-   user — a full rebuild on each of those would wipe out whatever the user was mid-typing. */
-function screenStatus(msg, isWarn){
-  const el = document.getElementById("screenOmStatus");
-  if(!el) return;
-  el.textContent = msg||"";
-  el.classList.toggle("warn", !!isWarn);
-}
-
-function renderScreenView(){
-  const wrap = document.getElementById("screenWrap");
-  if(!wrap) return;
-  if(screenViewBuilt) return;
-  screenViewBuilt = true;
-  wrap.innerHTML = `
-    <div class="dash-card screen-card">
-      <p class="screen-section-label">1. Offering memorandum (optional)</p>
-      <details class="om-intake" open>
-        <summary>📄 Paste or upload an OM / listing</summary>
-        <div class="om-body">
-          <div class="om-file-row"><input type="file" id="screenOmFile" accept=".txt,.md,.csv,text/plain,text/csv,text/markdown,application/pdf"></div>
-          <div class="om-url-row"><input type="url" id="screenOmUrl" placeholder="…or paste a listing URL (Crexi, LoopNet, etc.)"><button class="btn" id="screenOmUrlBtn" type="button">Fetch</button></div>
-          <textarea id="screenOmPaste" placeholder="Paste text from the OM, listing, or email… (or upload a .txt/.csv/.pdf above)" style="min-height:120px;"></textarea>
-          <div class="om-status" id="screenOmStatus"></div>
-        </div>
-      </details>
-      <p class="screen-section-label" style="margin-top:18px;">2. The basics</p>
-      <div class="field"><label for="screenName">Project name</label><input id="screenName" type="text" placeholder="e.g. Maple Court Parcel"></div>
-      <div class="field"><label for="screenAddress">Address</label><input id="screenAddress" type="text" placeholder="Street, city, state"></div>
-      <div class="field-row">
-        <div class="field"><label for="screenPropType">Property type</label>
-          <select id="screenPropType">${categoryOptionsHtml(propertyTypeOptions)}</select>
-        </div>
-        <div class="field"><label for="screenProductLine">Product line</label>
-          <select id="screenProductLine">${categoryOptionsHtml(productLineOptions)}</select>
-        </div>
-      </div>
-      <div class="field-row">
-        <div class="field"><label for="screenLot">Lot size (acres)</label><input id="screenLot" type="number" step="0.1" placeholder="0"></div>
-        <div class="field"><label for="screenPrice">Purchase price</label><input id="screenPrice" type="number" placeholder="0"></div>
-      </div>
-      <div class="field-row">
-        <div class="field"><label for="screenDealType">Deal type</label>
-          <select id="screenDealType"><option value="">—</option>${DEAL_TYPE_OPTIONS.map(o=>`<option value="${o}">${o}</option>`).join("")}</select>
-        </div>
-        <div class="field"><label for="screenSource">Source</label>
-          <select id="screenSource"><option value="">—</option>${SOURCE_OPTIONS.map(o=>`<option value="${o}">${o}</option>`).join("")}</select>
-        </div>
-      </div>
-      <div class="screen-actions">
-        <button class="btn btn-primary" id="screenRunBtn" type="button">✨ Screen this deal</button>
-        <button class="btn" id="screenClearBtn" type="button">Clear</button>
-      </div>
-    </div>
-  `;
-  document.getElementById("screenOmFile").addEventListener("change", handleScreenOmFile);
-  document.getElementById("screenOmUrlBtn").addEventListener("click", handleScreenOmUrl);
-  document.getElementById("screenRunBtn").addEventListener("click", runScreen);
-  document.getElementById("screenClearBtn").addEventListener("click", ()=>{ resetScreenForm(); });
-  wireCategorySelect(document.getElementById("screenPropType"), "propertyType", ()=>{});
-  wireCategorySelect(document.getElementById("screenProductLine"), "productLine", ()=>{});
-}
-
-async function handleScreenOmFile(e){
-  const file = e.target.files[0];
-  if(!file) return;
-  const isPdf = /\.pdf$/i.test(file.name) || (file.type||"")==="application/pdf";
-  const isTextish = /\.(txt|md|csv)$/i.test(file.name) || (file.type||"").startsWith("text/");
-  if(isPdf){
-    screenStatus(`Reading ${file.name}…`);
-    try{
-      const text = await extractPdfText(file, msg=>screenStatus(msg));
-      if(!text){
-        screenStatus(`Couldn't find readable text in ${file.name}, even after trying OCR (it may be a low-quality scan) — paste the key details instead.`, true);
-        return;
-      }
-      document.getElementById("screenOmPaste").value = text;
-      screenStatus(`Extracted text from ${file.name} — click "Screen this deal" below.`);
-    }catch(err){
-      screenStatus(`Couldn't read ${file.name} automatically — paste the text instead.`, true);
-    }
-    return;
-  }
-  if(isTextish){
-    try{
-      const text = await file.text();
-      document.getElementById("screenOmPaste").value = text;
-      screenStatus(`Loaded ${file.name} — click "Screen this deal" below.`);
-    }catch(err){
-      screenStatus(`Couldn't read ${file.name}. Paste the text instead.`, true);
-    }
-  } else {
-    screenStatus(`Can't read .${file.name.split(".").pop()} files directly yet — open it and paste the key details below.`, true);
-  }
-}
-
-async function handleScreenOmUrl(){
-  const url = (document.getElementById("screenOmUrl").value||"").trim();
-  if(!url){ screenStatus("Paste a listing URL first.", true); return; }
-  const btn = document.getElementById("screenOmUrlBtn");
-  btn.disabled = true;
-  screenStatus("Fetching page…");
-  try{
-    const text = await fetchListingText(url);
-    if(!text.trim()){
-      screenStatus("Fetched the page, but couldn't find readable text on it (it may be JavaScript-rendered) — try downloading a PDF or pasting the text instead.", true);
-      return;
-    }
-    document.getElementById("screenOmPaste").value = text;
-    screenStatus('Pulled text from the page — click "Screen this deal" below.');
-  }catch(err){
-    console.error("Listing fetch failed:", err);
-    screenStatus("Couldn't fetch that page" + (err && err.detail ? " — " + err.detail : " automatically") + " — try downloading it and uploading/pasting instead.", true);
-  }finally{
-    btn.disabled = false;
-  }
-}
-
-const SCREEN_DEAL_PROMPT = (ctx)=> `You are a real estate acquisitions analyst doing a first-pass screen on a potential deal for Newgard Development Group, before it goes into the pipeline. Give a quick, honest read — this is not a full underwriting, just a basic pursue/watch/pass call to help triage incoming deals.
-
-KNOWN FIELDS (already entered by the analyst — treat these as ground truth, don't contradict them):
-- Project name: ${ctx.name || "(not given)"}
-- Address: ${ctx.address || "(not given)"}
-- Property type: ${ctx.propertyType || "(not given)"}
-- Product line: ${ctx.productLine || "(not given)"}
-- Purchase price: ${ctx.purchasePrice != null ? ctx.purchasePrice : "(not given)"}
-- Lot size (acres): ${ctx.lotSizeAcres != null ? ctx.lotSizeAcres : "(not given)"}
-- Deal type: ${ctx.dealType || "(not given)"}
-- Source: ${ctx.source || "(not given)"}
-
-${ctx.criteria && ctx.criteria.length ? `SCREENING CRITERIA for this product line — rate the deal against EACH one individually (see criteriaRatings below), then let those ratings inform your overall read:
-${ctx.criteria.map(c=>`- [${c.key}] (${c.type==="binary"?"binary — rate 0 or 10 only":"scale — rate 0-10, tenths allowed"}) ${c.label}: ${c.requirement}`).join("\n")}
-` : ""}
-OM / LISTING TEXT (may be empty if the analyst only filled in the fields above):
-"""
-${ctx.omText || "(none provided)"}
-"""
-
-Return ONLY a JSON object with exactly these keys:
-- "name": project/property name if the OM text reveals one not already known above (string or null — leave null if the known field above already has it)
-- "address": address if the OM text reveals one not already known above (string or null — leave null if the known field above already has it)
-- "purchasePrice": asking/list price in dollars, numeric only, if stated in the OM text and not already known above (number or null)
-- "lotSizeAcres": lot size in acres, numeric, if stated in the OM text and not already known above — convert square feet to acres by dividing by 43560 (number or null)
-- "recommendation": your basic read, exactly one of "pursue", "watch", or "pass"
-- "summary": 2-3 plain-language sentences on why, covering the strongest points for and against
-- "risks": 1-3 sentences on the key risks or open questions worth flagging before this goes further
-${ctx.criteria && ctx.criteria.length ? `- "criteriaRatings": an object keyed by each criterion's [key] above, value = your rating (a number). For a binary criterion use exactly 0 or 10; for a scale criterion use 0-10 with up to one decimal. Only rate a criterion if the OM text or known fields actually support a judgment — omit the key entirely (don't guess) if there isn't enough to go on.
-- "criteriaNotes": an object keyed the same way, value = a short (under 15 words) note backing up that rating. Only include notes for keys you rated.` : ""}
-
-Use null rather than guessing or inventing a number not supported by the text.`;
-
-async function runScreen(){
-  const omText = (document.getElementById("screenOmPaste").value||"").trim();
-  const name = document.getElementById("screenName").value.trim();
-  const address = document.getElementById("screenAddress").value.trim();
-  if(!omText && !name && !address){
-    screenStatus("Paste an OM, or fill in at least a project name or address, before screening.", true);
-    return;
-  }
-  const propertyType = document.getElementById("screenPropType").value;
-  const answers = {
-    name, address, propertyType,
-    productLine: document.getElementById("screenProductLine").value.trim(),
-    purchasePrice: document.getElementById("screenPrice").value ? Number(document.getElementById("screenPrice").value) : null,
-    lotSizeAcres: document.getElementById("screenLot").value ? Number(document.getElementById("screenLot").value) : null,
-    dealType: document.getElementById("screenDealType").value,
-    source: document.getElementById("screenSource").value,
-  };
-  const btn = document.getElementById("screenRunBtn");
-  btn.disabled = true;
-  screenStatus("Screening…");
-  try{
-    const sample = sampleApi;
-    if(!sample){ screenStatus("AI screening isn't available in this view.", true); return; }
-    const criteria = activeIcCriteria({propertyType, productLine: answers.productLine});
-    const result = await sample.json(SCREEN_DEAL_PROMPT(Object.assign({omText, criteria}, answers)), {modelTier:"default"});
-    if(!result || !["pursue","watch","pass"].includes(result.recommendation)){
-      screenStatus("Couldn't get a clear read — try again, or fill in more details first.", true);
-      return;
-    }
-    lastScreenResult = result;
-    lastScreenAnswers = answers;
-    lastScreenCriteria = criteria;
-    screenStatus("");
-    openScreenResultModal(result, answers);
-  }catch(err){
-    console.error("Screening failed:", err);
-    screenStatus("Screening failed" + (err && err.detail ? " — " + err.detail : " — try again in a moment.") , true);
-  }finally{
-    btn.disabled = false;
-  }
-}
-
-/* Overall score for a not-yet-created deal, computed the exact same way as recomputeIcCriteria's
-   icScore (average of every numeric per-criterion rating, rounded to one decimal) — so the number
-   shown here in the Screen result matches what the deal will show once it's actually added and
-   its screening-criteria section takes over. */
-function screenScoreFromRatings(criteria, ratings){
-  let sum=0, count=0;
-  (criteria||[]).forEach(c=>{
-    const r = ratings ? ratings[c.key] : undefined;
-    if(typeof r==="number" && !isNaN(r)){ sum += Math.max(0, Math.min(10, r)); count++; }
-  });
-  return count ? {score: Math.round((sum/count)*10)/10, count} : {score:null, count:0};
-}
-/* Read-only per-criterion breakdown for the Screen result modal — same rating scale/coloring as
-   the deal-detail screening-criteria section (buildIcCriteriaList), but simplified to a label +
-   rating pill + optional note since nothing is editable yet (the deal doesn't exist until the
-   analyst confirms "Add to Prospecting pipeline"). */
-function screenCriteriaBreakdownHtml(criteria, ratings, notesMap){
-  const rated = (criteria||[]).filter(c=> typeof (ratings||{})[c.key]==="number" && !isNaN(ratings[c.key]));
-  if(!rated.length) return "";
-  const rows = rated.map(c=>{
-    const r = Math.max(0, Math.min(10, ratings[c.key]));
-    const cls = r>=7.5 ? "pill-good" : r>=5 ? "pill-warn" : "pill-bad";
-    const ratingLabel = c.type==="binary" ? (r>=5 ? "Meets" : "Doesn't meet") : `${r.toFixed(1)}/10`;
-    const note = (notesMap && notesMap[c.key]) ? `<div class="ic-row-line-label" style="margin-top:2px;">${escapeHtml(notesMap[c.key])}</div>` : "";
-    return `<div class="ic-row" style="padding:7px 0;">
-      <div class="ic-row-top" style="gap:8px;">
-        <span class="ic-row-label" style="flex:1;">${escapeHtml(c.label)}</span>
-        <span class="pill ${cls}">${ratingLabel}</span>
-      </div>
-      ${note}
-    </div>`;
-  }).join("");
-  return `<div style="display:flex;flex-direction:column;gap:0;margin-top:2px;">${rows}</div>`;
-}
-
-function openScreenResultModal(result, answers){
-  const existing = document.getElementById("screenResultOverlay");
-  if(existing) existing.remove();
-  const recMeta = REC_META[result.recommendation];
-  const criteria = lastScreenCriteria || [];
-  const ratings = result.criteriaRatings || {};
-  const notesMap = result.criteriaNotes || {};
-  const {score, count} = screenScoreFromRatings(criteria, ratings);
-  const scoreColor = score==null ? "var(--ink-faint)" : score>=7.5 ? "var(--good)" : score>=5 ? "var(--warn)" : "var(--bad)";
-  const criteriaSectionHtml = !criteria.length ? "" : `
-    <div class="category" style="margin-top:12px;">
-      <div class="ic-criteria-head">
-        <span>Screening criteria${answers.productLine ? ` — ${escapeHtml(answers.productLine)}` : ""}</span>
-        <span style="display:flex;align-items:center;gap:8px;margin-left:auto;">
-          <span class="cat-count" style="margin-left:0;">${count} of ${criteria.length} rated</span>
-        </span>
-      </div>
-      ${count ? screenCriteriaBreakdownHtml(criteria, ratings, notesMap) : `<div class="empty-hint">Not enough info in the OM/fields yet to rate these — add more detail and re-screen, or rate them by hand once the deal is added.</div>`}
-      ${count ? `<div class="dd-summary" style="margin-top:8px;">
-        <div style="flex:1;"></div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px;flex:none;">
-          <span class="uw-label">Quality score</span>
-          <span class="num" style="color:${scoreColor};">${score.toFixed(1)}/10</span>
-        </div>
-      </div>` : ""}
-    </div>`;
-  const overlay = document.createElement("div");
-  overlay.className = "overlay";
-  overlay.id = "screenResultOverlay";
-  overlay.innerHTML = `<div class="modal" style="width:min(560px,94vw);">
-    <div class="modal-head"><h2>${escapeHtml(answers.name || result.name || "Screening result")}</h2></div>
-    <div class="modal-body">
-      <div class="ic-memo-execbox ${recMeta ? "ic-memo-execbox-"+recMeta.cls.replace("pill-","") : ""}">
-        <div class="ic-memo-exec-head">
-          <span class="ic-memo-exec-label">Quick read:</span>
-          ${recMeta ? `<span class="pill ${recMeta.cls}">${recMeta.label}</span>` : ""}
-        </div>
-        <p class="ic-memo-exec-text">${escapeHtml(result.summary||"")}</p>
-        ${result.risks ? `<div><span class="ic-memo-risks-label">Key risks</span><p class="ic-memo-exec-text">${escapeHtml(result.risks)}</p></div>` : ""}
-      </div>
-      ${criteriaSectionHtml}
-      ${!criteria.length ? `<p class="locked-note" style="margin-top:10px;">No screening criteria are set up yet for ${answers.productLine ? `the "${escapeHtml(answers.productLine)}" product line` : "this product line"} — add some in the Criteria tab to get a scored breakdown here next time.</p>` : `<p class="locked-note" style="margin-top:10px;">You can review or adjust every rating in the deal's Screening Criteria section once it's added.</p>`}
-      <p class="locked-note" style="margin-top:6px;">This is a quick automated read, not a substitute for full underwriting. Review before presenting to IC.</p>
-    </div>
-    <div class="modal-foot">
-      <button type="button" class="btn" id="screenResultCancelBtn">Cancel</button>
-      <button type="button" class="btn btn-primary" id="screenResultConfirmBtn">✓ Add to Prospecting pipeline</button>
-    </div>
-  </div>`;
-  document.body.appendChild(overlay);
-  overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
-  document.getElementById("screenResultCancelBtn").addEventListener("click", ()=> overlay.remove());
-  document.getElementById("screenResultConfirmBtn").addEventListener("click", ()=> confirmAddScreenedDeal());
-}
-
-async function confirmAddScreenedDeal(){
-  const result = lastScreenResult, answers = lastScreenAnswers, criteria = lastScreenCriteria || [];
-  if(!result || !answers) return;
-  const name = answers.name || result.name || "Untitled deal";
-  const recommendation = ["pursue","watch","pass"].includes(result.recommendation) ? result.recommendation : "";
-  const newId = await createDeal({
-    name,
-    address: answers.address || result.address || "",
-    lotSizeAcres: answers.lotSizeAcres != null ? answers.lotSizeAcres : (result.lotSizeAcres != null ? result.lotSizeAcres : null),
-    purchasePrice: answers.purchasePrice != null ? answers.purchasePrice : (result.purchasePrice != null ? result.purchasePrice : null),
-    state: "", lead: whoName(), notes: "",
-    stage: "prospecting",
-    psaStatus: "Not Started",
-    meetsTargetCriteria: false,
-    fund: "", propertyType: answers.propertyType || "", dealType: answers.dealType || "", stageOwners: {},
-    targetUnits: null,
-    productLine: answers.productLine || "",
-    source: answers.source || "", brokerId: "",
-    photoUrl1: "", photoUrl2: "", photoUrl3: "",
-    effectiveDate: "", inspectionEndDate: "", closingDate: "", actualCloseDate: "",
-    loiSubmittedDate: "", materialsReceivedDate: "", underwritingCompleteDate: "", icApprovalDate: "",
-    deposit1Amount: null, deposit1Status: "Not Due", deposit1Date: "",
-    deposit2Amount: null, deposit2Date: "", deposit2Status: "Not Due",
-    extraDeposits: [],
-    icDecision: "", icDecisionBy: "", icDecisionDate: "", icDecisionNotes: "",
-    folderUrl: "", proformaUrl: "",
-    grossDevelopableSf: null, buildCostPerSf: null,
-    softCostPct: 20, contingencyPct: 5,
-    salePricePerSf: null, sellingCostPct: 6,
-    debtPct: 65,
-    recommendation, execSummary: result.summary||"", risks: result.risks||"",
-    order: Date.now(),
-    createdAt: new Date().toISOString(),
-  });
-  // Carry the AI's per-criterion ratings (if any) onto the new deal's screening-criteria
-  // subcollection, deriving a fit/watch/nofit status from each rating so the existing Go/No-Go
-  // tallies are populated too — the analyst can still adjust every rating and status by hand.
-  if(newId && result.criteriaRatings && typeof result.criteriaRatings==="object"){
-    const notes = (result.criteriaNotes && typeof result.criteriaNotes==="object") ? result.criteriaNotes : {};
-    const writes = criteria.filter(c=> typeof result.criteriaRatings[c.key]==="number" && !isNaN(result.criteriaRatings[c.key])).map(c=>{
-      let rating = Math.max(0, Math.min(10, Math.round(result.criteriaRatings[c.key]*10)/10));
-      const status = rating>=7 ? "fit" : rating>=4 ? "watch" : "nofit";
-      return setCriteriaItem(newId, c.key, {rating, status, notes: notes[c.key] || ""});
-    });
-    if(writes.length) await Promise.all(writes);
-  }
-  const overlay = document.getElementById("screenResultOverlay");
-  if(overlay) overlay.remove();
-  showToast(`Added "${name}" to Prospecting`, "good");
-  resetScreenForm();
-  setView("pipeline");
-}
-
-function resetScreenForm(){
-  screenViewBuilt = false;
-  lastScreenResult = null;
-  lastScreenAnswers = null;
-  const wrap = document.getElementById("screenWrap");
-  if(wrap) wrap.innerHTML = "";
-  if(view==="screen") renderScreenView();
-}
-
 /* =================== screening criteria (by product line) =================== */
 /* What makes a deal a fit, defined per product line (e.g. "Porsche Design Clubhouse" vs.
-   another line) rather than per property type — this is what the Screen tab weighs a new
-   deal against and what the IC scorecard shows on each deal. Persisted to everyone via
+   another line) rather than per property type — this is what the IC scorecard weighs each
+   deal against. Persisted to everyone via
    settings/criteriaSets. Rebuilds only when the tab is opened or the underlying settings
    change remotely (see rebuildCriteriaView), never on unrelated deal updates, so an in-
    progress edit here doesn't get wiped by someone else's change elsewhere in the app. */
@@ -7729,7 +7302,7 @@ function renderCriteriaView(){
         <p class="screen-section-label" style="margin:0;">Screening criteria — ${escapeHtml(selected)}</p>
         <button class="btn" id="criteriaLoadStarterBtn" type="button">Load Auto Condo starter set</button>
       </div>
-      <p class="locked-note" style="margin:6px 0 12px;">These are what "Screen" and the IC scorecard weigh a ${escapeHtml(selected)} deal against. Changes save immediately for everyone.</p>
+      <p class="locked-note" style="margin:6px 0 12px;">These are what the IC scorecard weighs a ${escapeHtml(selected)} deal against. Changes save immediately for everyone.</p>
       <div class="catmgr-list" id="criteriaRowsList" style="max-height:none;">
         ${rows.length ? rows.map((c,i)=>`<div class="mc-row" data-idx="${i}">
           <div class="field"><label>Label</label><input type="text" class="crit-label" data-idx="${i}" value="${escapeAttr(c.label)}"></div>
@@ -7831,19 +7404,6 @@ function renderCriteriaView(){
 }
 
 /* =================== deal detail slideover =================== */
-/* Overview / Back-of-Envelope sub-tabs inside the deal slideover, Northspyre-style. */
-function setSlideTab(tab){
-  const overviewPanel = document.getElementById("slideTabOverview");
-  const boePanel = document.getElementById("slideTabBoe");
-  const overviewBtn = document.getElementById("slideTabOverviewBtn");
-  const boeBtn = document.getElementById("slideTabBoeBtn");
-  if(!overviewPanel || !boePanel) return;
-  overviewPanel.hidden = tab!=="overview";
-  boePanel.hidden = tab!=="boe";
-  overviewBtn.setAttribute("aria-selected", tab==="overview");
-  boeBtn.setAttribute("aria-selected", tab==="boe");
-}
-
 /* Drag-to-resize for the deal detail slideover's left edge. Re-wired every time openDealDetail
    runs (it rebuilds the panel's markup from scratch each open, so any listener bound to the old
    handle element is already gone) — each drag/touch session adds its own move/end listeners and
@@ -7908,17 +7468,31 @@ function openDealDetail(id){
         <div id="slideProgress" style="margin-top:10px;"></div>
       </div>
       <div class="slide-body">
-        <div class="slide-tabs" role="tablist" aria-label="Deal detail">
-          <button type="button" class="slide-tab-btn" id="slideTabOverviewBtn" role="tab" aria-selected="true" onclick="setSlideTab('overview')">Overview</button>
-          <button type="button" class="slide-tab-btn" id="slideTabBoeBtn" role="tab" aria-selected="false" onclick="setSlideTab('boe')">Back-of-Envelope</button>
-        </div>
-
         <div class="slide-tab-panel" id="slideTabOverview">
         <div class="photo-strip-wrap" id="photoStripWrap"></div>
 
         <div id="keyMetricsWrap"></div>
 
         <div class="deal-location-map-wrap" id="dealLocationMapWrap"></div>
+
+        <div>
+          <h4 class="section-label">Deal basics</h4>
+          <div class="deal-fields">
+            <div class="field-row">
+              <div class="field"><label for="slideLot">Lot size (acres)</label><input id="slideLot" type="number" step="0.1"></div>
+              <div class="field"><label for="slidePrice">Purchase price ($)</label><input id="slidePrice" type="number"></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="slideUnits">Targeted units</label><input id="slideUnits" type="number" step="1" placeholder="0"></div>
+              <div class="field"><label for="uwSf">Developable SF</label><input id="uwSf" type="number" step="100" placeholder="0"></div>
+            </div>
+            <div class="calc-line">Price per acre: <span class="mono" id="calcPerAcre">—</span></div>
+            <div class="calc-line">Price per unit: <span class="mono" id="calcPerUnit">—</span></div>
+          </div>
+          <div class="field-tools" style="margin-top:8px;">
+            <button type="button" class="field-tool-btn" id="openFinancialModelBtn">📊 Financial model &amp; underwriting →</button>
+          </div>
+        </div>
 
         <div>
           <h4 class="section-label">Quick update</h4>
@@ -8123,135 +7697,6 @@ function openDealDetail(id){
           </div>
         </div>
 
-        <div id="demoEditWrap">
-          <h4 class="section-label">Demographics</h4>
-          <div class="deal-fields">
-            <div class="field-row">
-              <div class="field"><label for="slideDemoWealthIndex">Wealth Index (0–10)</label><input id="slideDemoWealthIndex" type="number" step="0.1" min="0" max="10"></div>
-              <div class="field"><label for="slideDemoRadiusFocus">Headline radius</label>
-                <select id="slideDemoRadiusFocus"><option value="3">3 mi</option><option value="5">5 mi</option><option value="7">7 mi</option><option value="10">10 mi</option></select>
-              </div>
-            </div>
-          </div>
-
-          <div class="wealth-edit-grid">
-            <div class="wealth-edit-col-label">By radius</div>
-            <div class="wealth-edit-col-label">3 mi</div><div class="wealth-edit-col-label">5 mi</div><div class="wealth-edit-col-label">7 mi</div><div class="wealth-edit-col-label">10 mi</div>
-            <div class="wealth-edit-row-label">HH $200K+</div>
-            <input class="wealth-input" id="slideDemoHh200k_3" type="number">
-            <input class="wealth-input" id="slideDemoHh200k_5" type="number">
-            <input class="wealth-input" id="slideDemoHh200k_7" type="number">
-            <input class="wealth-input" id="slideDemoHh200k_10" type="number">
-            <div class="wealth-edit-row-label">Home value</div>
-            <input class="wealth-input" id="slideDemoHomeValue_3" type="number">
-            <input class="wealth-input" id="slideDemoHomeValue_5" type="number">
-            <input class="wealth-input" id="slideDemoHomeValue_7" type="number">
-            <input class="wealth-input" id="slideDemoHomeValue_10" type="number">
-          </div>
-
-          <div class="field" style="max-width:220px;margin-top:12px;"><label for="slideDemoStateName">Comparison state</label><input id="slideDemoStateName" type="text" placeholder="Defaults to the deal's state"></div>
-          <div class="wealth-edit-grid wealth-edit-grid-vs">
-            <div class="wealth-edit-col-label">vs state metric</div><div class="wealth-edit-col-label">Trade area</div><div class="wealth-edit-col-label">State</div>
-            <div class="wealth-edit-row-label">Wealth Index</div><div class="wealth-derived mono" id="wealthDerivedIndex">—</div><input class="wealth-input" id="slideDemoStateWealthIndex" type="number" step="0.1">
-            <div class="wealth-edit-row-label">Median HH income</div><input class="wealth-input" id="slideDemoTradeHHIncome" type="number"><input class="wealth-input" id="slideDemoStateHHIncome" type="number">
-            <div class="wealth-edit-row-label">% HH $200K+</div><input class="wealth-input" id="slideDemoTradePct200k" type="number" step="0.1"><input class="wealth-input" id="slideDemoStatePct200k" type="number" step="0.1">
-            <div class="wealth-edit-row-label">Median home value</div><div class="wealth-derived mono" id="wealthDerivedHomeValue">—</div><input class="wealth-input" id="slideDemoStateHomeValue" type="number">
-            <div class="wealth-edit-row-label">Homes $750K+ (%)</div><input class="wealth-input" id="slideDemoTradePct750k" type="number" step="0.1"><input class="wealth-input" id="slideDemoStatePct750k" type="number" step="0.1">
-            <div class="wealth-edit-row-label">Seasonal home share (%)</div><input class="wealth-input" id="slideDemoTradeSeasonalShare" type="number" step="0.1"><input class="wealth-input" id="slideDemoStateSeasonalShare" type="number" step="0.1">
-          </div>
-
-          <div class="cdate-label" style="font-weight:700;margin:14px 0 6px;">Trade area metrics</div>
-          <div class="deal-fields">
-            <div class="field-row">
-              <div class="field"><label for="slideDemoPopulation">Population</label><input id="slideDemoPopulation" type="number"></div>
-              <div class="field"><label for="slideDemoHouseholds">Households</label><input id="slideDemoHouseholds" type="number"></div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label for="slideDemoMedianAge">Median age</label><input id="slideDemoMedianAge" type="number" step="0.1"></div>
-              <div class="field"><label for="slideDemoPop55Plus">Population 55+ (%)</label><input id="slideDemoPop55Plus" type="number" step="0.1"></div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label for="slideDemoOwnerOccupancy">Owner occupancy (%)</label><input id="slideDemoOwnerOccupancy" type="number" step="0.1"></div>
-              <div class="field"><label for="slideDemoSeasonalUnits">Seasonal units</label><input id="slideDemoSeasonalUnits" type="number"></div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label for="slideDemoHhIncome150k">HH income $150K+ (%)</label><input id="slideDemoHhIncome150k" type="number" step="0.1"></div>
-              <div class="field"><label for="slideDemoHh3Vehicles">HH 3+ vehicles (%)</label><input id="slideDemoHh3Vehicles" type="number" step="0.1"></div>
-            </div>
-            <div class="field"><label for="slideDemoSourceNote">Source note</label><input id="slideDemoSourceNote" type="text" placeholder="e.g. U.S. Census Bureau ACS 2024"></div>
-            <div class="field-tools">
-              <a class="field-tool-btn" id="censusLookupLink" href="#" target="_blank" rel="noopener">🔎 Open Census data explorer</a>
-              <span class="field-tool-note">Deal Desk can't pull this live — copy the numbers from your wealth-profile tool's trade-area report and enter them here; the preview below (and the IC memo) format them the same way.</span>
-            </div>
-          </div>
-
-          <div class="wealth-preview-wrap">
-            <div class="wealth-preview-label">Preview</div>
-            <div id="demoPreviewWrap"></div>
-          </div>
-        </div>
-
-        <div>
-          <h4 class="section-label">Market context</h4>
-          <div class="deal-fields">
-            <div class="field"><label for="slideEmployers">Major employers / employment centers</label><textarea id="slideEmployers" placeholder="Comma-separated list…"></textarea></div>
-            <div class="field-tools">
-              <button type="button" class="field-tool-btn" id="employersAiDraftBtn">✨ AI draft</button>
-              <span class="field-tool-note">AI drafts are a starting guess — always verify.</span>
-            </div>
-            <div class="field"><label for="slideTrafficNote">Traffic character</label><input id="slideTrafficNote" type="text" placeholder="General read — see traffic counts below for real data"></div>
-            <div class="field-tools">
-              <a class="field-tool-btn" id="trafficLookupLink" href="#" target="_blank" rel="noopener">🔎 Look up DOT traffic counts</a>
-              <button type="button" class="field-tool-btn" id="trafficAiDraftBtn">✨ AI draft</button>
-            </div>
-          </div>
-
-          <div class="repeat-list-head">
-            <span class="cdate-label" style="font-weight:700;">Land comps</span>
-            <button type="button" class="btn-icon" id="addLandCompBtn">+ Add comp</button>
-          </div>
-          <div id="landCompsList"></div>
-
-          <div class="repeat-list-head">
-            <span class="cdate-label" style="font-weight:700;">Car condo comps</span>
-            <button type="button" class="btn-icon" id="addProductCompBtn">+ Add comp</button>
-          </div>
-          <div id="productCompsList"></div>
-
-          <div class="repeat-list-head">
-            <span class="cdate-label" style="font-weight:700;">Traffic counts</span>
-            <button type="button" class="btn-icon" id="addTrafficCountBtn">+ Add count</button>
-          </div>
-          <div id="trafficCountsList"></div>
-
-          <div class="repeat-list-head">
-            <span class="cdate-label" style="font-weight:700;">Competitive supply pipeline</span>
-            <button type="button" class="btn-icon" id="addCompetitiveSupplyBtn">+ Add project</button>
-          </div>
-          <div id="competitiveSupplyList"></div>
-        </div>
-
-        <div>
-          <h4 class="section-label">Deal history / prior IC touches</h4>
-          <div class="repeat-list-head">
-            <span class="cdate-label" style="font-weight:700;">Only shown in the memo when this deal has prior history</span>
-            <button type="button" class="btn-icon" id="addDealHistoryBtn">+ Add entry</button>
-          </div>
-          <div id="dealHistoryList"></div>
-        </div>
-
-        <div>
-          <h4 class="section-label">Responsible party by stage</h4>
-          <div class="cdate-list" id="ownerList">
-            ${DEAL_STAGES.map(s=>`
-            <div class="cdate-row">
-              <span class="dot dot-${s.color}"></span>
-              <span class="cdate-label">${s.title}</span>
-              <input class="cdate-input" id="owner_${s.key}" type="text" placeholder="Assign owner…">
-            </div>`).join("")}
-          </div>
-        </div>
-
         <div>
           <h4 class="section-label">Links</h4>
           <div class="deal-fields">
@@ -8270,7 +7715,7 @@ function openDealDetail(id){
 
         <div>
           <h4 class="section-label">Investment criteria</h4>
-          <div id="icCriteriaSection"></div>
+          <div id="icScoreCardWrap"></div>
         </div>
 
         <div>
@@ -8306,74 +7751,6 @@ function openDealDetail(id){
         <div>
           <h4 class="section-label">Due diligence — the work that produces it</h4>
           <div id="ddWorkSection"></div>
-        </div>
-        </div>
-
-        <div class="slide-tab-panel" id="slideTabBoe" hidden>
-        <div>
-          <h4 class="section-label">Financial model</h4>
-          <div class="model-toggle-row">
-            <div class="model-toggle" id="modelToggle">
-              <button type="button" data-val="boe">Back-of-envelope</button>
-              <button type="button" data-val="full">Full model built out</button>
-            </div>
-          </div>
-          <div class="deal-fields" id="modelFullFields" hidden>
-            <div class="field"><label for="slideModelReturns">Headline returns (from full model)</label><textarea id="slideModelReturns" placeholder="e.g. Untrended IRR 18.2%, equity multiple 1.6x, yield-on-cost 7.1%…"></textarea></div>
-            <div class="field-row">
-              <div class="field"><label for="slideModelUpdated">Model last updated</label><input id="slideModelUpdated" type="date"></div>
-              <div class="field"><label for="slideModelChange">What changed since last update</label><input id="slideModelChange" type="text" placeholder="e.g. Refined construction budget after GC bid"></div>
-            </div>
-            <div class="locked-note">Upload the workbook below for a quick AI-read summary, and/or link it under Links → Project folder URL on the Overview tab if it lives on OneDrive/SharePoint too.</div>
-            <div id="modelFileWrap"></div>
-          </div>
-        </div>
-
-        <div>
-          <h4 class="section-label">Economics</h4>
-          <div class="deal-fields">
-            <div class="field-row">
-              <div class="field"><label for="slideLot">Lot size (acres)</label><input id="slideLot" type="number" step="0.1"></div>
-              <div class="field"><label for="slidePrice">Purchase price ($)</label><input id="slidePrice" type="number"></div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label for="slideUnits">Targeted units</label><input id="slideUnits" type="number" step="1" placeholder="0"></div>
-            </div>
-            <div class="calc-line">Price per acre: <span class="mono" id="calcPerAcre">—</span></div>
-            <div class="calc-line">Price per unit: <span class="mono" id="calcPerUnit">—</span></div>
-          </div>
-        </div>
-
-        <div>
-          <h4 class="section-label">Back-of-envelope underwriting</h4>
-          <div class="deal-fields">
-            <div class="field-row">
-              <div class="field"><label for="uwSf">Gross developable SF</label><input id="uwSf" type="number" step="100" placeholder="0"></div>
-              <div class="field"><label for="uwBuild">Build cost ($/SF)</label><input id="uwBuild" type="number" step="1" placeholder="0"></div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label for="uwSoft">Soft costs (% of build)</label><input id="uwSoft" type="number" step="1"></div>
-              <div class="field"><label for="uwCont">Contingency (% of build+soft)</label><input id="uwCont" type="number" step="1"></div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label for="uwSale">Sale price ($/SF)</label><input id="uwSale" type="number" step="1" placeholder="0"></div>
-              <div class="field"><label for="uwSell">Selling costs (% of revenue)</label><input id="uwSell" type="number" step="1"></div>
-            </div>
-          </div>
-          <div class="uw-tiles" id="uwTiles" style="margin-top:12px;"></div>
-          <div class="calc-line" id="uwSpread" style="margin-top:8px;"></div>
-          <div style="margin-top:14px;">
-            <div class="cdate-label" style="font-weight:700;margin-bottom:6px;">Margin sensitivity</div>
-            <div id="sensitivityTableWrap"></div>
-          </div>
-        </div>
-
-        <div>
-          <h4 class="section-label">Capital stack</h4>
-          <div class="deal-fields">
-            <div class="field"><label for="uwDebtPct">Loan-to-cost (debt %)</label><input id="uwDebtPct" type="number" step="1" min="0" max="100" placeholder="65"></div>
-          </div>
-          <div class="uw-tiles" id="capTiles" style="margin-top:12px;"></div>
         </div>
         </div>
       </div>
@@ -8415,38 +7792,13 @@ function openDealDetail(id){
   }
   renderRepeatableList(id, "siteConditions", "siteConditionsList");
   refreshSiteCondPreview();
-  Object.entries(DEMO_FIELD_MAP).forEach(([elId, map])=>{
-    const el = document.getElementById(elId);
-    if(el) el.value = d[map.field]??"";
-  });
-  document.getElementById("slideDemoRadiusFocus").value = d.demoRadiusFocus || "5";
-  document.getElementById("slideEmployers").value = d.majorEmployers||"";
-  document.getElementById("slideTrafficNote").value = d.trafficNote||"";
-  document.getElementById("slideModelReturns").value = d.modelHeadlineReturns||"";
-  document.getElementById("slideModelUpdated").value = d.modelLastUpdated||"";
-  document.getElementById("slideModelChange").value = d.modelChangeNote||"";
   const zoningLookupLinkEl = document.getElementById("zoningLookupLink");
   if(zoningLookupLinkEl) zoningLookupLinkEl.href = zoningLookupUrl(d.address);
-  const censusLookupLinkEl = document.getElementById("censusLookupLink");
-  if(censusLookupLinkEl) censusLookupLinkEl.href = censusExplorerUrl(d.address);
-  const trafficLookupLinkEl = document.getElementById("trafficLookupLink");
-  if(trafficLookupLinkEl) trafficLookupLinkEl.href = trafficLookupUrl(d.address, d.state);
   renderRepeatableList(id, "openQuestions", "openQuestionsList");
-  renderRepeatableList(id, "landComps", "landCompsList");
-  renderRepeatableList(id, "productComps", "productCompsList");
-  renderRepeatableList(id, "trafficCounts", "trafficCountsList");
-  renderRepeatableList(id, "competitiveSupply", "competitiveSupplyList");
-  renderRepeatableList(id, "dealHistory", "dealHistoryList");
   document.getElementById("slideLot").value = d.lotSizeAcres??"";
   document.getElementById("slidePrice").value = d.purchasePrice??"";
   document.getElementById("slideUnits").value = d.targetUnits??"";
   document.getElementById("uwSf").value = d.grossDevelopableSf??"";
-  document.getElementById("uwBuild").value = d.buildCostPerSf??"";
-  document.getElementById("uwSoft").value = (d.softCostPct===null||d.softCostPct===undefined)?20:d.softCostPct;
-  document.getElementById("uwCont").value = (d.contingencyPct===null||d.contingencyPct===undefined)?5:d.contingencyPct;
-  document.getElementById("uwSale").value = d.salePricePerSf??"";
-  document.getElementById("uwSell").value = (d.sellingCostPct===null||d.sellingCostPct===undefined)?6:d.sellingCostPct;
-  document.getElementById("uwDebtPct").value = (d.debtPct===null||d.debtPct===undefined)?65:d.debtPct;
   document.getElementById("slideFund").value = d.fund||"";
   document.getElementById("slidePropType").value = d.propertyType||"";
   document.getElementById("slideDealType").value = d.dealType||"";
@@ -8456,9 +7808,6 @@ function openDealDetail(id){
   document.getElementById("slidePhoto1").value = d.photoUrl1||"";
   document.getElementById("slidePhoto2").value = d.photoUrl2||"";
   document.getElementById("slidePhoto3").value = d.photoUrl3||"";
-  DEAL_STAGES.forEach(s=>{
-    document.getElementById("owner_"+s.key).value = (d.stageOwners && d.stageOwners[s.key]) || "";
-  });
   CRITICAL_DATE_FIELDS.forEach(f=>{
     document.getElementById(f.id).value = d[f.field]||"";
     updateCdateMark(f);
@@ -8474,17 +7823,12 @@ function openDealDetail(id){
   document.getElementById("slideNotes").value = d.notes||"";
   document.getElementById("slideSub").textContent = "Real estate acquisition · created " + (d.createdAt ? fmtDate(d.createdAt.slice(0,10)) : "recently");
   updateCalcPerAcre();
-  renderUwTiles(d);
-  renderCapTiles(d);
   renderKeyMetrics(d);
   renderSlideProgress(d);
   renderOverviewGrid(d);
   renderPhotoStrip(d);
   renderExtraDeposits();
-  document.getElementById("sensitivityTableWrap").innerHTML = sensitivityTableHtml(d);
-  setModelToggle(d.modelStatus||"boe");
   renderDealLocationMap(id, d.mapAddress || d.address || "");
-  renderModelFileSection();
   renderContractDocsList();
   document.getElementById("contractDocInput").addEventListener("change", (e)=>{
     const f = e.target.files[0];
@@ -8492,22 +7836,7 @@ function openDealDetail(id){
     if(f) handleContractDocUpload(id, f, document.getElementById("contractDocStatus"));
   });
   document.getElementById("quickUpdateApplyBtn").addEventListener("click", ()=> handleQuickUpdate(id));
-  refreshDemoPreview();
-
-  function refreshDemoPreview(){
-    const radius = document.getElementById("slideDemoRadiusFocus").value || "5";
-    const derivedIndexEl = document.getElementById("wealthDerivedIndex");
-    if(derivedIndexEl) derivedIndexEl.textContent = d.demoWealthIndex!=null ? Number(d.demoWealthIndex).toFixed(1) : "—";
-    const derivedHomeValueEl = document.getElementById("wealthDerivedHomeValue");
-    if(derivedHomeValueEl){ const hv = d["demoHomeValue_"+radius]; derivedHomeValueEl.textContent = hv!=null ? fmtMoneyShort(hv) : "—"; }
-    const previewWrap = document.getElementById("demoPreviewWrap");
-    if(previewWrap) previewWrap.innerHTML = demographicsPanelHtml(d, {showEmptyTiles:true});
-  }
-
-  function setModelToggle(val){
-    document.querySelectorAll("#modelToggle button").forEach(b=> b.classList.toggle("active", b.dataset.val===val));
-    document.getElementById("modelFullFields").hidden = (val!=="full");
-  }
+  document.getElementById("openFinancialModelBtn").addEventListener("click", ()=> openFinancialModelModal(id));
 
   function updateCdateMark(f){
     const val = document.getElementById(f.id).value;
@@ -8601,69 +7930,27 @@ function openDealDetail(id){
     refreshSiteCondPreview();
   });
   document.getElementById("siteConditionsList").addEventListener("change", ()=> setTimeout(refreshSiteCondPreview, 0));
-  document.getElementById("demoEditWrap").addEventListener("change", e=>{
-    const map = DEMO_FIELD_MAP[e.target.id];
-    if(!map) return;
-    let v;
-    if(map.type==="text") v = e.target.value.trim();
-    else if(map.type==="int") v = e.target.value===""?null:Math.round(Number(e.target.value));
-    else v = e.target.value===""?null:Number(e.target.value);
-    save({[map.field]: v});
-    d[map.field] = v;
-    refreshDemoPreview();
-  });
-  document.getElementById("slideEmployers").addEventListener("change", e=>{ save({majorEmployers: e.target.value.trim()}); d.majorEmployers=e.target.value.trim(); });
-  document.getElementById("employersAiDraftBtn").addEventListener("click", ()=> aiDraftField(id, "employers"));
-  document.getElementById("slideTrafficNote").addEventListener("change", e=>{ save({trafficNote: e.target.value.trim()}); d.trafficNote=e.target.value.trim(); });
-  document.getElementById("trafficAiDraftBtn").addEventListener("click", ()=> aiDraftField(id, "traffic"));
-  document.getElementById("addLandCompBtn").addEventListener("click", ()=> addRepeatableRow(id, "landComps", "landCompsList"));
-  document.getElementById("addProductCompBtn").addEventListener("click", ()=> addRepeatableRow(id, "productComps", "productCompsList"));
-  document.getElementById("addTrafficCountBtn").addEventListener("click", ()=> addRepeatableRow(id, "trafficCounts", "trafficCountsList"));
-  document.getElementById("addCompetitiveSupplyBtn").addEventListener("click", ()=> addRepeatableRow(id, "competitiveSupply", "competitiveSupplyList"));
-  document.getElementById("addDealHistoryBtn").addEventListener("click", ()=> addRepeatableRow(id, "dealHistory", "dealHistoryList"));
-  document.getElementById("slideModelReturns").addEventListener("change", e=>{ save({modelHeadlineReturns: e.target.value.trim()}); d.modelHeadlineReturns=e.target.value.trim(); });
-  document.getElementById("slideModelUpdated").addEventListener("change", e=>{ save({modelLastUpdated: e.target.value}); d.modelLastUpdated=e.target.value; });
-  document.getElementById("slideModelChange").addEventListener("change", e=>{ save({modelChangeNote: e.target.value.trim()}); d.modelChangeNote=e.target.value.trim(); });
-  document.querySelectorAll("#modelToggle button").forEach(b=>{
-    b.addEventListener("click", ()=>{
-      const val = b.dataset.val;
-      setModelToggle(val);
-      save({modelStatus: val}); d.modelStatus = val;
-    });
-  });
   document.getElementById("slideLot").addEventListener("change", e=>{ save({lotSizeAcres: e.target.value?Number(e.target.value):null}); d.lotSizeAcres = e.target.value?Number(e.target.value):null; updateCalcPerAcre(); });
-  document.getElementById("slidePrice").addEventListener("input", ()=>{ updateCalcPerAcre(); uwLivePreview(); });
-  document.getElementById("slidePrice").addEventListener("change", e=>{ save({purchasePrice: e.target.value?Number(e.target.value):null}); d.purchasePrice = e.target.value?Number(e.target.value):null; updateCalcPerAcre(); });
-  document.getElementById("slideUnits").addEventListener("input", ()=> updateCalcPerAcre());
+  document.getElementById("slidePrice").addEventListener("input", ()=>{ updateCalcPerAcre(); keyMetricsLivePreview(); });
+  document.getElementById("slidePrice").addEventListener("change", e=>{ save({purchasePrice: e.target.value?Number(e.target.value):null}); d.purchasePrice = e.target.value?Number(e.target.value):null; updateCalcPerAcre(); renderKeyMetrics(d); });
+  document.getElementById("slideUnits").addEventListener("input", ()=>{ updateCalcPerAcre(); keyMetricsLivePreview(); });
   document.getElementById("slideUnits").addEventListener("change", e=>{ save({targetUnits: e.target.value?Number(e.target.value):null}); d.targetUnits = e.target.value?Number(e.target.value):null; updateCalcPerAcre(); renderKeyMetrics(d); });
+  document.getElementById("uwSf").addEventListener("input", ()=> keyMetricsLivePreview());
+  document.getElementById("uwSf").addEventListener("change", e=>{ const v=numOrNull("uwSf"); save({grossDevelopableSf:v}); d.grossDevelopableSf=v; renderOverviewGrid(d); renderKeyMetrics(d); });
 
-  function uwFieldsFromInputs(){
-    return {
+  /* Live-updates the "Key metrics" tiles at the top of the card as lot/price/units/SF are typed,
+     using whatever underwriting assumptions (build cost, soft costs, etc.) are already saved on
+     the deal — those now live behind the Financial model link/modal, not on this card, so this
+     preview only overrides the four basics fields and lets Object.assign pull everything else
+     from the persisted deal object. */
+  function keyMetricsLivePreview(){
+    const merged = Object.assign({}, d, {
+      purchasePrice: numOrNull("slidePrice"),
+      targetUnits: numOrNull("slideUnits"),
       grossDevelopableSf: numOrNull("uwSf"),
-      buildCostPerSf: numOrNull("uwBuild"),
-      softCostPct: numOrNull("uwSoft"),
-      contingencyPct: numOrNull("uwCont"),
-      salePricePerSf: numOrNull("uwSale"),
-      sellingCostPct: numOrNull("uwSell"),
-    };
-  }
-  function uwLivePreview(){
-    const merged = Object.assign({}, d, {purchasePrice: numOrNull("slidePrice")}, uwFieldsFromInputs(), {debtPct: numOrNull("uwDebtPct")});
-    renderUwTiles(merged);
-    renderCapTiles(merged);
+    });
     renderKeyMetrics(merged);
-    document.getElementById("sensitivityTableWrap").innerHTML = sensitivityTableHtml(merged);
   }
-  ["uwSf","uwBuild","uwSoft","uwCont","uwSale","uwSell","uwDebtPct"].forEach(id=>{
-    document.getElementById(id).addEventListener("input", uwLivePreview);
-  });
-  document.getElementById("uwSf").addEventListener("change", e=>{ const v=numOrNull("uwSf"); save({grossDevelopableSf:v}); d.grossDevelopableSf=v; });
-  document.getElementById("uwBuild").addEventListener("change", e=>{ const v=numOrNull("uwBuild"); save({buildCostPerSf:v}); d.buildCostPerSf=v; });
-  document.getElementById("uwSoft").addEventListener("change", e=>{ const v=numOrNull("uwSoft"); save({softCostPct:v}); d.softCostPct=v; });
-  document.getElementById("uwCont").addEventListener("change", e=>{ const v=numOrNull("uwCont"); save({contingencyPct:v}); d.contingencyPct=v; });
-  document.getElementById("uwSale").addEventListener("change", e=>{ const v=numOrNull("uwSale"); save({salePricePerSf:v}); d.salePricePerSf=v; });
-  document.getElementById("uwSell").addEventListener("change", e=>{ const v=numOrNull("uwSell"); save({sellingCostPct:v}); d.sellingCostPct=v; });
-  document.getElementById("uwDebtPct").addEventListener("change", e=>{ const v=numOrNull("uwDebtPct"); save({debtPct:v}); d.debtPct=v; });
   document.getElementById("slideFund").addEventListener("change", e=> save({fund: e.target.value.trim()}));
   wireCategorySelect(document.getElementById("slidePropType"), "propertyType", v=>{ save({propertyType: v}); d.propertyType=v; renderOverviewGrid(d); renderIcCriteriaSection(); });
   document.getElementById("slideDealType").addEventListener("change", e=>{ save({dealType: e.target.value}); d.dealType=e.target.value; renderOverviewGrid(d); });
@@ -8686,13 +7973,6 @@ function openDealDetail(id){
   document.getElementById("slidePhoto1").addEventListener("change", e=>{ save({photoUrl1: e.target.value.trim()}); d.photoUrl1=e.target.value.trim(); renderPhotoStrip(d); });
   document.getElementById("slidePhoto2").addEventListener("change", e=>{ save({photoUrl2: e.target.value.trim()}); d.photoUrl2=e.target.value.trim(); renderPhotoStrip(d); });
   document.getElementById("slidePhoto3").addEventListener("change", e=>{ save({photoUrl3: e.target.value.trim()}); d.photoUrl3=e.target.value.trim(); renderPhotoStrip(d); });
-  DEAL_STAGES.forEach(s=>{
-    document.getElementById("owner_"+s.key).addEventListener("change", e=>{
-      const next = Object.assign({}, d.stageOwners||{}, {[s.key]: e.target.value.trim()});
-      save({stageOwners: next});
-      d.stageOwners = next;
-    });
-  });
   CRITICAL_DATE_FIELDS.forEach(f=>{
     document.getElementById(f.id).addEventListener("change", e=>{
       save({[f.field]: e.target.value});
@@ -8878,10 +8158,144 @@ function renderCapTiles(dealLike){
     <div class="uw-tile"><span class="uw-label">Equity required</span><span class="uw-value good">${fmtMoneyShort(cap.equityAmount)}</span></div>`;
 }
 
+/* Financial model modal — everything that used to live on the deal card's Back-of-Envelope tab
+   (the full-model toggle/upload, the underwriting inputs, and the capital stack), now tucked
+   behind a single "Financial model" link on the main card. Lot size / purchase price / targeted
+   units / developable SF stay on the main card as always-visible basics (see the Deal basics
+   section in openDealDetail) — this modal reads grossDevelopableSf/purchasePrice/targetUnits off
+   the deal object directly rather than asking for them again. */
+function openFinancialModelModal(id){
+  const existing = document.getElementById("financialModelOverlay");
+  if(existing) existing.remove();
+  const d = deals.get(id) || {};
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  overlay.id = "financialModelOverlay";
+  overlay.innerHTML = `<div class="modal" style="width:min(720px,94vw);">
+    <div class="modal-head"><h2>Financial model</h2><button type="button" class="btn-icon" id="finModelCloseBtn" style="margin-left:auto;">✕ Close</button></div>
+    <div class="modal-body">
+      <div>
+        <h4 class="section-label">Financial model</h4>
+        <div class="model-toggle-row">
+          <div class="model-toggle" id="modelToggle">
+            <button type="button" data-val="boe">Back-of-envelope</button>
+            <button type="button" data-val="full">Full model built out</button>
+          </div>
+        </div>
+        <div class="deal-fields" id="modelFullFields" hidden>
+          <div class="field"><label for="slideModelReturns">Headline returns (from full model)</label><textarea id="slideModelReturns" placeholder="e.g. Untrended IRR 18.2%, equity multiple 1.6x, yield-on-cost 7.1%…"></textarea></div>
+          <div class="field-row">
+            <div class="field"><label for="slideModelUpdated">Model last updated</label><input id="slideModelUpdated" type="date"></div>
+            <div class="field"><label for="slideModelChange">What changed since last update</label><input id="slideModelChange" type="text" placeholder="e.g. Refined construction budget after GC bid"></div>
+          </div>
+          <div class="locked-note">Upload the workbook below for a quick AI-read summary, and/or link it under Links → Project folder URL on the Overview tab if it lives on OneDrive/SharePoint too.</div>
+          <div id="modelFileWrap"></div>
+        </div>
+      </div>
+
+      <div style="margin-top:16px;">
+        <h4 class="section-label">Back-of-envelope underwriting</h4>
+        <div class="deal-fields">
+          <div class="field-row">
+            <div class="field"><label for="uwBuild">Build cost ($/SF)</label><input id="uwBuild" type="number" step="1" placeholder="0"></div>
+            <div class="field"><label for="uwSoft">Soft costs (% of build)</label><input id="uwSoft" type="number" step="1"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="uwCont">Contingency (% of build+soft)</label><input id="uwCont" type="number" step="1"></div>
+            <div class="field"><label for="uwSale">Sale price ($/SF)</label><input id="uwSale" type="number" step="1" placeholder="0"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="uwSell">Selling costs (% of revenue)</label><input id="uwSell" type="number" step="1"></div>
+          </div>
+        </div>
+        <div class="uw-tiles" id="uwTiles" style="margin-top:12px;"></div>
+        <div class="calc-line" id="uwSpread" style="margin-top:8px;"></div>
+        <div style="margin-top:14px;">
+          <div class="cdate-label" style="font-weight:700;margin-bottom:6px;">Margin sensitivity</div>
+          <div id="sensitivityTableWrap"></div>
+        </div>
+      </div>
+
+      <div style="margin-top:16px;">
+        <h4 class="section-label">Capital stack</h4>
+        <div class="deal-fields">
+          <div class="field"><label for="uwDebtPct">Loan-to-cost (debt %)</label><input id="uwDebtPct" type="number" step="1" min="0" max="100" placeholder="65"></div>
+        </div>
+        <div class="uw-tiles" id="capTiles" style="margin-top:12px;"></div>
+      </div>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn" id="finModelDoneBtn">Done</button></div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
+  document.getElementById("finModelCloseBtn").addEventListener("click", ()=> overlay.remove());
+  document.getElementById("finModelDoneBtn").addEventListener("click", ()=> overlay.remove());
+
+  document.getElementById("slideModelReturns").value = d.modelHeadlineReturns||"";
+  document.getElementById("slideModelUpdated").value = d.modelLastUpdated||"";
+  document.getElementById("slideModelChange").value = d.modelChangeNote||"";
+  document.getElementById("uwBuild").value = d.buildCostPerSf??"";
+  document.getElementById("uwSoft").value = (d.softCostPct===null||d.softCostPct===undefined)?20:d.softCostPct;
+  document.getElementById("uwCont").value = (d.contingencyPct===null||d.contingencyPct===undefined)?5:d.contingencyPct;
+  document.getElementById("uwSale").value = d.salePricePerSf??"";
+  document.getElementById("uwSell").value = (d.sellingCostPct===null||d.sellingCostPct===undefined)?6:d.sellingCostPct;
+  document.getElementById("uwDebtPct").value = (d.debtPct===null||d.debtPct===undefined)?65:d.debtPct;
+
+  function setModelToggle(val){
+    document.querySelectorAll("#modelToggle button").forEach(b=> b.classList.toggle("active", b.dataset.val===val));
+    document.getElementById("modelFullFields").hidden = (val!=="full");
+  }
+  setModelToggle(d.modelStatus||"boe");
+  document.querySelectorAll("#modelToggle button").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      setModelToggle(b.dataset.val);
+      updateDeal(id, {modelStatus: b.dataset.val}); d.modelStatus = b.dataset.val;
+    });
+  });
+  document.getElementById("slideModelReturns").addEventListener("change", e=>{ updateDeal(id,{modelHeadlineReturns: e.target.value.trim()}); d.modelHeadlineReturns=e.target.value.trim(); });
+  document.getElementById("slideModelUpdated").addEventListener("change", e=>{ updateDeal(id,{modelLastUpdated: e.target.value}); d.modelLastUpdated=e.target.value; });
+  document.getElementById("slideModelChange").addEventListener("change", e=>{ updateDeal(id,{modelChangeNote: e.target.value.trim()}); d.modelChangeNote=e.target.value.trim(); });
+  renderModelFileSection();
+
+  /* Same live-preview approach the old Back-of-Envelope tab used — merge the modal's own inputs
+     onto the persisted deal (grossDevelopableSf/purchasePrice/targetUnits come from the main card,
+     via d, unchanged) so the tiles/sensitivity table/key-metrics tiles react as you type, without
+     committing anything until "change" (blur) fires. */
+  function uwLivePreview(){
+    const merged = Object.assign({}, d, {
+      buildCostPerSf: numOrNull("uwBuild"),
+      softCostPct: numOrNull("uwSoft"),
+      contingencyPct: numOrNull("uwCont"),
+      salePricePerSf: numOrNull("uwSale"),
+      sellingCostPct: numOrNull("uwSell"),
+      debtPct: numOrNull("uwDebtPct"),
+    });
+    renderUwTiles(merged);
+    renderCapTiles(merged);
+    renderKeyMetrics(merged);
+    const sensWrap = document.getElementById("sensitivityTableWrap");
+    if(sensWrap) sensWrap.innerHTML = sensitivityTableHtml(merged);
+  }
+  ["uwBuild","uwSoft","uwCont","uwSale","uwSell","uwDebtPct"].forEach(elId=>{
+    document.getElementById(elId).addEventListener("input", uwLivePreview);
+  });
+  document.getElementById("uwBuild").addEventListener("change", e=>{ const v=numOrNull("uwBuild"); updateDeal(id,{buildCostPerSf:v}); d.buildCostPerSf=v; });
+  document.getElementById("uwSoft").addEventListener("change", e=>{ const v=numOrNull("uwSoft"); updateDeal(id,{softCostPct:v}); d.softCostPct=v; });
+  document.getElementById("uwCont").addEventListener("change", e=>{ const v=numOrNull("uwCont"); updateDeal(id,{contingencyPct:v}); d.contingencyPct=v; });
+  document.getElementById("uwSale").addEventListener("change", e=>{ const v=numOrNull("uwSale"); updateDeal(id,{salePricePerSf:v}); d.salePricePerSf=v; });
+  document.getElementById("uwSell").addEventListener("change", e=>{ const v=numOrNull("uwSell"); updateDeal(id,{sellingCostPct:v}); d.sellingCostPct=v; });
+  document.getElementById("uwDebtPct").addEventListener("change", e=>{ const v=numOrNull("uwDebtPct"); updateDeal(id,{debtPct:v}); d.debtPct=v; });
+
+  renderUwTiles(d);
+  renderCapTiles(d);
+  const sensWrap = document.getElementById("sensitivityTableWrap");
+  if(sensWrap) sensWrap.innerHTML = sensitivityTableHtml(d);
+}
+
 /* Key-metrics-at-a-glance — Northspyre "Target returns"-style bold tiles, gated on the same
    stage threshold that unlocks the DD checklist (DD_UNLOCK_STAGES). Sourced entirely from the
    back-of-envelope underwriting inputs and targeted unit count already tracked per deal, so it
-   needs no new data entry beyond what's on the Back-of-Envelope tab. */
+   needs no new data entry beyond what's in the Financial model link/modal. */
 function renderKeyMetrics(dealLike){
   const wrap = document.getElementById("keyMetricsWrap");
   if(!wrap) return;
@@ -8891,7 +8305,7 @@ function renderKeyMetrics(dealLike){
   if(!uw || !uw.sf){
     wrap.innerHTML = `<div>
       <h4 class="section-label">Key metrics</h4>
-      <div class="locked-note">Fill in the back-of-envelope underwriting (on the Back-of-Envelope tab) to see project metrics here.</div>
+      <div class="locked-note">Fill in the back-of-envelope underwriting (via the Financial model link above) to see project metrics here.</div>
     </div>`;
     return;
   }
@@ -9161,8 +8575,53 @@ function buildIcCriteriaList(dealId){
   return {wrap, fit, watch, nofit, tbd, total:list.length, isAutoCondo, source};
 }
 
+/* The main deal card only ever shows the single aggregate score, plus a link to the full
+   scorecard modal (openIcScorecardModal below) — this keeps that score pill in sync every time
+   the criteria change, regardless of whether the modal happens to be open. */
+function renderIcScoreCard(){
+  if(!openDealId) return;
+  const cardWrap = document.getElementById("icScoreCardWrap");
+  if(!cardWrap) return;
+  const scoredDeal = deals.get(openDealId) || {};
+  const scoreText = (scoredDeal.icScore!=null && scoredDeal.icScoreCount) ? `${scoredDeal.icScore.toFixed(1)}/10` : "Not rated";
+  const scoreColor = scoredDeal.icScore==null ? "var(--ink-faint)" : scoredDeal.icScore>=7.5 ? "var(--good)" : scoredDeal.icScore>=5 ? "var(--warn)" : "var(--bad)";
+  cardWrap.innerHTML = `
+    <div class="dd-summary">
+      <div style="display:flex;flex-direction:column;gap:1px;">
+        <span class="uw-label">Quality score</span>
+        <span class="num" style="color:${scoreColor};">${scoreText}</span>
+      </div>
+      <button type="button" class="btn-icon" id="icScorecardLinkBtn" style="margin-left:auto;">📋 View full scorecard →</button>
+    </div>`;
+  document.getElementById("icScorecardLinkBtn").addEventListener("click", ()=> openIcScorecardModal(openDealId));
+}
+
+/* Investment-criteria scorecard modal — the per-criterion rating rows used to sit directly on the
+   deal card; they now live here instead, off a "View full scorecard" link, so the card itself only
+   shows the single aggregate score. Everything below is unchanged from the old inline section —
+   still editable here, still the same buildIcCriteriaList() rows. */
+function openIcScorecardModal(id){
+  const existing = document.getElementById("icScorecardOverlay");
+  if(existing) existing.remove();
+  const d = deals.get(id) || {};
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  overlay.id = "icScorecardOverlay";
+  overlay.innerHTML = `<div class="modal" style="width:min(720px,94vw);">
+    <div class="modal-head"><h2>Investment criteria scorecard — ${escapeHtml(d.name||"Deal")}</h2><button type="button" class="btn-icon" id="icScorecardCloseBtn" style="margin-left:auto;">✕ Close</button></div>
+    <div class="modal-body" id="icCriteriaSection" style="max-height:min(70vh,640px);overflow:auto;"></div>
+    <div class="modal-foot"><button type="button" class="btn" id="icScorecardDoneBtn">Done</button></div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
+  document.getElementById("icScorecardCloseBtn").addEventListener("click", ()=> overlay.remove());
+  document.getElementById("icScorecardDoneBtn").addEventListener("click", ()=> overlay.remove());
+  renderIcCriteriaSection();
+}
+
 function renderIcCriteriaSection(){
   if(!openDealId) return;
+  renderIcScoreCard();
   const wrap = document.getElementById("icCriteriaSection");
   if(!wrap) return;
   const {wrap: listEl, fit, watch, nofit, tbd, total, isAutoCondo, source} = buildIcCriteriaList(openDealId);
@@ -9476,8 +8935,8 @@ function addRepeatableRow(dealId, fieldKey, containerId){
    Deal Desk runs as a published page with no server of its own, so it can't reach outside APIs
    (Census, county GIS, DOT traffic maps) directly from the browser — there's no live "fetch zoning"
    button that actually works. What it CAN do: open a direct, pre-filled link to the right external
-   tool (one click instead of a cold search), and use the same AI-assist pattern Screen already uses
-   to draft a best-effort starting point from Claude's own knowledge — clearly a draft, not a source. */
+   tool (one click instead of a cold search), and use the same AI-assist pattern the OM extraction
+   already uses to draft a best-effort starting point from Claude's own knowledge — clearly a draft, not a source. */
 function censusExplorerUrl(address){
   return `https://data.census.gov/all?q=${encodeURIComponent(address||"")}`;
 }
