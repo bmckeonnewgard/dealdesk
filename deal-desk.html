@@ -182,6 +182,7 @@
     background:var(--surface); border:1px solid var(--border); border-radius:10px;
     margin-bottom:6px; overflow:hidden;
   }
+  .stage-section.drag-over{ outline:2px dashed var(--accent); outline-offset:-2px; background:var(--accent-soft); }
   .stage-header{
     display:flex; align-items:center; gap:9px; padding:10px 16px; cursor:pointer; list-style:none;
     border-left:9px solid var(--neutral); user-select:none; transition:background .12s;
@@ -207,6 +208,8 @@
     gap:16px; align-items:start;
   }
   .stage-row:hover{ border-color:var(--ink-faint); }
+  .stage-row.dragging{ opacity:.4; }
+  .stage-row[draggable="true"], .stage-row-compact[draggable="true"]{ cursor:grab; }
   /* Full-card priority tint — a manual high/medium/low field per deal, colored with the same
      bad/warn tokens used everywhere else so "high priority" reads the same way across the app.
      Low priority deliberately gets no tint (stays the default card color) so only what actually
@@ -231,8 +234,7 @@
   .stage-field-value.good{ color:var(--good); }
   .stage-field-value.warn{ color:var(--warn); }
   .stage-field-value.bad{ color:var(--bad); }
-  .stage-row-owner{ display:flex; flex-direction:column; gap:4px; }
-  .stage-row-owner .stage-owner-input{ width:100%; }
+  .stage-row-keydates{ display:flex; flex-direction:column; gap:8px; }
   .stage-row-actions{ display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
   .stage-row-actions .move-select{
     border:1px solid var(--border); background:var(--surface); color:var(--ink-soft); border-radius:7px;
@@ -254,12 +256,13 @@
 
   .stage-row-compact{
     display:grid;
-    grid-template-columns:12px minmax(180px,2fr) minmax(80px,1fr) minmax(70px,0.9fr) minmax(96px,1fr) minmax(70px,0.9fr) minmax(110px,1.2fr) minmax(80px,0.6fr) minmax(56px,0.5fr) minmax(96px,0.7fr);
+    grid-template-columns:12px minmax(180px,2fr) minmax(80px,1fr) minmax(70px,0.9fr) minmax(96px,1fr) minmax(70px,0.9fr) minmax(110px,1.2fr) minmax(120px,1.3fr) minmax(56px,0.5fr) minmax(96px,0.7fr);
     align-items:center; gap:12px; padding:6px 12px; border-left:3px solid var(--neutral);
     border-bottom:1px solid var(--border); cursor:pointer; font-size:12px;
   }
   .stage-body-compact .stage-row-compact:last-child{ border-bottom:none; }
   .stage-row-compact:hover{ background:var(--surface-2); }
+  .stage-row-compact.dragging{ opacity:.4; }
   .stage-row-compact-head{
     cursor:default; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint);
     font-weight:700; padding-top:0; padding-bottom:6px; border-left-color:transparent; border-bottom:1px solid var(--border-strong);
@@ -283,7 +286,10 @@
   .src-progress{ display:flex; align-items:center; gap:7px; }
   .src-progress .deal-progress-track{ width:72px; flex:none; }
   .src-progress-pct{ font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--ink-soft); width:28px; flex:none; }
-  .src-owner-input{ width:100%; padding:4px 7px; font-size:11px; }
+  .src-keydates{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; font-weight:600; color:var(--ink-soft); }
+  .src-keydates.good{ color:var(--good); }
+  .src-keydates.warn{ color:var(--warn); }
+  .src-keydates.bad{ color:var(--bad); }
   .src-updated{ color:var(--ink-faint); font-size:10.5px; }
   .src-move{
     border:1px solid var(--border); background:var(--surface); color:var(--ink-soft); border-radius:6px;
@@ -364,83 +370,29 @@
   .alert-detail-type{ font-size:11px; color:var(--ink-faint); flex:none; }
   .alert-detail-date{ font-size:11px; color:var(--ink-soft); flex:none; }
 
-  /* ---------- IC memo ---------- */
+  /* ---------- shared printable-modal scaffolding — used by the project-card print view, the
+     Weekly Agenda print, and the dashboard's Weekly One-Pager print (see openPrintableWindow) ---------- */
   .modal.ic-memo-modal{ width:min(760px,96vw); max-height:90vh; }
   .ic-memo-body{ overflow-y:auto; padding:22px 30px 34px; background:var(--surface); flex:1; min-height:0; }
   .ic-memo-masthead{ display:flex; justify-content:space-between; align-items:baseline; font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.05em; border-bottom:1px solid var(--border-strong); padding-bottom:10px; margin-bottom:14px; }
   .ic-memo-title{ font-family:var(--font-display); font-size:24px; margin:0 0 3px; }
   .ic-memo-sub{ color:var(--ink-soft); font-size:13px; margin-bottom:12px; }
-  .ic-memo-stagebar{ display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
-  .ic-memo-stagebar .deal-progress{ flex:1; min-width:140px; max-width:260px; }
-  .ic-memo-dd{ font-size:11.5px; color:var(--ink-soft); font-weight:600; }
-  .ic-memo-decisionbox{ border-radius:10px; padding:12px 14px; margin-bottom:14px; border:1.5px solid var(--border-strong); background:var(--surface-2); }
-  .ic-memo-decisionbox-good{ background:var(--good-soft); border-color:var(--good); }
-  .ic-memo-decisionbox-warn{ background:var(--warn-soft); border-color:var(--warn); }
-  .ic-memo-decisionbox-bad{ background:var(--bad-soft); border-color:var(--bad); }
-  .ic-memo-decision-head{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:4px; }
-  .ic-memo-decision-label{ font-weight:800; font-size:12.5px; color:var(--ink); text-transform:uppercase; letter-spacing:.03em; }
-  .ic-memo-decision-meta{ font-size:11.5px; color:var(--ink-soft); }
-  .ic-memo-recbox{
-    background:var(--accent-soft); border:1px solid var(--accent); border-radius:8px; padding:10px 14px;
-    margin-bottom:16px; font-size:12.5px; color:var(--ink); display:flex; flex-direction:column; gap:4px;
-  }
-  .ic-memo-photos{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:16px; }
-  .ic-memo-photos img{ width:100%; height:110px; object-fit:cover; border-radius:8px; border:1px solid var(--border); display:block; }
-  .ic-memo-grid{ display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:18px; }
-  @media (max-width:600px){ .ic-memo-grid{ grid-template-columns:1fr; } .ic-memo-photos{ grid-template-columns:1fr 1fr; } }
-  /* ---------- IC memo: exec summary, risks, pro forma quick view, site/map media ---------- */
-  .ic-memo-execbox{
-    border-radius:10px; padding:14px 16px; margin-bottom:14px; border:1.5px solid var(--border-strong); background:var(--surface-2);
-  }
-  .ic-memo-execbox-good{ background:var(--good-soft); border-color:var(--good); }
-  .ic-memo-execbox-warn{ background:var(--warn-soft); border-color:var(--warn); }
-  .ic-memo-execbox-bad{ background:var(--bad-soft); border-color:var(--bad); }
-  .ic-memo-exec-head{ display:flex; align-items:center; gap:10px; margin-bottom:8px; }
-  .ic-memo-exec-label{ font-weight:800; font-size:12px; color:var(--ink); text-transform:uppercase; letter-spacing:.04em; }
-  .ic-memo-exec-text{ font-size:13px; color:var(--ink); line-height:1.55; margin:0 0 8px; white-space:pre-wrap; }
-  .ic-memo-exec-text:last-child{ margin-bottom:0; }
-  .ic-memo-risks-label{ font-weight:700; font-size:10.5px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.03em; display:block; margin-bottom:3px; }
-  .ic-memo-proforma{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; align-items:stretch; }
-  .ic-memo-proforma-tile{
-    flex:1 1 120px; border:1px solid var(--border); border-radius:8px; padding:9px 12px; background:var(--surface);
-  }
-  .ic-memo-proforma-tile-label{ font-size:9.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); font-weight:700; display:block; margin-bottom:2px; }
-  .ic-memo-proforma-tile-value{ font-size:15px; font-weight:800; color:var(--ink); font-family:var(--font-mono); }
-  .ic-memo-proforma-link{
-    flex:0 0 auto; display:flex; align-items:center; justify-content:center; padding:9px 16px; border-radius:8px;
-    background:var(--accent); color:#fff; font-weight:700; font-size:12.5px; text-decoration:none; text-align:center;
-  }
-  .ic-memo-media-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px; }
-  @media (max-width:600px){ .ic-memo-media-grid{ grid-template-columns:1fr; } }
-  .ic-memo-media-box{ border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--surface-2); }
-  .ic-memo-media-label{
-    font-size:9.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); font-weight:700;
-    padding:5px 9px; border-bottom:1px solid var(--border);
-  }
-  .ic-memo-media-box img{ width:100%; height:160px; object-fit:cover; display:block; }
-  .ic-memo-map-frame{ width:100%; height:160px; border:none; display:block; }
-  .ic-memo-map-fallback{ padding:14px 9px; font-size:12px; color:var(--ink-soft); }
-  .ic-memo-map-fallback a{ color:var(--accent); font-weight:600; }
-  .memo-table{ width:100%; border-collapse:collapse; font-size:12.5px; }
-  .memo-table tr{ border-bottom:1px solid var(--border); }
-  .memo-table tr:last-child{ border-bottom:none; }
-  .memo-th{ padding:6px 10px 6px 0; color:var(--ink-faint); font-weight:600; white-space:nowrap; width:1%; }
-  .memo-td{ padding:6px 0; color:var(--ink); font-weight:600; overflow-wrap:anywhere; }
   .ic-memo-notes{ font-size:12.5px; color:var(--ink-soft); line-height:1.5; white-space:pre-wrap; margin:0; }
-
-  /* ---------- IC memo screening-criteria scorecard table ---------- */
-  .ic-scorecard-table{ font-size:11.5px; }
-  .ic-scorecard-table th{ text-align:left; padding:6px 8px; color:var(--ink-faint); font-weight:700; font-size:10.5px; text-transform:uppercase; letter-spacing:.02em; border-bottom:1px solid var(--border); }
-  .ic-scorecard-table td.memo-td{ padding:7px 8px; vertical-align:top; }
-  .ic-scorecard-table .ic-scorecard-req,
-  .ic-scorecard-table .ic-scorecard-notes{ color:var(--ink-soft); font-weight:500; }
+  .cardprint-table{ width:100%; border-collapse:collapse; font-size:12.5px; margin-bottom:4px; }
+  .cardprint-table tr{ border-bottom:1px solid var(--border); }
+  .cardprint-table tr:last-child{ border-bottom:none; }
+  .cardprint-th{ padding:6px 10px 6px 0; color:var(--ink-faint); font-weight:600; white-space:nowrap; width:1%; vertical-align:top; }
+  .cardprint-td{ padding:6px 0; color:var(--ink); font-weight:600; overflow-wrap:anywhere; }
+  .cardprint-photos{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:16px; }
+  .cardprint-photos img{ width:100%; height:110px; object-fit:cover; border-radius:8px; border:1px solid var(--border); display:block; }
+  @media (max-width:600px){ .cardprint-photos{ grid-template-columns:1fr 1fr; } }
   @media print{
     body *{ visibility:hidden; }
-    #icMemoOverlay, #icMemoOverlay *, #onePagerOverlay, #onePagerOverlay *, #agendaPrintOverlay, #agendaPrintOverlay *{ visibility:visible; }
-    #icMemoOverlay, #onePagerOverlay, #agendaPrintOverlay{ position:absolute; inset:0; background:#fff!important; padding:0; display:block; }
-    #icMemoOverlay .modal.ic-memo-modal, #onePagerOverlay .modal.ic-memo-modal, #agendaPrintOverlay .modal.ic-memo-modal{ width:100%; max-height:none; box-shadow:none; border:none; }
-    #icMemoOverlay .no-print, #onePagerOverlay .no-print, #agendaPrintOverlay .no-print{ display:none!important; }
-    #icMemoOverlay .ic-memo-body, #onePagerOverlay .ic-memo-body, #agendaPrintOverlay .ic-memo-body{ overflow:visible; padding:0.4in; }
+    #cardPrintOverlay, #cardPrintOverlay *, #onePagerOverlay, #onePagerOverlay *, #agendaPrintOverlay, #agendaPrintOverlay *{ visibility:visible; }
+    #cardPrintOverlay, #onePagerOverlay, #agendaPrintOverlay{ position:absolute; inset:0; background:#fff!important; padding:0; display:block; }
+    #cardPrintOverlay .modal.ic-memo-modal, #onePagerOverlay .modal.ic-memo-modal, #agendaPrintOverlay .modal.ic-memo-modal{ width:100%; max-height:none; box-shadow:none; border:none; }
+    #cardPrintOverlay .no-print, #onePagerOverlay .no-print, #agendaPrintOverlay .no-print{ display:none!important; }
+    #cardPrintOverlay .ic-memo-body, #onePagerOverlay .ic-memo-body, #agendaPrintOverlay .ic-memo-body{ overflow:visible; padding:0.4in; }
   }
 
   .card{
@@ -1522,8 +1474,7 @@
   .broker-log-attach-status{ font-size:11px; color:var(--ink-faint); }
   .broker-log-attach-status.warn{ color:var(--warn); }
   /* ---------- shared "file attach / status line" pattern — same visual pattern as the broker
-     call-log's file attachments above; used by Quick update's apply-status line and Contract
-     documents' upload chip/status. ---------- */
+     call-log's file attachments above; used by the deal screening PDF upload row. ---------- */
   .model-file-attach-area{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:2px; }
   .model-file-label{
     display:inline-flex; align-items:center; gap:5px; cursor:pointer; font-size:11.5px; font-weight:600;
@@ -1533,37 +1484,11 @@
   .model-file-label input[type=file]{ display:none; }
   .model-file-status{ font-size:11px; color:var(--ink-faint); }
   .model-file-status.warn{ color:var(--warn); }
+  .screening-pdf-chip{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); font-size:12.5px; margin-bottom:6px; }
+  .screening-pdf-open{ cursor:pointer; font-weight:600; }
+  .screening-pdf-open:hover{ text-decoration:underline; }
+  .screening-pdf-meta{ color:var(--ink-faint); font-size:11px; margin-left:auto; }
 
-  /* ---------- Contract documents (PSA/LOI/amendment upload + AI term extraction) — a list
-     rather than the single-file model upload above, since a deal accumulates an LOI, then a PSA,
-     then amendments over time; each upload gets its own extraction pass and review step before
-     anything is written to the deal, since these are financial/legal terms worth double-checking
-     rather than a low-stakes summary. ---------- */
-  /* Quick update: a free-text box (top of the Overview tab, right above Contract documents) that
-     runs the same AI extraction + review pipeline as an uploaded document, just against typed
-     text instead of a file — a one-line "we signed the amendment, $100k due tomorrow" note gets
-     the same proposed-field-changes review as uploading the amendment itself would. */
-  .quick-update-box{ display:flex; flex-direction:column; gap:6px; }
-  .quick-update-textarea{ min-height:56px; width:100%; border:1px solid var(--border); background:var(--surface-2); color:var(--ink); border-radius:8px; padding:8px 10px; font-family:var(--font-body); font-size:13.5px; resize:vertical; }
-  .contract-docs-list{ display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
-  .contract-doc-row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); font-size:12.5px; }
-  .contract-doc-open{ cursor:pointer; font-weight:600; }
-  .contract-doc-open:hover{ text-decoration:underline; }
-  .contract-doc-summary{ color:var(--ink-soft); flex:1 1 100%; }
-  .contract-doc-meta{ color:var(--ink-faint); font-size:11px; flex:1 1 100%; }
-  .contract-doc-actions{ display:flex; gap:6px; align-items:center; margin-left:auto; }
-  .contract-extract-review{ margin-top:8px; padding:10px 12px; border:1px solid var(--border-strong); border-radius:8px; background:var(--surface-2); }
-  .contract-extract-review-head{ font-size:12.5px; font-weight:700; margin-bottom:8px; color:var(--ink); }
-  .contract-extract-review-rows{ display:flex; flex-direction:column; gap:7px; }
-  .contract-extract-review-row{ display:flex; align-items:baseline; flex-wrap:wrap; gap:6px; font-size:12.5px; cursor:pointer; }
-  .contract-extract-review-row input[type=checkbox]{ margin-right:2px; }
-  .contract-extract-review-label{ font-weight:600; color:var(--ink); min-width:150px; }
-  .contract-extract-review-from{ color:var(--ink-faint); text-decoration:line-through; }
-  .contract-extract-review-arrow{ color:var(--ink-faint); }
-  .contract-extract-review-to{ color:var(--good); font-weight:700; }
-  .contract-extract-review-notes{ align-items:flex-start; margin-top:4px; }
-  .contract-extract-notes-preview{ color:var(--ink-soft); white-space:pre-wrap; flex:1 1 260px; line-height:1.5; }
-  .contract-extract-actions{ display:flex; gap:8px; margin-top:10px; }
   .broker-deal-list{ display:flex; flex-direction:column; }
   .broker-deal-row{
     display:flex; align-items:center; gap:10px; padding:8px 4px; border-top:1px solid var(--border);
@@ -2731,12 +2656,18 @@ async function findOrCreateBrokerByName(name, extra){
     notes: "",
   });
 }
-/* Dealpath-style "Critical Dates" checklist — each maps to a field on the deal, some new, some reused from elsewhere */
+/* Dealpath-style "Critical Dates" checklist — each maps to a field on the deal, some new, some
+   reused from elsewhere. Ordered to match the Screen-to-Close process map (see GATES/DEAL_STAGES
+   above): materials feed underwriting, underwriting completion gates G2 (LOI authorization),
+   which is why LOI submitted/signed sit after it rather than before. "IC decision" reuses
+   icDecisionDate — the same field the formal Go/No-Go panel (renderIcDecisionSection) writes —
+   rather than the old standalone icApprovalDate, which nothing else in the app ever read or set. */
 const CRITICAL_DATE_FIELDS = [
-  {id:"cdLoi",            field:"loiSubmittedDate",        label:"LOI submitted"},
   {id:"cdMaterials",      field:"materialsReceivedDate",   label:"Materials received"},
   {id:"cdUw",             field:"underwritingCompleteDate",label:"Underwriting complete"},
-  {id:"cdIc",             field:"icApprovalDate",          label:"IC approval"},
+  {id:"cdLoi",            field:"loiSubmittedDate",        label:"LOI submitted"},
+  {id:"cdLoiSigned",      field:"loiSignedDate",           label:"LOI signed"},
+  {id:"cdIc",             field:"icDecisionDate",          label:"IC decision (Go/No-Go)"},
   {id:"cdPsa",            field:"effectiveDate",           label:"PSA execution / effective date"},
   {id:"cdEarnest",        field:"deposit1Date",            label:"Earnest money date"},
   {id:"cdNonRefundable",  field:"inspectionEndDate",       label:"Non-refundable / DD end date"},
@@ -2839,6 +2770,7 @@ let criteriaCache = new Map();
 let openDealId = null;
 let openBrokerId = null;
 let dragCard = null;
+let dragDealCard = null; // {id, fromStage} — the deal currently being dragged in the Pipeline view, so it can be dropped onto a different stage's section to move it there (see renderPipelineStages)
 let db = null;
 let downloadsCap = null;
 let autoClearDays = 7;
@@ -3503,7 +3435,7 @@ async function boot(){
       renderBoard(); renderCounts();
       if(view==="brokers") renderBrokersView();
       if(openBrokerId) renderBrokerModalContent();
-      if(openDealId){ renderDDSection(); renderDDWorkSection(); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderContractDocsList(); renderGateLogSummary(); }
+      if(openDealId){ renderDDSection(); renderDDWorkSection(); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderScreeningPdfRow(); renderGateLogSummary(); }
     }, ()=>{});
     db.doc("settings/categories").onSnapshot(snap=>{
       const data = snap.data();
@@ -3639,7 +3571,7 @@ async function createDeal(data){
 }
 async function updateDeal(id, data){
   if(db){ logDealActivity(id, deals.get(id), data); await db.doc("deals/"+id).update(data); }
-  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDSection(); renderDDWorkSection(); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderContractDocsList(); renderGateLogSummary(); } }
+  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDSection(); renderDDWorkSection(); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderScreeningPdfRow(); renderGateLogSummary(); } }
 }
 async function deleteDeal(id){
   if(db){ await db.doc("deals/"+id).delete(); }
@@ -4162,13 +4094,55 @@ function stageHighlightFields(stageKey, d, extra){
   return fields;
 }
 
-function buildStageDealRow(id, d, stage){
+/* =================== pipeline: "Key dates" summary =================== */
+/* Replaces the old per-stage "Responsible" owner field, which wasn't useful enough to keep in the
+   pipeline. Pulls from the same forward-looking event list the alert bar / capital-needed sections
+   already use (getDealEvents — deposits still open, DD/inspection end, and closing, in that
+   generated order) so "when's the next deposit due" / "when's closing" always agrees with what
+   those other views say, without recomputing anything deal-by-deal. renderPipelineStages() computes
+   the full event list once per render and passes it down so this stays O(n) rather than O(n²). */
+function dealKeyDateEvents(id, allEvents){
+  return (allEvents||[]).filter(e=> e.dealId===id);
+}
+function keyDatesFieldsHtml(id, allEvents, max){
+  const events = dealKeyDateEvents(id, allEvents).slice(0, max||2);
+  if(!events.length){
+    return `<div class="stage-field"><span class="stage-field-label">Key dates</span><span class="stage-field-value" style="color:var(--ink-faint);font-weight:600;">Nothing upcoming</span></div>`;
+  }
+  return events.map(e=>{
+    const meta = EVENT_TYPE_META[e.type] || {label:e.type};
+    // A "closed" event is already in the past by definition — it should never read as "overdue".
+    const isClosed = e.type==="closed";
+    const cls = isClosed ? "good" : stripPillPrefix(urgencyClass(e.date));
+    const suffix = isClosed ? "" : urgencySuffix(e.date);
+    return `<div class="stage-field">
+      <span class="stage-field-label">${escapeHtml(meta.label)}</span>
+      <span class="stage-field-value${cls?" "+cls:""}">${fmtDate(e.date)}${suffix}${e.amount?` · ${fmtMoneyShort(e.amount)}`:""}</span>
+    </div>`;
+  }).join("");
+}
+function keyDateCompactHtml(id, allEvents){
+  const events = dealKeyDateEvents(id, allEvents);
+  if(!events.length) return `<span class="src-keydates" style="color:var(--ink-faint);">—</span>`;
+  const e = events[0];
+  const meta = EVENT_TYPE_META[e.type] || {label:e.type};
+  const isClosed = e.type==="closed";
+  const cls = isClosed ? "good" : stripPillPrefix(urgencyClass(e.date));
+  const suffix = isClosed ? "" : urgencySuffix(e.date);
+  const text = `${meta.label} — ${fmtDate(e.date)}${suffix}`;
+  return `<span class="src-keydates${cls?" "+cls:""}" title="${escapeAttr(text)}">${escapeHtml(text)}</span>`;
+}
+
+function buildStageDealRow(id, d, stage, allEvents){
   const row = document.createElement("div");
   const priority = dealPriority(d);
   row.className = "stage-row" + (priority==="high" ? " stage-row-priority-high" : priority==="medium" ? " stage-row-priority-medium" : "");
   row.style.borderLeftColor = `var(--${stage.color})`;
+  row.draggable = true;
+  row.addEventListener("dragstart", ()=>{ dragDealCard = {id, fromStage: stage.key}; row.classList.add("dragging"); });
+  row.addEventListener("dragend", ()=>{ row.classList.remove("dragging"); dragDealCard = null; });
   row.addEventListener("click", (e)=>{
-    if(e.target.closest(".move-select") || e.target.closest(".priority-select") || e.target.closest(".star-btn") || e.target.closest(".stage-owner-input") || e.target.closest(".link-icons")) return;
+    if(e.target.closest(".move-select") || e.target.closest(".priority-select") || e.target.closest(".star-btn") || e.target.closest(".link-icons")) return;
     openDealDetail(id);
   });
 
@@ -4178,7 +4152,6 @@ function buildStageDealRow(id, d, stage){
   const complete = d.ddComplete ?? 0;
   const ddPct = applicable>0 ? Math.round((complete/applicable)*100) : 0;
   const highlights = stageHighlightFields(stage.key, d, {cap, uw, applicable, complete, ddPct});
-  const owner = (d.stageOwners && d.stageOwners[stage.key]) || "";
 
   row.innerHTML = `
     <div class="stage-row-top">
@@ -4194,9 +4167,8 @@ function buildStageDealRow(id, d, stage){
     <div class="stage-row-fields">
       ${highlights.map(h=>`<div class="stage-field"><span class="stage-field-label">${h.label}</span><span class="stage-field-value${h.cls?" "+h.cls:""}">${h.value}</span></div>`).join("")}
     </div>
-    <div class="stage-row-owner">
-      <label class="stage-field-label">Responsible</label>
-      <input class="cdate-input stage-owner-input" type="text" value="${escapeAttr(owner)}" placeholder="Assign owner…">
+    <div class="stage-row-keydates">
+      ${keyDatesFieldsHtml(id, allEvents)}
     </div>
     <div class="stage-row-actions">
       <select class="move-select"></select>
@@ -4232,12 +4204,6 @@ function buildStageDealRow(id, d, stage){
     const newStage = sel.value, prevStage = d.stage||"just_landed";
     confirmStageChange(d, newStage, ()=> updateDeal(id, {stage: newStage, order: Date.now()}), ()=>{ sel.value = prevStage; });
   });
-  const ownerInput = row.querySelector(".stage-owner-input");
-  ownerInput.addEventListener("click", e=>e.stopPropagation());
-  ownerInput.addEventListener("change", e=>{
-    const next = Object.assign({}, d.stageOwners||{}, {[stage.key]: e.target.value.trim()});
-    updateDeal(id, {stageOwners: next});
-  });
   return row;
 }
 
@@ -4247,17 +4213,19 @@ function setPipelineDensity(mode){
   renderPipelineStages();
 }
 
-function buildStageDealRowCompact(id, d, stage){
+function buildStageDealRowCompact(id, d, stage, allEvents){
   const row = document.createElement("div");
   const priority = dealPriority(d);
   row.className = "stage-row-compact" + (priority==="high" ? " stage-row-compact-priority-high" : priority==="medium" ? " stage-row-compact-priority-medium" : "");
   row.title = PRIORITY_META[priority].label + " priority";
   row.style.borderLeftColor = `var(--${stage.color})`;
+  row.draggable = true;
+  row.addEventListener("dragstart", ()=>{ dragDealCard = {id, fromStage: stage.key}; row.classList.add("dragging"); });
+  row.addEventListener("dragend", ()=>{ row.classList.remove("dragging"); dragDealCard = null; });
   row.addEventListener("click", (e)=>{
-    if(e.target.closest(".move-select") || e.target.closest(".stage-owner-input")) return;
+    if(e.target.closest(".move-select")) return;
     openDealDetail(id);
   });
-  const owner = (d.stageOwners && d.stageOwners[stage.key]) || "";
   const {pct} = dealStageProgressPct(d);
   const updated = d.updatedAt ? fmtDate(d.updatedAt.slice(0,10)) : (d.createdAt ? fmtDate(d.createdAt.slice(0,10)) : "—");
 
@@ -4273,7 +4241,7 @@ function buildStageDealRowCompact(id, d, stage){
     <span class="src-acres mono">${escapeHtml(acresSummaryText(d))}</span>
     <span class="src-ppu mono">${pricePerUnit(d)?fmtMoneyShort(pricePerUnit(d))+"/u":"—"}</span>
     <span class="src-progress">${dealProgressBarHtml(d,{size:"sm",showLabel:false})}<span class="src-progress-pct mono" style="color:${progressColorForDeal(d)}">${pct}%</span></span>
-    <input class="cdate-input stage-owner-input src-owner-input" type="text" value="${escapeAttr(owner)}" placeholder="Assign…">
+    ${keyDateCompactHtml(id, allEvents)}
     <span class="src-updated mono">${updated}</span>
     <select class="move-select src-move"></select>`;
   row.querySelector(".src-name").textContent = d.name || "Untitled deal";
@@ -4290,12 +4258,6 @@ function buildStageDealRowCompact(id, d, stage){
     const newStage = sel.value, prevStage = d.stage||"just_landed";
     confirmStageChange(d, newStage, ()=> updateDeal(id, {stage: newStage, order: Date.now()}), ()=>{ sel.value = prevStage; });
   });
-  const ownerInput = row.querySelector(".src-owner-input");
-  ownerInput.addEventListener("click", e=>e.stopPropagation());
-  ownerInput.addEventListener("change", e=>{
-    const next = Object.assign({}, d.stageOwners||{}, {[stage.key]: e.target.value.trim()});
-    updateDeal(id, {stageOwners: next});
-  });
   return row;
 }
 
@@ -4308,6 +4270,7 @@ function renderPipelineStages(){
   const filtersActive = anyDashboardFilterActive();
 
   const {overdue, upcoming, stalled} = getUrgentAlerts(deals);
+  const dealEventsAll = getDealEvents(deals); // computed once per render, then filtered per-row by buildStageDealRow(Compact) — see keyDatesFieldsHtml/keyDateCompactHtml
   const alertHtml = alertBarHtml(overdue, upcoming, stalled);
   if(alertHtml){
     const alertWrap = document.createElement("div");
@@ -4373,7 +4336,7 @@ function renderPipelineStages(){
     if(pipelineDensity==="compact" && list.length){
       const head = document.createElement("div");
       head.className = "stage-row-compact stage-row-compact-head";
-      head.innerHTML = `<span></span><span>Project</span><span>Market</span><span class="col-align-right">Price</span><span class="col-align-right">Acres · $/ac</span><span class="col-align-right">$/Unit</span><span>Progress</span><span>Responsible</span><span>Updated</span><span>Stage</span>`;
+      head.innerHTML = `<span></span><span>Project</span><span>Market</span><span class="col-align-right">Price</span><span class="col-align-right">Acres · $/ac</span><span class="col-align-right">$/Unit</span><span>Progress</span><span>Key dates</span><span>Updated</span><span>Stage</span>`;
       body.appendChild(head);
     }
     if(list.length===0){
@@ -4383,7 +4346,7 @@ function renderPipelineStages(){
       body.appendChild(hint);
     }
     list.forEach(([id,d])=> body.appendChild(
-      pipelineDensity==="compact" ? buildStageDealRowCompact(id,d,stage) : buildStageDealRow(id,d,stage)
+      pipelineDensity==="compact" ? buildStageDealRowCompact(id,d,stage,dealEventsAll) : buildStageDealRow(id,d,stage,dealEventsAll)
     ));
     if(list.length){
       const summaryWrap = document.createElement("div");
@@ -4391,6 +4354,27 @@ function renderPipelineStages(){
       body.appendChild(summaryWrap.firstElementChild);
     }
     section.appendChild(body);
+    // Drag-and-drop stage change: dropping a deal card (from either density's row) onto a
+    // different stage's section moves it there, through the same confirmStageChange gate the
+    // "Move to…" dropdown already uses (e.g. it'll still ask before letting an undecided deal
+    // into IC1/Onboarded) — drag is just a faster way to trigger the same change.
+    section.addEventListener("dragover", e=>{
+      if(!dragDealCard) return;
+      e.preventDefault();
+      section.classList.add("drag-over");
+    });
+    section.addEventListener("dragleave", ()=> section.classList.remove("drag-over"));
+    section.addEventListener("drop", e=>{
+      e.preventDefault();
+      section.classList.remove("drag-over");
+      if(!dragDealCard) return;
+      const {id: draggedId, fromStage} = dragDealCard;
+      dragDealCard = null;
+      if(fromStage===stage.key) return;
+      const dd = deals.get(draggedId);
+      if(!dd) return;
+      confirmStageChange(dd, stage.key, ()=> updateDeal(draggedId, {stage: stage.key, order: Date.now()}), ()=>{});
+    });
     board.appendChild(section);
   });
 }
@@ -4596,7 +4580,7 @@ function showToast(message, kind){
    to downloading a standalone, fully self-styled HTML file the person can open in any normal
    browser tab and print from there (Ctrl/Cmd+P), which always works because it's no longer
    running inside any sandbox. Reuses the exact overlay element (id and all) that's already on
-   screen, so the existing #icMemoOverlay/#agendaPrintOverlay/#onePagerOverlay print CSS rules
+   screen, so the existing #cardPrintOverlay/#agendaPrintOverlay/#onePagerOverlay print CSS rules
    above apply identically either way. */
 function openPrintableWindow(overlayEl, filename){
   const styleHtml = Array.from(document.querySelectorAll("style")).map(s=>s.outerHTML).join("\n");
@@ -4991,215 +4975,6 @@ function financingGapsCardHtml(dealEntries){
     <div class="financing-gap-sub">${totalDebtGap>0?`Debt: ${fmtMoneyShort(totalDebtGap)}`:""}${(totalDebtGap>0&&totalEquityGap>0)?" · ":""}${totalEquityGap>0?`Equity: ${fmtMoneyShort(totalEquityGap)}`:""} still open across ${rows.length} deal${rows.length===1?"":"s"}</div>
     <div class="attn-list">${rows.map(rowHtml).join("")}</div>
   </div>`;
-}
-
-/* =================== IC memo =================== */
-function openIcMemoModal(id){
-  const existing = document.getElementById("icMemoOverlay");
-  if(existing) existing.remove();
-  const d = deals.get(id);
-  if(!d) return;
-  const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
-  const cap = calcCapitalStack(d);
-  const uw = calcUnderwriting(d);
-  const applicable = d.ddApplicable ?? DD_TOTAL;
-  const complete = d.ddComplete ?? 0;
-  const ddPct = applicable>0 ? Math.round((complete/applicable)*100) : 0;
-  const {pct: progressPct} = dealStageProgressPct(d);
-  const photos = [d.photoUrl1, d.photoUrl2, d.photoUrl3].filter(Boolean);
-
-  const overviewRows = [
-    ["Address", d.address || "—"],
-    ["Market tier", MARKET_TIER_META[d.marketTier] ? MARKET_TIER_META[d.marketTier].label : "—"],
-    ["Fund", d.fund || "—"],
-    ["Property type", d.propertyType || "—"],
-    ["Deal type", d.dealType || "—"],
-    ["Product line", d.productLine || "—"],
-    ["Source", d.source || "—"],
-    ["Broker", brokerLabelForDeal(d) || "—"],
-    ["Deal lead", d.lead || "—"],
-    ["Meets target criteria", d.meetsTargetCriteria ? "Yes" : "No"],
-  ];
-  const econRows = [
-    ["Purchase price", d.purchasePrice ? fmtMoneyShort(d.purchasePrice) : "—"],
-    ["Targeted units", d.targetUnits ? Number(d.targetUnits).toLocaleString() : "—"],
-    ["Price / targeted unit", pricePerUnit(d) ? fmtMoneyShort(pricePerUnit(d))+"/unit" : "—"],
-    ["Total capital needed", cap ? fmtMoneyShort(cap.basis) : "—"],
-    ["Debt", cap ? fmtMoneyShort(cap.debtAmount)+` (${cap.debtPct}% LTC)` : "—"],
-    ["Equity required", cap ? fmtMoneyShort(cap.equityAmount) : "—"],
-    ["Est. margin (on revenue)", (uw && uw.marginRevenue!=null) ? (uw.marginRevenue*100).toFixed(1)+"%" : "—"],
-    ["Est. margin (on cost)", (uw && uw.marginCost!=null) ? (uw.marginCost*100).toFixed(1)+"%" : "—"],
-  ];
-  const dateRows = CRITICAL_DATE_FIELDS.map(f=> [f.label, d[f.field] ? fmtDate(d[f.field]) : "—"]);
-  const criteriaCacheForDeal = criteriaCache.get(id) || new Map();
-  const icScorecardRows = activeIcCriteria(d).map(item=>{
-    const v = criteriaCacheForDeal.get(item.key) || {status:"tbd", notes:"", actual:"", rating:null};
-    const meta = IC_STATUS_META[v.status||"tbd"];
-    const smart = IC_SMART_FIELDS[item.key];
-    const actualText = (smart && smart.actual) ? (smart.actual(d) || "—") : (v.actual || "—");
-    return {label:item.label, requirement:item.requirement, actual:actualText, meta, notes:v.notes||"", rating:v.rating};
-  });
-  const icScorecardHtml = `<table class="memo-table ic-scorecard-table">
-    <thead><tr><th>Criterion</th><th>Requirement</th><th>This deal</th><th>Rating</th><th>Fit</th><th>Backup</th></tr></thead>
-    <tbody>${icScorecardRows.map(r=>`<tr>
-      <td class="memo-td">${escapeHtml(r.label)}</td>
-      <td class="memo-td ic-scorecard-req">${escapeHtml(r.requirement)}</td>
-      <td class="memo-td">${escapeHtml(r.actual)}</td>
-      <td class="memo-td mono">${r.rating!=null ? r.rating.toFixed(1) : "—"}</td>
-      <td class="memo-td"><span class="pill ${r.meta.cls}">${r.meta.label}</span></td>
-      <td class="memo-td ic-scorecard-notes">${escapeHtml(r.notes)}</td>
-    </tr>`).join("")}</tbody>
-  </table>`;
-
-  const tableHtml = (rows)=> `<table class="memo-table">${rows.map(([l,v])=>`<tr><td class="memo-th">${escapeHtml(l)}</td><td class="memo-td">${escapeHtml(String(v))}</td></tr>`).join("")}</table>`;
-  const memoListTableHtml = (list, columns)=>{
-    if(!list || !list.length) return `<p class="ic-memo-notes" style="font-style:italic;color:var(--ink-faint);">None logged yet.</p>`;
-    return `<table class="memo-table ic-scorecard-table">
-      <thead><tr>${columns.map(c=>`<th>${escapeHtml(c.label)}</th>`).join("")}</tr></thead>
-      <tbody>${list.map(row=>`<tr>${columns.map(c=>{
-        const raw = row[c.key];
-        const text = c.fmt ? c.fmt(raw) : (raw==null||raw===""?"—":String(raw));
-        return `<td class="memo-td">${c.link && raw ? `<a href="${escapeAttr(normalizeUrl(raw))}" target="_blank" rel="noopener">${escapeHtml(text)}</a>` : escapeHtml(text)}</td>`;
-      }).join("")}</tr>`).join("")}</tbody>
-    </table>`;
-  };
-
-  const recMeta = REC_META[d.recommendation];
-  const mapAddr = (d.address || "").trim();
-  const hasMedia = photos.length || mapAddr;
-  const mediaGridHtml = hasMedia ? `<div class="ic-memo-media-grid">
-    ${photos.map(p=>`<div class="ic-memo-media-box"><div class="ic-memo-media-label">Photo</div><img src="${escapeAttr(normalizeUrl(p))}" onerror="this.closest('.ic-memo-media-box').style.display='none'"></div>`).join("")}
-    ${mapAddr ? `<div class="ic-memo-media-box">
-      <div class="ic-memo-media-label">Location, map</div>
-      <div class="ic-memo-map-loading no-print" id="icMemoMapSlot">Loading map…</div>
-      <div class="ic-memo-map-fallback">${escapeHtml(mapAddr)}<br><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapAddr)}" target="_blank" rel="noopener">Open in Google Maps →</a></div>
-    </div>` : ""}
-  </div>` : "";
-  const financialModelHtml = `<div class="ic-memo-proforma">
-    <div class="ic-memo-proforma-tile"><span class="ic-memo-proforma-tile-label">Purchase price</span><span class="ic-memo-proforma-tile-value">${d.purchasePrice ? fmtMoneyShort(d.purchasePrice) : "—"}</span></div>
-    ${d.proformaUrl ? `<a class="ic-memo-proforma-link" href="${escapeAttr(normalizeUrl(d.proformaUrl))}" target="_blank" rel="noopener">📈 Open project pro forma →</a>` : `<div class="locked-note" style="margin-top:4px;">No pro forma link on file yet.</div>`}
-  </div>`;
-  const propertyBasicsRows = [
-    ["Purchase price", d.purchasePrice ? fmtMoneyShort(d.purchasePrice) : "—"],
-    ["Lot size", d.lotSizeAcres ? d.lotSizeAcres+" ac" : "—"],
-    ["Targeted units", d.targetUnits ? Number(d.targetUnits).toLocaleString() : "—"],
-    ["Deal type", d.dealType || "—"],
-    ["PSA status", d.psaStatus || "—"],
-  ];
-  const overlay = document.createElement("div");
-  overlay.className = "overlay";
-  overlay.id = "icMemoOverlay";
-  overlay.innerHTML = `
-    <div class="modal ic-memo-modal">
-      <div class="modal-head no-print">
-        <h2>📄 IC Memo</h2>
-        <div style="margin-left:auto;display:flex;gap:8px;">
-          <button type="button" class="btn-icon" id="icMemoPrintBtn">🖨 Print / Save as PDF</button>
-          <button type="button" class="btn-icon" id="icMemoCloseBtn">✕ Close</button>
-        </div>
-      </div>
-      <div class="ic-memo-body" id="icMemoPrintArea">
-        <div class="ic-memo-masthead">
-          <div class="ic-memo-brand">Newgard Group · Investment Committee Memo</div>
-          <div class="ic-memo-date">Prepared ${fmtDate(new Date().toISOString().slice(0,10))}</div>
-        </div>
-        <h1 class="ic-memo-title">${escapeHtml(d.name||"Untitled deal")}</h1>
-        <div class="ic-memo-sub">${escapeHtml(d.address||"Address not set")}</div>
-        <div class="ic-memo-stagebar">
-          <span class="pill pill-${stage.color}">${escapeHtml(stage.title)}</span>
-          ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}${recPillHtml(d)}${tierPillHtml(d)}${icSummaryPillHtml(d)}${icScorePillHtml(d)}${icDecisionPillHtml(d)}${icFlagBadgeHtml(d)}
-          ${dealProgressBarHtml(d,{size:"sm",showLabel:false})}
-          <span class="ic-memo-dd">DD ${complete}/${applicable} complete (${ddPct}%)</span>
-        </div>
-        <div class="ic-memo-execbox ${recMeta ? "ic-memo-execbox-"+recMeta.cls.replace("pill-","") : ""}">
-          <div class="ic-memo-exec-head">
-            <span class="ic-memo-exec-label">Recommendation — Brendan McKeon:</span>
-            ${recMeta ? `<span class="pill pill-solid ${recMeta.cls}">${recMeta.label}</span>` : `<span class="pill pill-neutral">Not yet set</span>`}
-          </div>
-          ${(d.nextStep||d.decisionRequired) ? `<div class="ic-memo-recbox">
-            ${d.nextStep ? `<div><span class="decision-row-tag">Next step:</span> ${escapeHtml(d.nextStep)}</div>` : ""}
-            ${d.decisionRequired ? `<div><span class="decision-row-tag">Decision required from senior management:</span> ${escapeHtml(d.decisionRequired)}</div>` : ""}
-          </div>` : ""}
-          ${d.icDecision ? `<div class="ic-memo-decisionbox ic-memo-decisionbox-${IC_DECISION_META[d.icDecision].cls.replace("pill-","")}">
-            <div class="ic-memo-decision-head">
-              <span class="ic-memo-decision-label">IC Decision:</span>
-              <span class="pill pill-solid ${IC_DECISION_META[d.icDecision].cls}">${IC_DECISION_META[d.icDecision].label}</span>
-              ${d.icDecisionBy ? `<span class="ic-memo-decision-meta">by ${escapeHtml(d.icDecisionBy)}</span>` : ""}
-              ${d.icDecisionDate ? `<span class="ic-memo-decision-meta">${fmtDate(d.icDecisionDate)}</span>` : ""}
-            </div>
-            ${d.icDecisionNotes ? `<p class="ic-memo-notes">${escapeHtml(d.icDecisionNotes)}</p>` : ""}
-          </div>` : ""}
-          ${d.icFlagged ? `<div class="ic-memo-decisionbox ic-memo-decisionbox-bad">
-            <div class="ic-memo-decision-head"><span class="ic-memo-decision-label">🚩 Flagged for IC discussion</span></div>
-            ${d.icFlagNote ? `<p class="ic-memo-notes">${escapeHtml(d.icFlagNote)}</p>` : ""}
-          </div>` : ""}
-        </div>
-
-        <div>
-          <h4 class="section-label">Screening criteria</h4>
-          ${icScorecardHtml}
-        </div>
-
-        <div class="ic-memo-grid">
-          <div>
-            <h4 class="section-label">Deal overview</h4>
-            ${tableHtml(overviewRows)}
-          </div>
-          <div>
-            <h4 class="section-label">Property basics</h4>
-            ${tableHtml(propertyBasicsRows)}
-          </div>
-        </div>
-
-        ${mediaGridHtml}
-
-        <div>
-          <h4 class="section-label">Financial model</h4>
-          ${financialModelHtml}
-        </div>
-
-        <div class="ic-memo-grid">
-          <div>
-            <h4 class="section-label">Critical dates</h4>
-            ${tableHtml(dateRows)}
-          </div>
-          <div>
-            <h4 class="section-label">Economics &amp; market tier</h4>
-            ${tableHtml(econRows.concat([["Market tier", MARKET_TIER_META[d.marketTier] ? MARKET_TIER_META[d.marketTier].label : "Not tiered"]]))}
-          </div>
-        </div>
-
-        ${d.notes ? `<div><h4 class="section-label">Notes</h4><p class="ic-memo-notes">${escapeHtml(d.notes)}</p></div>` : ""}
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
-  overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
-  document.getElementById("icMemoCloseBtn").addEventListener("click", ()=> overlay.remove());
-  document.getElementById("icMemoPrintBtn").addEventListener("click", ()=> openPrintableWindow(overlay, "deal-desk-ic-memo-"+(d.name||d.address||"deal").replace(/[^a-z0-9]+/gi,"-").toLowerCase()));
-
-  // Real map, loaded in after the memo itself renders (geocoding is async — see geocodeAddress
-  // above). Falls back silently to the address+link block already in the markup if this fails,
-  // or if the memo gets closed before it resolves.
-  if(mapAddr){
-    (async ()=>{
-      const hit = await geocodeAddress(mapAddr);
-      const slot = document.getElementById("icMemoMapSlot");
-      if(!slot || !document.body.contains(overlay)) return; // memo closed, or address section removed
-      if(!hit || typeof L === "undefined"){
-        slot.textContent = "Map unavailable — use the link below.";
-        return;
-      }
-      slot.className = "ic-memo-map-leaflet no-print";
-      slot.textContent = "";
-      const map = L.map(slot, { scrollWheelZoom:false, dragging:true }).setView([hit.lat, hit.lon], 15);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 18,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
-      }).addTo(map);
-      L.marker([hit.lat, hit.lon]).addTo(map);
-      attachCtrlScrollZoom(map, slot);
-    })();
-  }
 }
 
 /* =================== dashboard =================== */
@@ -5603,6 +5378,33 @@ function agendaInMotionCardHtml(entries, asOfIso){
     }).join("")}
   </div>`;
 }
+/* The Weekly Agenda IS the Investment Committee meeting, so the deals actually sitting at an IC
+   gate (ic1 awaiting G3 — pursue the PSA?, ic2 awaiting G5 — go hard?) get their own docket rather
+   than blending into "Deals in motion" — this is the list the committee is being convened to act
+   on. Shows whichever gate applies and the latest logged answer, if any, from the gate log. */
+function icDecisionsDueCardHtml(entries){
+  const rows = entries.slice().sort((a,b)=>{
+    const at = a[1].updatedAt||a[1].createdAt||"", bt = b[1].updatedAt||b[1].createdAt||"";
+    return at<bt ? -1 : at>bt ? 1 : 0;
+  });
+  if(!rows.length) return `<div class="empty-hint" style="margin-left:36px;">No deals awaiting an IC1 or IC2 vote right now.</div>`;
+  return `<div style="margin-left:36px;display:flex;flex-direction:column;gap:2px;">
+    ${rows.map(([id,d])=>{
+      const stage = d.stage||"just_landed";
+      const gateKey = stage==="ic2" ? "g5" : "g3";
+      const gate = GATES.find(g=>g.key===gateKey);
+      const latest = latestGateEntry(d, gateKey);
+      const priority = dealPriority(d);
+      const priorityRowCls = priority==="high" ? " agenda-inmotion-row-priority-high" : priority==="medium" ? " agenda-inmotion-row-priority-medium" : "";
+      return `<button type="button" class="agenda-inmotion-row${priorityRowCls}" data-deal="${escapeAttr(id)}">
+        <span class="agenda-inmotion-name">${escapeHtml(d.name||d.address||"Untitled deal")} <span class="pill ${PRIORITY_META[priority].cls}" style="margin-left:2px;">${PRIORITY_META[priority].label}</span></span>
+        <span class="pill pill-solid pill-accent" title="${escapeAttr(gate.meta)}">${escapeHtml(gate.label)}</span>
+        <span class="agenda-inmotion-note">${latest ? `Last logged: ${escapeHtml(latest.answer)}` : `Needs a vote: ${escapeHtml(gate.answers.join(" · "))}`}</span>
+        <span class="agenda-inmotion-meta">${d.screeningPdf ? `<span class="pill pill-neutral" title="Screening PDF on file">📎 Screening</span>` : ""} ${icFlagBadgeHtml(d)}</span>
+      </button>`;
+    }).join("")}
+  </div>`;
+}
 function agendaSinceLastMeetingHtml(closedRecent, newProspectsRecent){
   const closedHtml = closedRecent.length
     ? `<div class="agenda-recap-list">${closedRecent.map(([id,d])=>`<button type="button" class="agenda-recap-row" data-deal="${escapeAttr(id)}"><span class="agenda-recap-name">${escapeHtml(d.name||d.address||"Untitled deal")}</span><span class="agenda-recap-meta">${fmtDate(d.actualCloseDate)} · ${fmtMoneyShort(d.purchasePrice)}</span></button>`).join("")}</div>`
@@ -5619,8 +5421,8 @@ function setAgendaMeetingDate(v){
   agendaMeetingDate = v || null;
   if(view==="agenda") renderAgendaView();
 }
-/* Print / save-as-PDF for the Weekly Agenda — same overlay + @media print pattern as the IC
-   memo (see #icMemoOverlay above): clone whatever's currently on screen in #agendaWrap (so the
+/* Print / save-as-PDF for the Weekly Agenda — same overlay + @media print pattern as the
+   project-card print view (see #cardPrintOverlay above): clone whatever's currently on screen in #agendaWrap (so the
    PDF matches the meeting date already selected), swap the interactive date-picker bar for a
    plain text line, and let the browser's own print-to-PDF do the rest — no PDF library needed. */
 function openAgendaPrintModal(){
@@ -5650,7 +5452,7 @@ function openAgendaPrintModal(){
       </div>
       <div class="ic-memo-body" id="agendaPrintArea">
         <div class="ic-memo-masthead">
-          <div class="ic-memo-brand">Newgard Group · Weekly Acquisitions Review</div>
+          <div class="ic-memo-brand">Newgard Group · Weekly Investment Committee Meeting</div>
           <div class="ic-memo-date">Meeting date ${fmtDate(meetingDate)} · Prepared ${fmtDate(new Date().toISOString().slice(0,10))}${introText ? " · "+escapeHtml(introText) : ""}</div>
         </div>
       </div>
@@ -5674,8 +5476,13 @@ function renderAgendaView(){
   const urgentTotal = overdue.length + decisionEntries.length + flaggedCount + upcoming7.length;
 
   const prospectingEntries = activeEntries.filter(([id,d])=> (d.stage||"just_landed")==="just_landed");
-  const IN_MOTION_STAGES = new Set(["screened","underwriting","submitted_loi","signed_loi","ic1"]);
+  // IC1 and IC2 are this meeting's own decision points (G3/G5 — see GATES above), so they get their
+  // own docket below rather than sitting anonymously inside "Deals in motion" with everything still
+  // being underwritten or awaiting an LOI signature.
+  const IN_MOTION_STAGES = new Set(["screened","underwriting","submitted_loi","signed_loi"]);
   const inMotionEntries = activeEntries.filter(([id,d])=> IN_MOTION_STAGES.has(d.stage||"just_landed"));
+  const IC_GATE_STAGES = new Set(["ic1","ic2"]);
+  const icDecisionEntries = activeEntries.filter(([id,d])=> IC_GATE_STAGES.has(d.stage||"just_landed"));
   const IN_CONTRACT_STAGES = CONTRACT_STAGES;
   const inContractEntries = activeEntries.filter(([id,d])=> IN_CONTRACT_STAGES.has(d.stage||"just_landed"));
   const capNeedBuckets = bucketCapitalNeed(getCapitalNeedItems(deals), meetingDate);
@@ -5696,6 +5503,12 @@ function renderAgendaView(){
       sub: `Overdue dates, decisions needed, IC flags, and anything due in the 7 days after ${fmtDate(meetingDate)}.`,
       count: null,
       body: needsAttentionCardHtml(overdue, decisionEntries, upcoming7, stalled),
+    },
+    icdecisions: {
+      title: "Investment Committee decisions",
+      sub: "IC1 (pursue the PSA?) and IC2 (go hard?) — the actual votes this meeting needs to take.",
+      count: icDecisionEntries.length,
+      body: icDecisionsDueCardHtml(icDecisionEntries),
     },
     prospects: {
       title: "Prospects for review",
@@ -5756,7 +5569,7 @@ function renderAgendaView(){
 
   wrap.innerHTML = `
     <div class="agenda-intro">
-      <div><span class="agenda-step-title">Weekly Acquisitions Review</span></div>
+      <div><span class="agenda-step-title">Weekly Investment Committee Meeting</span></div>
       <div style="display:flex;align-items:center;gap:12px;">
         <div class="agenda-intro-date">${urgentTotal ? `${urgentTotal} item${urgentTotal===1?"":"s"} need${urgentTotal===1?"s":""} a look` : "nothing urgent"}</div>
         <button type="button" class="btn-icon" id="agendaPrintTriggerBtn">🖨 Print / PDF</button>
@@ -5813,7 +5626,7 @@ function renderAgendaView(){
    calendarRangeMonths) since it's a personal layout preference, not shared deal data. Filters out
    stale keys and appends any new section this build adds, so an old saved order never hides a
    section that didn't exist when it was saved. */
-const AGENDA_SECTION_KEYS = ["urgent","prospects","inmotion","undercontract","capital","recap","comments"];
+const AGENDA_SECTION_KEYS = ["urgent","icdecisions","prospects","inmotion","undercontract","capital","recap","comments"];
 function getAgendaSectionOrder(){
   let saved = [];
   try{ saved = JSON.parse(localStorage.getItem("dealdesk_agenda_order")||"[]"); }catch(e){ saved = []; }
@@ -7347,13 +7160,13 @@ function openEditDealModal(){
       stageSchemeV2: true,
       psaStatus: "Not Started",
       meetsTargetCriteria: false,
-      fund: "", propertyType: document.getElementById("dPropType").value, dealType: document.getElementById("dDealType").value, stageOwners: {},
+      propertyType: document.getElementById("dPropType").value, dealType: document.getElementById("dDealType").value,
       targetUnits: document.getElementById("dUnits").value ? Number(document.getElementById("dUnits").value) : null,
       productLine: document.getElementById("dProductLine").value.trim(),
       source, brokerId,
       photoUrl1: "", photoUrl2: "", photoUrl3: "",
       effectiveDate: "", inspectionEndDate: "", closingDate: "", actualCloseDate: "",
-      loiSubmittedDate: "", materialsReceivedDate: "", underwritingCompleteDate: "", icApprovalDate: "",
+      loiSubmittedDate: "", loiSignedDate: "", materialsReceivedDate: "", underwritingCompleteDate: "",
       deposit1Amount: null, deposit1Status: "Not Due", deposit1Date: "",
       deposit2Amount: null, deposit2Date: "", deposit2Status: "Not Due",
       extraDeposits: [],
@@ -7563,6 +7376,83 @@ function initSlideResizeHandle(){
   });
 }
 
+/* =================== project card print (PDF) =================== */
+/* A quick, printable snapshot of the project card's main view — deal basics, deal overview,
+   critical dates, deposits, photos — for handing someone a one-look summary without the full
+   operational detail (DD checklist, gate log, IC criteria, etc.) further down the same panel.
+   Same overlay + @media print pattern as the Weekly Agenda and Weekly One-Pager (openPrintableWindow). */
+function openCardPrintModal(id){
+  const existing = document.getElementById("cardPrintOverlay");
+  if(existing) existing.remove();
+  const d = deals.get(id);
+  if(!d) return;
+  const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
+  const photos = [d.photoUrl1, d.photoUrl2, d.photoUrl3].filter(Boolean);
+  const tableHtml = (rows)=> `<table class="cardprint-table">${rows.map(([l,v])=>`<tr><td class="cardprint-th">${escapeHtml(l)}</td><td class="cardprint-td">${escapeHtml(String(v))}</td></tr>`).join("")}</table>`;
+
+  const basicsRows = [
+    ["Lot size", d.lotSizeAcres ? fmtAcres(d.lotSizeAcres) : "—"],
+    ["Purchase price", d.purchasePrice ? fmtMoneyShort(d.purchasePrice) : "—"],
+    ["Targeted units", d.targetUnits ? Number(d.targetUnits).toLocaleString() : "—"],
+    ["Developable SF", d.grossDevelopableSf ? Number(d.grossDevelopableSf).toLocaleString()+" SF" : "—"],
+    ["Price / acre", (d.purchasePrice && d.lotSizeAcres) ? fmtMoneyShort(d.purchasePrice/d.lotSizeAcres)+"/ac" : "—"],
+    ["Price / unit", pricePerUnit(d) ? fmtMoneyShort(pricePerUnit(d))+"/unit" : "—"],
+  ];
+  const overviewRows = [
+    ["Address", d.address || "—"],
+    ["Property type", d.propertyType || "—"],
+    ["Deal type", d.dealType || "—"],
+    ["Product line", d.productLine || "—"],
+    ["Source", d.source || "—"],
+    ["Broker", brokerLabelForDeal(d) || "—"],
+    ["Deal lead", d.lead || "—"],
+  ];
+  const dateRows = CRITICAL_DATE_FIELDS.map(f=> [f.label, d[f.field] ? fmtDate(d[f.field]) : "—"]);
+  const depositRows = [
+    ["1st deposit", d.deposit1Amount ? fmtMoneyShort(d.deposit1Amount) + (d.deposit1Date?` — due ${fmtDate(d.deposit1Date)}`:"") + ` (${d.deposit1Status||"Not Due"})` : "—"],
+    ["2nd deposit", d.deposit2Amount ? fmtMoneyShort(d.deposit2Amount) + (d.deposit2Date?` — due ${fmtDate(d.deposit2Date)}`:"") + ` (${d.deposit2Status||"Not Due"})` : "—"],
+  ];
+  (d.extraDeposits||[]).forEach(dep=>{
+    depositRows.push([dep.label||"Additional deposit", (dep.amount?fmtMoneyShort(dep.amount):"—") + (dep.date?` — due ${fmtDate(dep.date)}`:"") + ` (${dep.status||"Not Due"})`]);
+  });
+  const photosHtml = photos.length ? `<div class="cardprint-photos">${photos.map(p=>`<img src="${escapeAttr(normalizeUrl(p))}" onerror="this.style.display='none'">`).join("")}</div>` : "";
+
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  overlay.id = "cardPrintOverlay";
+  overlay.innerHTML = `
+    <div class="modal ic-memo-modal">
+      <div class="modal-head no-print">
+        <h2>🖨 Print project card</h2>
+        <div style="margin-left:auto;display:flex;gap:8px;">
+          <button type="button" class="btn-icon" id="cardPrintPrintBtn">🖨 Print / Save as PDF</button>
+          <button type="button" class="btn-icon" id="cardPrintCloseBtn">✕ Close</button>
+        </div>
+      </div>
+      <div class="ic-memo-body" id="cardPrintArea">
+        <div class="ic-memo-masthead">
+          <div class="ic-memo-brand">Newgard Group · Acquisitions</div>
+          <div class="ic-memo-date">Prepared ${fmtDate(new Date().toISOString().slice(0,10))}</div>
+        </div>
+        <h1 class="ic-memo-title">${escapeHtml(d.name||"Untitled deal")}</h1>
+        <div class="ic-memo-sub">${escapeHtml(d.address||"Address not set")}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
+          <span class="pill pill-${stage.color}">${escapeHtml(stage.title)}</span>
+          ${priorityBadgeHtml(d)}${productLineBadgeHtml(d)}
+        </div>
+        <div><h4 class="section-label">Deal basics</h4>${tableHtml(basicsRows)}</div>
+        <div><h4 class="section-label">Deal overview</h4>${tableHtml(overviewRows)}</div>
+        <div><h4 class="section-label">Critical dates</h4>${tableHtml(dateRows)}</div>
+        <div><h4 class="section-label">Deposits</h4>${tableHtml(depositRows)}</div>
+        ${photosHtml ? `<div><h4 class="section-label">Property photos</h4>${photosHtml}</div>` : ""}
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
+  document.getElementById("cardPrintCloseBtn").addEventListener("click", ()=> overlay.remove());
+  document.getElementById("cardPrintPrintBtn").addEventListener("click", ()=> openPrintableWindow(overlay, "deal-desk-card-"+(d.name||d.address||"deal").replace(/[^a-z0-9]+/gi,"-").toLowerCase()));
+}
+
 function openDealDetail(id){
   openDealId = id;
   const root = document.getElementById("slideoverRoot");
@@ -7576,7 +7466,7 @@ function openDealDetail(id){
           <input class="slide-title-input" id="slideTitle" type="text" value="${escapeAttr(d.name||"")}" placeholder="Project name">
           <button class="star-btn${d.meetsTargetCriteria?" active":""}" id="slideStar" title="Meets target criteria" style="font-size:20px;">★</button>
           <select class="priority-select" id="slidePriority" title="Priority"></select>
-          <button type="button" class="btn-icon" id="slideIcMemoBtn" title="Generate IC memo">📄 IC memo</button>
+          <button type="button" class="btn-icon" id="slideCardPrintBtn" title="Print project card">🖨 Print</button>
           <button class="btn btn-ghost" id="slideClose" aria-label="Close">✕</button>
         </div>
         <div class="slide-sub" id="slideSub"></div>
@@ -7606,21 +7496,12 @@ function openDealDetail(id){
         </div>
 
         <div>
-          <h4 class="section-label">Quick update</h4>
-          <div class="quick-update-box">
-            <textarea id="quickUpdateText" class="quick-update-textarea" placeholder="Describe what changed, in plain language — e.g. &quot;We signed the amendment: $100k deposit due tomorrow, closing pushed to December 15&quot;…"></textarea>
-            <div class="model-file-attach-area">
-              <button type="button" class="btn" id="quickUpdateApplyBtn">Apply update</button>
-              <span class="model-file-status" id="quickUpdateStatus"></span>
-            </div>
-          </div>
-          <h4 class="section-label" style="margin-top:14px;">Contract documents</h4>
-          <div class="contract-docs-list" id="contractDocsList"></div>
+          <h4 class="section-label">Deal screening</h4>
+          <div class="screening-pdf-row" id="screeningPdfRow"></div>
           <div class="model-file-attach-area">
-            <label class="model-file-label">📎 Upload PSA / LOI / amendment<input type="file" id="contractDocInput" accept=".pdf,.docx,.txt,.md"></label>
-            <span class="model-file-status" id="contractDocStatus"></span>
+            <label class="model-file-label">📎 Upload screening PDF<input type="file" id="screeningPdfInput" accept=".pdf"></label>
+            <span class="model-file-status" id="screeningPdfStatus"></span>
           </div>
-          <div id="contractExtractReviewWrap"></div>
         </div>
 
         <div>
@@ -7628,7 +7509,6 @@ function openDealDetail(id){
           <div class="overview-grid" id="overviewGrid"></div>
           <div class="deal-fields" style="margin-top:10px;">
             <div class="field-row">
-              <div class="field"><label for="slideFund">Fund</label><input id="slideFund" type="text" placeholder="e.g. Fund III"></div>
               <div class="field"><label for="slidePropType">Property type</label>
                 <select id="slidePropType">${categoryOptionsHtml(propertyTypeOptions)}</select>
               </div>
@@ -7808,7 +7688,6 @@ function openDealDetail(id){
   wireMoneyInputDisplay(document.getElementById("slidePrice"));
   document.getElementById("slideUnits").value = d.targetUnits??"";
   document.getElementById("uwSf").value = d.grossDevelopableSf??"";
-  document.getElementById("slideFund").value = d.fund||"";
   document.getElementById("slidePropType").value = d.propertyType||"";
   document.getElementById("slideDealType").value = d.dealType||"";
   document.getElementById("slideProductLine").value = d.productLine||"";
@@ -7840,13 +7719,12 @@ function openDealDetail(id){
   renderPhotoStrip(d);
   renderExtraDeposits();
   renderDealLocationMap(id, d.address || "");
-  renderContractDocsList();
-  document.getElementById("contractDocInput").addEventListener("change", (e)=>{
+  renderScreeningPdfRow();
+  document.getElementById("screeningPdfInput").addEventListener("change", (e)=>{
     const f = e.target.files[0];
     e.target.value = "";
-    if(f) handleContractDocUpload(id, f, document.getElementById("contractDocStatus"));
+    if(f) handleScreeningPdfUpload(id, f);
   });
-  document.getElementById("quickUpdateApplyBtn").addEventListener("click", ()=> handleQuickUpdate(id));
 
   function updateCdateMark(f){
     const val = document.getElementById(f.id).value;
@@ -7878,7 +7756,7 @@ function openDealDetail(id){
     updateDeal(id, {priority: prioritySel.value});
     colorSelectByStatus(prioritySel, PRIORITY_META[prioritySel.value].cls);
   });
-  document.getElementById("slideIcMemoBtn").addEventListener("click", ()=> openIcMemoModal(id));
+  document.getElementById("slideCardPrintBtn").addEventListener("click", ()=> openCardPrintModal(id));
   document.getElementById("slideDelete").addEventListener("click", ()=>{
     close();
     openConfirm(`Delete "${d.name||"this deal"}" and its due diligence checklist? This can't be undone.`, ()=> deleteDeal(id));
@@ -7927,7 +7805,6 @@ function openDealDetail(id){
     });
     renderKeyMetrics(merged);
   }
-  document.getElementById("slideFund").addEventListener("change", e=> save({fund: e.target.value.trim()}));
   wireCategorySelect(document.getElementById("slidePropType"), "propertyType", v=>{ save({propertyType: v}); d.propertyType=v; renderOverviewGrid(d); renderIcCriteriaSection(); });
   document.getElementById("slideDealType").addEventListener("change", e=>{ save({dealType: e.target.value}); d.dealType=e.target.value; renderOverviewGrid(d); });
   wireCategorySelect(document.getElementById("slideProductLine"), "productLine", v=>{ save({productLine: v}); d.productLine=v; renderOverviewGrid(d); });
@@ -7958,6 +7835,12 @@ function openDealDetail(id){
       // Deposits — keep that field's own copy in sync too rather than waiting on a re-render.
       if(f.field==="deposit1Date"){
         const mirror = document.getElementById("slideDep1Date");
+        if(mirror) mirror.value = e.target.value;
+      }
+      // "IC decision" here is the same underlying field as the formal Go/No-Go panel's own
+      // "Decision date" input further down — keep that copy in sync too.
+      if(f.field==="icDecisionDate"){
+        const mirror = document.getElementById("icDecisionDate");
         if(mirror) mirror.value = e.target.value;
       }
     });
@@ -8137,7 +8020,7 @@ function renderSlideProgress(d){
 }
 
 /* Dealpath-style "Deal Overview" project card: a read-friendly label/value grid summarizing
-   fields that live (and are edited) elsewhere in the slideover, plus the new Fund/Property/Deal type inputs above. */
+   fields that live (and are edited) elsewhere in the slideover, plus the Property/Deal type inputs above. */
 function renderOverviewGrid(d){
   const el = document.getElementById("overviewGrid");
   if(!el) return;
@@ -8146,7 +8029,6 @@ function renderOverviewGrid(d){
   const sf = d.grossDevelopableSf ? `${Number(d.grossDevelopableSf).toLocaleString()} sqft` : (d.lotSizeAcres ? fmtAcres(d.lotSizeAcres) : "—");
   const rows = [
     ["Deal creation date", d.createdAt ? fmtDate(d.createdAt.slice(0,10)) : "—"],
-    ["Fund", d.fund || "—"],
     ["Property type", d.propertyType || "—"],
     ["Deal type", d.dealType || "—"],
     ["Product line", d.productLine || "—"],
@@ -8426,6 +8308,11 @@ function openIcScorecardModal(id){
 function renderIcCriteriaSection(){
   if(!openDealId) return;
   renderIcScoreCard();
+  // renderIcDecisionSection() populates the "Go / No-Go decision" box that lives directly on the
+  // main card (#icDecisionSection) — it must run here, unconditionally, rather than after the
+  // modal-only wrap check below, or it would only ever fire once the scorecard modal (which reuses
+  // this same function to refresh its own #icCriteriaSection list) had been opened at least once.
+  renderIcDecisionSection();
   const wrap = document.getElementById("icCriteriaSection");
   if(!wrap) return;
   const {wrap: listEl, fit, watch, nofit, tbd, total, isAutoCondo, source} = buildIcCriteriaList(openDealId);
@@ -8470,7 +8357,6 @@ function renderIcCriteriaSection(){
   wrap.innerHTML = "";
   wrap.appendChild(summary);
   wrap.appendChild(box);
-  renderIcDecisionSection();
 }
 
 /* Formal Go / No-Go decision panel: a non-binding suggestion computed from the IC screening
@@ -8513,7 +8399,17 @@ function renderIcDecisionSection(){
     colorSelectByStatus(e.target, IC_DECISION_META[e.target.value].cls);
   });
   document.getElementById("icDecisionBy").addEventListener("change", e=> updateDeal(openDealId, {icDecisionBy: e.target.value.trim()}));
-  document.getElementById("icDecisionDate").addEventListener("change", e=> updateDeal(openDealId, {icDecisionDate: e.target.value}));
+  document.getElementById("icDecisionDate").addEventListener("change", e=>{
+    updateDeal(openDealId, {icDecisionDate: e.target.value});
+    // Mirror into "IC decision" under Critical dates — same underlying field, shown in both
+    // places (Critical dates as a milestone checklist item, here alongside the recorded decision).
+    const cdIc = document.getElementById("cdIc");
+    if(cdIc){
+      cdIc.value = e.target.value;
+      const mark = document.getElementById("cdIcMark");
+      if(mark){ mark.textContent = e.target.value ? "✓" : "—"; mark.classList.toggle("done", !!e.target.value); }
+    }
+  });
   document.getElementById("icDecisionNotes").addEventListener("change", e=> updateDeal(openDealId, {icDecisionNotes: e.target.value}));
   const flagCheck = document.getElementById("icFlagCheck");
   const flagNoteField = document.getElementById("icFlagNoteField");
@@ -9728,17 +9624,6 @@ async function handleBrokerLogFileUpload(entryIdx, fileList, statusEl){
   renderBrokerActivityLog();
 }
 
-/* =================== contract documents (PSA/LOI/amendment upload + AI term extraction) =================== */
-/* A deal accumulates contract documents over time — an LOI, then a PSA, then amendments that
-   change specific terms — so this is a growing list (d.contractDocs), each entry its own upload
-   with its own extraction pass. Extraction results here are actual deal field values (purchase
-   price, dates, deposits) that would otherwise require re-typing by hand — so every extraction
-   goes through a review step (checkboxes, current value shown struck through next to the
-   proposed one) before anything is written, rather than auto-applying. The same review flow
-   naturally handles amendments too: re-uploading a later document just runs another pass against
-   the deal's current values, and only what that document actually restates or changes shows up
-   as a proposed change — nothing to special-case. */
-
 /* Files live in Supabase Storage (bucket "deal-files", set up by supabase.sql), not the docs
    table — only the {path,name,size,uploadedAt} pointer is stored on the deal. The bucket is
    private, so opening a file means asking Storage for a fresh short-lived signed URL each time. */
@@ -9751,426 +9636,75 @@ async function openModelFile(path){
   }catch(err){ console.error("Couldn't open file:", err); showToast("Couldn't open that file", "bad"); }
 }
 
-const CONTRACT_DOCTYPE_META = {
-  PSA:       {label:"PSA",       color:"accent"},
-  LOI:       {label:"LOI",       color:"warn"},
-  Amendment: {label:"Amendment", color:"brass"},
-  Other:     {label:"Document",  color:"neutral"},
-};
-const CONTRACT_FIELD_LABELS = {
-  psaStatus:         {label:"PSA status",              kind:"text", default:"Not Started"},
-  purchasePrice:     {label:"Purchase price",           kind:"money"},
-  lotSizeAcres:       {label:"Lot size (acres)",         kind:"acres"},
-  effectiveDate:     {label:"PSA effective date",       kind:"date"},
-  closingDate:       {label:"Expected close date",      kind:"date"},
-  inspectionEndDate: {label:"Inspection / DD end date", kind:"date"},
-  actualCloseDate:   {label:"Actual close date",        kind:"date"},
-  deposit1Amount:    {label:"1st deposit amount",       kind:"money"},
-  deposit1Date:      {label:"Earnest money date",       kind:"date"},
-  deposit1Status:    {label:"1st deposit status",       kind:"text", default:"Not Due"},
-  deposit2Amount:    {label:"2nd deposit amount",       kind:"money"},
-  deposit2Date:      {label:"2nd deposit date",         kind:"date"},
-  deposit2Status:    {label:"2nd deposit status",       kind:"text", default:"Not Due"},
-};
-function contractFieldDisplay(kind, v){
-  if(v===null || v===undefined || v==="") return "—";
-  if(kind==="money") return fmtMoneyShort(v);
-  if(kind==="acres") return fmtAcres(v);
-  if(kind==="date"){ const d = new Date(v+"T00:00:00"); return isNaN(d) ? String(v) : d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}); }
-  return String(v);
-}
-
-const CONTRACT_EXTRACT_PROMPT = (ctx)=> `You are a real estate acquisitions analyst at Newgard Development Group. You've been given either (a) the extracted text of a contract document — a Purchase & Sale Agreement (PSA), a Letter of Intent (LOI), or an amendment to either one — or (b) a short freeform note someone on the team typed describing a deal update (e.g. "signed the amendment, $100k deposit due tomorrow, closing pushed to Dec 15"), for a deal already in the pipeline. Pull out whatever deal terms it actually states so the pipeline entry can be updated automatically instead of someone re-typing what they just read or said.
-
-TODAY'S DATE: ${ctx.today}. Resolve any relative date ("due tomorrow", "in 30 days", "next Friday", or a month/day with no year like "December 15") against this — assume the nearest upcoming occurrence of a bare month/day rather than a date in the past.
-
-KNOWN DEAL FIELDS (already on file — the CURRENT values). Only return a key below if THIS text explicitly states a value for it — whether that's the original terms or a change from these current values. If the text doesn't mention a field at all, omit that key (or use null) — never guess, never restate a current value just to fill the key in, and never invent a number or date:
-- Project name: ${ctx.name || "(not given)"}
-- Address: ${ctx.address || "(not given)"}
-- Current PSA status: ${ctx.psaStatus || "Not Started"}
-- Current purchase price: ${ctx.purchasePrice != null ? fmtMoneyShort(ctx.purchasePrice) : "(not set)"}
-- Current lot size: ${ctx.lotSizeAcres != null ? ctx.lotSizeAcres+" ac" : "(not set)"}
-- Current effective/execution date: ${ctx.effectiveDate || "(not set)"}
-- Current expected closing date: ${ctx.closingDate || "(not set)"}
-- Current inspection/DD end date: ${ctx.inspectionEndDate || "(not set)"}
-- Current actual close date: ${ctx.actualCloseDate || "(not set)"}
-- Current 1st deposit: ${ctx.deposit1Amount != null ? fmtMoneyShort(ctx.deposit1Amount) : "(not set)"}, due ${ctx.deposit1Date || "(not set)"}, status ${ctx.deposit1Status || "Not Due"}
-- Current 2nd deposit: ${ctx.deposit2Amount != null ? fmtMoneyShort(ctx.deposit2Amount) : "(not set)"}, due ${ctx.deposit2Date || "(not set)"}, status ${ctx.deposit2Status || "Not Due"}
-- Other deposits already on file: ${ctx.extraDepositLabels && ctx.extraDepositLabels.length ? ctx.extraDepositLabels.join("; ") : "(none)"}
-
-SOURCE TEXT (either mechanically extracted from a document — may include OCR/layout noise — or a short note someone typed directly; use your judgment either way):
-"""
-${ctx.text}
-"""
-
-Return ONLY a JSON object with exactly these keys:
-- "docType": your best guess at what this is — one of "PSA", "LOI", "Amendment", "Other" (use "Other" for a freeform update note that isn't itself a contract document)
-- "docSummary": one short plain sentence describing this specific document or update, for someone scanning a list of uploaded files (e.g. "Executed PSA dated 10/27/25", "First amendment extending the site plan approval date to 5/4/2026", or "Update: $100k deposit due, closing moved to 12/15/26")
-- "psaStatus": one of ${JSON.stringify(PSA_STATUS_OPTIONS)}, only if this document makes the status clear and it's different from "Current PSA status" above — otherwise null
-- "purchasePrice": numeric dollars, no symbols/commas, or null
-- "lotSizeAcres": numeric acres (convert from square feet by dividing by 43560 if that's what's given), or null
-- "effectiveDate": ISO date (YYYY-MM-DD) the PSA/LOI was executed/effective, or null
-- "closingDate": ISO date the deal is expected to close, or null
-- "inspectionEndDate": ISO date the inspection / due-diligence / feasibility period ends (sometimes called the non-refundable date), or null
-- "actualCloseDate": ISO date, ONLY if this document states the deal has already actually closed, or null
-- "deposit1Amount": numeric dollars for the first/earnest money deposit, or null
-- "deposit1Date": ISO date that deposit is/was due, or null
-- "deposit1Status": one of ${JSON.stringify(DEPOSIT_STATUS_OPTIONS)}, or null
-- "deposit2Amount": numeric dollars for a second deposit, or null
-- "deposit2Date": ISO date, or null
-- "deposit2Status": one of ${JSON.stringify(DEPOSIT_STATUS_OPTIONS)}, or null
-- "extraDeposits": an array of any OTHER deposits this document describes beyond the first/second above (e.g. an extension deposit) that aren't already among "Other deposits already on file" — each as {"label": short description, "amount": numeric dollars, "date": ISO date or "", "status": one of ${JSON.stringify(DEPOSIT_STATUS_OPTIONS)}}. Empty array if none.
-- "notesAddition": 2-5 sentences of plain-language, non-numeric context worth recording in the deal's notes — seller name, escrow/title company, commission structure and who pays it, intended use, or any other condition worth a human knowing about. Empty string if this document adds nothing new here.
-
-If this text doesn't describe any real estate deal terms at all (neither a contract nor an update note), still return this exact JSON shape with every field null/empty and "docType":"Other".`;
-
-/* Reads plain text out of an uploaded contract file the same way OM/listing extraction already
-   does (extractPdfText/loadPdfJs, defined above) — PDF via pdf.js (falling back to OCR for a
-   scanned document with no text layer), .docx via mammoth.js, .txt/.md read directly. */
-async function extractContractDocText(file, onStatus){
-  const isPdf = /\.pdf$/i.test(file.name) || (file.type||"")==="application/pdf";
-  const isDocx = /\.docx$/i.test(file.name) || (file.type||"")==="application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  if(isPdf) return await extractPdfText(file, onStatus);
-  if(isDocx) return await extractDocxText(file);
-  return (await file.text()) || "";
-}
-
-function contractDocStatus(msg, isWarn){
-  const el = document.getElementById("contractDocStatus");
+/* =================== deal screening PDF =================== */
+/* A single screening PDF per deal (the initial screen writeup/OM, not a growing document list),
+   so it's quick for anyone — especially Investment Committee — to pull up alongside the deal
+   without digging: one upload slot, replacing whatever was there before. Same storage bucket and
+   signed-URL pattern as openModelFile above (only the {path,name,size,uploadedAt} pointer lives
+   on the deal; the bytes live in Storage). */
+function screeningPdfStatus(msg, isWarn){
+  const el = document.getElementById("screeningPdfStatus");
   if(!el) return;
   el.textContent = msg||"";
   el.classList.toggle("warn", !!isWarn);
 }
-
-async function handleContractDocUpload(dealId, file, statusEl){
-  if(!sb){ contractDocStatus("File storage isn't connected.", true); return; }
-  if(!/\.(pdf|txt|md|docx)$/i.test(file.name)){
-    contractDocStatus("Only .pdf, .docx, .txt, or .md files are supported right now — open it and paste the key terms into Notes instead.", true);
+async function handleScreeningPdfUpload(dealId, file){
+  if(!sb){ screeningPdfStatus("File storage isn't connected.", true); return; }
+  if(!/\.pdf$/i.test(file.name)){
+    screeningPdfStatus("Only .pdf files are supported for the screening PDF.", true);
     return;
   }
   if(file.size > 50*1024*1024){
-    contractDocStatus(file.name + " is over the 50MB limit — try a smaller file.", true);
+    screeningPdfStatus(file.name + " is over the 50MB limit — try a smaller file.", true);
     return;
   }
-  contractDocStatus("Uploading " + file.name + "…");
+  screeningPdfStatus("Uploading " + file.name + "…");
   const d = deals.get(dealId) || {};
-  const docs = (d.contractDocs || []).slice();
-  let docIndex = docs.length;
+  const prev = d.screeningPdf || null;
   try{
     const safeName = file.name.replace(/[^\w.\-]+/g, "_");
-    const path = dealId + "/contracts/" + Date.now() + "_" + Math.random().toString(36).slice(2,8) + "_" + safeName;
+    const path = dealId + "/screening/" + Date.now() + "_" + Math.random().toString(36).slice(2,8) + "_" + safeName;
     const { error } = await sb.storage.from("deal-files").upload(path, file);
     if(error) throw error;
-    docs.push({path, name:file.name, size:file.size, uploadedAt:new Date().toISOString(), docType:"", docSummary:""});
-    await updateDeal(dealId, {contractDocs: docs});
+    await updateDeal(dealId, {screeningPdf: {path, name:file.name, size:file.size, uploadedAt:new Date().toISOString()}});
   }catch(err){
-    console.error("Contract document upload failed:", err);
-    contractDocStatus("Couldn't upload " + file.name + " — " + ((err && err.message) || "try again"), true);
+    console.error("Screening PDF upload failed:", err);
+    screeningPdfStatus("Couldn't upload " + file.name + " — " + ((err && err.message) || "try again"), true);
     return;
   }
-  renderContractDocsList();
-  try{
-    contractDocStatus("Reading " + file.name + "…");
-    const text = await extractContractDocText(file, msg=>contractDocStatus(msg));
-    if(!text || !text.trim()){
-      contractDocStatus("Uploaded, but couldn't find readable text in " + file.name + " — " + (/\.pdf$/i.test(file.name) ? "even after trying OCR (it may be a low-quality scan)" : "paste the key terms into Notes instead") + ".", true);
-      return;
-    }
-    await runContractExtraction(dealId, docIndex, text);
-  }catch(err){
-    console.error("Contract extraction failed:", err);
-    contractDocStatus("Uploaded, but reading the terms failed" + (err && err.detail ? " — "+err.detail : "") + " — fill them in manually or try \"Re-run extraction\" below.", true);
+  screeningPdfStatus("");
+  renderScreeningPdfRow();
+  if(prev && prev.path){
+    try{ await sb.storage.from("deal-files").remove([prev.path]); }
+    catch(e){ console.error("Storage cleanup failed (harmless):", e); }
   }
-  renderContractDocsList();
 }
-
-/* Re-reads an already-uploaded contract document from storage and runs extraction again — used
-   both for "try again" after a failure and, just as usefully, for genuinely re-checking a document
-   against whatever the deal's fields look like now. */
-async function rerunContractDocExtraction(dealId, docIndex){
+async function removeScreeningPdf(dealId){
   const d = deals.get(dealId) || {};
-  const doc = (d.contractDocs||[])[docIndex];
-  if(!doc || !sb) return;
-  contractDocStatus("Fetching " + doc.name + "…");
-  try{
-    const { data, error } = await sb.storage.from("deal-files").createSignedUrl(doc.path, 300);
-    if(error) throw error;
-    const res = await fetch(data.signedUrl);
-    if(!res.ok) throw new Error("HTTP "+res.status);
-    const blob = await res.blob();
-    const file = new File([blob], doc.name, {type: blob.type});
-    contractDocStatus("Reading " + doc.name + "…");
-    const text = await extractContractDocText(file, msg=>contractDocStatus(msg));
-    if(!text || !text.trim()){
-      contractDocStatus("Couldn't find readable text in " + doc.name + (/\.pdf$/i.test(doc.name) ? ", even after trying OCR." : "."), true);
-      return;
-    }
-    await runContractExtraction(dealId, docIndex, text);
-  }catch(err){
-    console.error("Re-run contract extraction failed:", err);
-    contractDocStatus("Couldn't re-read " + doc.name + " — " + ((err && err.message)||"try again"), true);
-  }
-  renderContractDocsList();
-}
-
-function quickUpdateStatus(msg, isWarn){
-  const el = document.getElementById("quickUpdateStatus");
-  if(!el) return;
-  el.textContent = msg||"";
-  el.classList.toggle("warn", !!isWarn);
-}
-
-/* The "Quick update" box: same AI extraction + review pipeline as an uploaded contract document
-   (runContractExtraction below), just fed typed text directly instead of text pulled from a file
-   — there's no document to add to the Contract documents list, so docIndex is null throughout. */
-async function handleQuickUpdate(dealId){
-  const ta = document.getElementById("quickUpdateText");
-  const text = (ta.value||"").trim();
-  if(!text){ quickUpdateStatus("Type an update first.", true); return; }
-  const btn = document.getElementById("quickUpdateApplyBtn");
-  btn.disabled = true;
-  quickUpdateStatus("Reading your update…");
-  try{
-    await runContractExtraction(dealId, null, text, "your update", quickUpdateStatus);
-    if(pendingContractExtraction) ta.value = "";
-  }catch(err){
-    console.error("Quick update extraction failed:", err);
-    quickUpdateStatus("Couldn't read that" + (err && err.detail ? " — "+err.detail : "") + " — try rephrasing, or fill the fields in manually.", true);
-  }finally{
-    btn.disabled = false;
-  }
-}
-
-let pendingContractExtraction = null; // {dealId, docIndex, result, diffs, notesAddition}
-
-async function runContractExtraction(dealId, docIndex, text, docNameOverride, statusFn){
-  statusFn = statusFn || contractDocStatus;
-  const d = deals.get(dealId) || {};
-  const ctx = {
-    name: d.name, address: d.address, psaStatus: d.psaStatus,
-    purchasePrice: d.purchasePrice, lotSizeAcres: d.lotSizeAcres,
-    effectiveDate: d.effectiveDate, closingDate: d.closingDate,
-    inspectionEndDate: d.inspectionEndDate, actualCloseDate: d.actualCloseDate,
-    deposit1Amount: d.deposit1Amount, deposit1Date: d.deposit1Date, deposit1Status: d.deposit1Status,
-    deposit2Amount: d.deposit2Amount, deposit2Date: d.deposit2Date, deposit2Status: d.deposit2Status,
-    extraDepositLabels: (d.extraDeposits||[]).map(dep=> dep.label).filter(Boolean),
-    today: new Date().toISOString().slice(0,10),
-    text: text.slice(0, 24000),
-  };
-  const result = await sampleApi.json(CONTRACT_EXTRACT_PROMPT(ctx), {modelTier:"default"});
-  if(!result || typeof result !== "object") throw new Error("Unexpected response shape");
-
-  // Record what this document is, regardless of whether it turns up any field changes. Only
-  // applies when this came from an actual uploaded file (docIndex!=null) — a quick-update note
-  // typed directly has no contractDocs entry of its own to annotate.
-  const docs = (deals.get(dealId)||{}).contractDocs ? (deals.get(dealId).contractDocs).slice() : [];
-  if(docIndex!=null && docs[docIndex]){
-    docs[docIndex] = Object.assign({}, docs[docIndex], {
-      docType: (result.docType && CONTRACT_DOCTYPE_META[result.docType]) ? result.docType : "Other",
-      docSummary: result.docSummary || "",
-    });
-    await updateDeal(dealId, {contractDocs: docs});
-  }
-  const docName = (docIndex!=null && docs[docIndex]) ? docs[docIndex].name : (docNameOverride || "this document");
-
-  const diffs = [];
-  Object.keys(CONTRACT_FIELD_LABELS).forEach(key=>{
-    if(!(key in result) || result[key]===null || result[key]===undefined || result[key]==="") return;
-    const meta = CONTRACT_FIELD_LABELS[key];
-    const from = (d[key] ?? meta.default ?? null);
-    if(String(from ?? "") === String(result[key])) return; // already on file — nothing to apply
-    diffs.push({key, label: meta.label, kind: meta.kind, from, to: result[key],
-      fromDisplay: contractFieldDisplay(meta.kind, from), toDisplay: contractFieldDisplay(meta.kind, result[key])});
-  });
-  const extraDepositsNew = Array.isArray(result.extraDeposits) ? result.extraDeposits.filter(dep=> dep && dep.label && dep.amount!=null) : [];
-  const notesAddition = (result.notesAddition||"").trim();
-
-  if(!diffs.length && !extraDepositsNew.length && !notesAddition){
-    pendingContractExtraction = null;
-    statusFn("Read " + docName + " — nothing new found to apply (terms already match what's on file).");
-    renderContractExtractReview();
-    return;
-  }
-  pendingContractExtraction = {dealId, docIndex, diffs, extraDepositsNew, notesAddition, docName};
-  statusFn("");
-  renderContractExtractReview();
-}
-
-function renderContractExtractReview(){
-  const wrap = document.getElementById("contractExtractReviewWrap");
-  if(!wrap) return;
-  const p = pendingContractExtraction;
-  if(!p || p.dealId !== openDealId){ wrap.innerHTML = ""; return; }
-  wrap.innerHTML = `
-    <div class="contract-extract-review">
-      <div class="contract-extract-review-head">${p.docIndex!=null ? `Found in "${escapeHtml(p.docName)}"` : `Found in ${escapeHtml(p.docName)}`} — review before applying:</div>
-      <div class="contract-extract-review-rows">
-        ${p.diffs.map((diff,i)=>`
-          <label class="contract-extract-review-row">
-            <input type="checkbox" class="contract-extract-check" data-idx="${i}" checked>
-            <span class="contract-extract-review-label">${escapeHtml(diff.label)}</span>
-            <span class="contract-extract-review-from">${escapeHtml(diff.fromDisplay)}</span>
-            <span class="contract-extract-review-arrow">→</span>
-            <span class="contract-extract-review-to">${escapeHtml(diff.toDisplay)}</span>
-          </label>`).join("")}
-        ${p.extraDepositsNew.map((dep,i)=>`
-          <label class="contract-extract-review-row">
-            <input type="checkbox" class="contract-extract-extra-check" data-idx="${i}" checked>
-            <span class="contract-extract-review-label">${escapeHtml(dep.label)}</span>
-            <span class="contract-extract-review-from">—</span>
-            <span class="contract-extract-review-arrow">→</span>
-            <span class="contract-extract-review-to">${escapeHtml(fmtMoneyShort(dep.amount))}${dep.date?" · "+escapeHtml(contractFieldDisplay("date",dep.date)):""}${dep.status?" · "+escapeHtml(dep.status):""}</span>
-          </label>`).join("")}
-      </div>
-      ${p.notesAddition ? `<label class="contract-extract-review-row contract-extract-review-notes">
-        <input type="checkbox" id="contractExtractNotesCheck" checked>
-        <span class="contract-extract-review-label">Add to notes</span>
-        <span class="contract-extract-notes-preview">${escapeHtml(p.notesAddition)}</span>
-      </label>` : ""}
-      <div class="contract-extract-actions">
-        <button type="button" class="btn" id="contractExtractApplyBtn">Apply selected</button>
-        <button type="button" class="btn btn-ghost" id="contractExtractDismissBtn">Dismiss</button>
-      </div>
-    </div>`;
-  document.getElementById("contractExtractApplyBtn").addEventListener("click", applyContractExtraction);
-  document.getElementById("contractExtractDismissBtn").addEventListener("click", ()=>{ pendingContractExtraction = null; renderContractExtractReview(); });
-}
-
-async function applyContractExtraction(){
-  const p = pendingContractExtraction;
-  if(!p) return;
-  const wrap = document.getElementById("contractExtractReviewWrap");
-  const patch = {};
-  const appliedLabels = [];
-  p.diffs.forEach((diff,i)=>{
-    const cb = wrap.querySelector(`.contract-extract-check[data-idx="${i}"]`);
-    if(cb && cb.checked){ patch[diff.key] = diff.to; appliedLabels.push(diff.label); }
-  });
-  const checkedExtras = p.extraDepositsNew.filter((dep,i)=>{
-    const cb = wrap.querySelector(`.contract-extract-extra-check[data-idx="${i}"]`);
-    return cb && cb.checked;
-  });
-  if(checkedExtras.length){
-    const d = deals.get(p.dealId) || {};
-    patch.extraDeposits = (d.extraDeposits||[]).concat(checkedExtras.map(dep=>({label:dep.label, amount:dep.amount, date:dep.date||"", status:dep.status||"Not Due"})));
-    appliedLabels.push(checkedExtras.length===1 ? "1 additional deposit" : checkedExtras.length+" additional deposits");
-  }
-  const notesCheck = document.getElementById("contractExtractNotesCheck");
-  if(notesCheck && notesCheck.checked && p.notesAddition){
-    const d = deals.get(p.dealId) || {};
-    const attribution = `From ${p.docName}:\n${p.notesAddition}`;
-    patch.notes = (d.notes||"").trim() ? d.notes.trim() + "\n\n" + attribution : attribution;
-    appliedLabels.push("Notes");
-  }
-  if(!Object.keys(patch).length){ pendingContractExtraction = null; renderContractExtractReview(); return; }
-
-  // Clear the pending extraction BEFORE writing (rather than after), so any render triggered by
-  // the writes below — including this app's own realtime round-trip on this same deal — can't
-  // redisplay the just-applied checkboxes while the writes are still in flight.
-  pendingContractExtraction = null;
-
-  await updateDeal(p.dealId, patch);
-
-  // Record on the document itself that it was applied, and what.
-  const docs = (deals.get(p.dealId)||{}).contractDocs ? deals.get(p.dealId).contractDocs.slice() : [];
-  if(docs[p.docIndex]){
-    docs[p.docIndex] = Object.assign({}, docs[p.docIndex], {appliedAt:new Date().toISOString(), appliedSummary: appliedLabels.join(", ")});
-    await updateDeal(p.dealId, {contractDocs: docs});
-  }
-
-  refreshSlideFieldsAfterExternalPatch(patch);
-  renderContractExtractReview();
-  renderContractDocsList();
-  contractDocStatus("Applied: " + appliedLabels.join(", ") + ".");
-}
-
-/* Directly updates the raw <input> elements in the open deal panel after a patch is applied out
-   from under it (rather than re-opening the whole panel, which would also blow away anything the
-   analyst is mid-typing elsewhere in it — same conservative-realtime philosophy used throughout
-   this file). CRITICAL_DATE_FIELDS already maps every date field this feature can touch. */
-function refreshSlideFieldsAfterExternalPatch(patch){
-  if(!openDealId) return;
-  const setVal = (id, v)=>{ const el = document.getElementById(id); if(el) el.value = v; };
-  if("purchasePrice" in patch) setVal("slidePrice", fmtMoneyInput(patch.purchasePrice));
-  if("lotSizeAcres" in patch) setVal("slideLot", patch.lotSizeAcres ?? "");
-  if("psaStatus" in patch) setVal("slidePsa", patch.psaStatus || "Not Started");
-  if("deposit1Amount" in patch) setVal("slideDep1Amt", fmtMoneyInputPlain(patch.deposit1Amount));
-  if("deposit1Date" in patch) setVal("slideDep1Date", patch.deposit1Date || ""); // mirrors cdEarnest below (same field)
-  if("deposit1Status" in patch) setVal("slideDep1Status", patch.deposit1Status || "Not Due");
-  if("deposit2Amount" in patch) setVal("slideDep2Amt", fmtMoneyInputPlain(patch.deposit2Amount));
-  if("deposit2Date" in patch) setVal("slideDep2Date", patch.deposit2Date || "");
-  if("deposit2Status" in patch) setVal("slideDep2Status", patch.deposit2Status || "Not Due");
-  if("notes" in patch) setVal("slideNotes", patch.notes || "");
-  CRITICAL_DATE_FIELDS.forEach(f=>{
-    if(!(f.field in patch)) return;
-    setVal(f.id, patch[f.field]||"");
-    const mark = document.getElementById(f.id+"Mark");
-    if(mark){ mark.textContent = patch[f.field] ? "✓" : "—"; mark.classList.toggle("done", !!patch[f.field]); }
-  });
-  if("purchasePrice" in patch || "lotSizeAcres" in patch){
-    // updateCalcPerAcre() itself is scoped inside openDealDetail's closure and isn't reachable
-    // from here — inline the same calculation rather than reaching in for it.
-    const price = parseMoneyStr(document.getElementById("slidePrice").value)||0;
-    const lot = Number(document.getElementById("slideLot").value||0);
-    const units = Number(document.getElementById("slideUnits").value||0);
-    const perAcreEl = document.getElementById("calcPerAcre");
-    if(perAcreEl) perAcreEl.textContent = (price>0 && lot>0) ? fmtMoneyShort(price/lot)+"/ac" : "—";
-    const perUnitEl = document.getElementById("calcPerUnit");
-    if(perUnitEl) perUnitEl.textContent = (price>0 && units>0) ? fmtMoneyShort(price/units)+"/unit" : "—";
-  }
-  if("extraDeposits" in patch) renderExtraDeposits();
-}
-
-async function removeContractDoc(dealId, docIndex){
-  const d = deals.get(dealId) || {};
-  const doc = (d.contractDocs||[])[docIndex];
+  const doc = d.screeningPdf;
   if(!doc) return;
-  const docs = d.contractDocs.slice();
-  docs.splice(docIndex, 1);
-  await updateDeal(dealId, {contractDocs: docs});
+  await updateDeal(dealId, {screeningPdf: null});
   if(sb){
     try{ await sb.storage.from("deal-files").remove([doc.path]); }
     catch(e){ console.error("Storage cleanup failed (harmless):", e); }
   }
-  if(pendingContractExtraction && pendingContractExtraction.dealId===dealId && pendingContractExtraction.docIndex===docIndex){
-    pendingContractExtraction = null;
-    renderContractExtractReview();
-  }
-  renderContractDocsList();
+  renderScreeningPdfRow();
+}
+function renderScreeningPdfRow(){
+  if(!openDealId) return;
+  const wrap = document.getElementById("screeningPdfRow");
+  if(!wrap) return;
+  const doc = (deals.get(openDealId)||{}).screeningPdf;
+  if(!doc){ wrap.innerHTML = `<div class="empty-hint">No screening PDF uploaded yet.</div>`; return; }
+  wrap.innerHTML = `<div class="screening-pdf-chip">
+    <span class="screening-pdf-open" data-path="${escapeAttr(doc.path)}">📎 ${escapeHtml(doc.name)}${doc.size!=null?` (${fmtFileSize(doc.size)})`:""}</span>
+    <span class="screening-pdf-meta">Uploaded ${fmtDate(doc.uploadedAt.slice(0,10))}</span>
+    <span class="tag-pill-remove" data-remove-screening title="Remove screening PDF">✕</span>
+  </div>`;
+  wrap.querySelector(".screening-pdf-open").addEventListener("click", ()=> openModelFile(doc.path));
+  wrap.querySelector("[data-remove-screening]").addEventListener("click", ()=> removeScreeningPdf(openDealId));
 }
 
-function renderContractDocsList(){
-  if(!openDealId) return;
-  const wrap = document.getElementById("contractDocsList");
-  if(!wrap) return;
-  const docs = (deals.get(openDealId)||{}).contractDocs || [];
-  if(!docs.length){ wrap.innerHTML = ""; }
-  else{
-    wrap.innerHTML = docs.map((doc,i)=>{
-      const meta = CONTRACT_DOCTYPE_META[doc.docType] || null;
-      return `<div class="contract-doc-row">
-        <span class="pill pill-${meta?meta.color:"neutral"}">${meta?escapeHtml(meta.label):"Reading…"}</span>
-        <span class="contract-doc-open" data-path="${escapeAttr(doc.path)}">📎 ${escapeHtml(doc.name)}${doc.size!=null?` (${fmtFileSize(doc.size)})`:""}</span>
-        <div class="contract-doc-actions">
-          <button type="button" class="btn-icon" data-rerun-idx="${i}" title="Re-run extraction">↻ Re-run extraction</button>
-          <span class="tag-pill-remove" data-remove-idx="${i}" title="Remove document">✕</span>
-        </div>
-        ${doc.docSummary ? `<span class="contract-doc-summary">${escapeHtml(doc.docSummary)}</span>` : ""}
-        <span class="contract-doc-meta">Uploaded ${fmtDate(doc.uploadedAt.slice(0,10))}${doc.appliedAt ? ` · Applied ${fmtDate(doc.appliedAt.slice(0,10))}${doc.appliedSummary?" ("+escapeHtml(doc.appliedSummary)+")":""}` : " · not yet applied to the deal"}</span>
-      </div>`;
-    }).join("");
-    wrap.querySelectorAll(".contract-doc-open").forEach(el=>{
-      el.addEventListener("click", ()=> openModelFile(el.dataset.path));
-    });
-    wrap.querySelectorAll("[data-rerun-idx]").forEach(el=>{
-      el.addEventListener("click", ()=> rerunContractDocExtraction(openDealId, Number(el.dataset.rerunIdx)));
-    });
-    wrap.querySelectorAll("[data-remove-idx]").forEach(el=>{
-      el.addEventListener("click", ()=> removeContractDoc(openDealId, Number(el.dataset.removeIdx)));
-    });
-  }
-  renderContractExtractReview();
-}
 
 function renderBrokerActivityLog(){
   const wrap = document.getElementById("brokerActivityLog");
