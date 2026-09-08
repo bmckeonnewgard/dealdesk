@@ -2291,9 +2291,21 @@ function parseCityStateFromAddress(addr){
   for(let i=segments.length-1;i>=1;i--){
     const m = segments[i].match(/^([A-Za-z]{2})\b/);
     if(m && STATE_META[m[1].toUpperCase()]){
-      const city = segments[i-1].replace(/\s+\d{5}(-\d{4})?$/,"").trim();
-      if(city) return {city, state: m[1].toUpperCase()};
+      const state = m[1].toUpperCase();
+      const rawCity = segments[i-1].replace(/\s+\d{5}(-\d{4})?$/,"").trim();
+      if(!rawCity) continue;
+      return {city: bestKnownCitySuffix(rawCity, state) || rawCity, state};
     }
+  }
+  // No comma separates the city from the state at all (e.g. "290 Montauk Highway West Palm
+  // Beach FL 33413") — only resolvable when a known city name for a valid state sits right
+  // before it; otherwise there just isn't enough here to place it on the market map.
+  const whole = String(addr).replace(/\s+/g," ").trim();
+  const wm = whole.match(/^(.*)\b([A-Za-z]{2})\b\s*(?:\d{5}(?:-\d{4})?)?$/);
+  if(wm && STATE_META[wm[2].toUpperCase()]){
+    const state = wm[2].toUpperCase();
+    const known = bestKnownCitySuffix(wm[1].trim(), state);
+    if(known) return {city: known, state};
   }
   return null;
 }
@@ -2322,6 +2334,34 @@ const MARKET_METRO_ALIASES = {
   "brooklyn, ny": "New York, NY", "queens, ny": "New York, NY", "bronx, ny": "New York, NY",
   "staten island, ny": "New York, NY", "manhattan, ny": "New York, NY",
 };
+/* Backs parseCityStateFromAddress's recovery path for addresses whose street line and city got
+   glued together with no separating comma/space (a common paste-in artifact, e.g. "6782 Belvedere
+   RdWest Palm Beach, FL 33413"). Reuses the ~1,000-city MARKET_COORDS list plus the metro alias
+   keys above — no separate city database to maintain. Sorted longest-name-first per state so a
+   multi-word city ("West Palm Beach") wins over a shorter one that also happens to match a
+   trailing substring. */
+const CITY_NAMES_BY_STATE = (()=>{
+  const map = {};
+  const add = (key)=>{
+    const m = /^(.*), ([a-z]{2})$/.exec(key);
+    if(!m) return;
+    const state = m[2].toUpperCase();
+    const nameLower = m[1];
+    const titled = nameLower.replace(/(^|[\s-])([a-z])/g, (_,pre,ch)=>pre+ch.toUpperCase());
+    (map[state] = map[state] || []).push({nameLower, titled});
+  };
+  Object.keys(MARKET_COORDS).forEach(add);
+  Object.keys(MARKET_METRO_ALIASES).forEach(add);
+  Object.values(map).forEach(list=> list.sort((a,b)=>b.nameLower.length-a.nameLower.length));
+  return map;
+})();
+function bestKnownCitySuffix(text, state){
+  const list = CITY_NAMES_BY_STATE[state];
+  if(!list) return null;
+  const lower = text.toLowerCase();
+  const hit = list.find(c=> lower.endsWith(c.nameLower));
+  return hit ? hit.titled : null;
+}
 function dealMarketKey(d){
   const cs = parseCityStateFromAddress(d.address||"");
   if(!cs) return null;
@@ -2467,8 +2507,25 @@ function migrateProductLineOptions(){
 function categoryOptionsHtml(list){
   return `<option value="">—</option>${list.map(o=>`<option value="${escapeAttr(o)}">${escapeHtml(o)}</option>`).join("")}<option value="__manage__">✏️ Add / edit categories…</option>`;
 }
+/* Every <select> built from categoryOptionsHtml() is marked with data-category-kind by
+   wireCategorySelect below. propertyTypeOptions/productLineOptions are plain `let` arrays that
+   get REASSIGNED (not mutated) whenever the category manager adds/removes an entry — reassignment
+   doesn't retroactively touch a <select> whose <option> list was already rendered as a one-time
+   string from the old array. So any time the list changes, walk the DOM for every currently-open
+   select of that kind and rebuild its options in place, restoring whatever was selected (falling
+   back to blank if that value no longer exists, e.g. it was just removed). */
+function refreshLiveCategorySelects(kind){
+  const list = kind==="productLine" ? productLineOptions : propertyTypeOptions;
+  document.querySelectorAll(`select[data-category-kind="${kind}"]`).forEach(sel=>{
+    const cur = sel.value;
+    sel.innerHTML = categoryOptionsHtml(list);
+    sel.value = list.includes(cur) ? cur : "";
+    sel.setAttribute("data-prev", sel.value);
+  });
+}
 function wireCategorySelect(sel, kind, onChange){
   if(!sel) return;
+  sel.setAttribute("data-category-kind", kind);
   sel.setAttribute("data-prev", sel.value||"");
   sel.addEventListener("change", ()=>{
     if(sel.value==="__manage__"){
@@ -2515,6 +2572,7 @@ function openCategoryManagerModal(kind){
   function persist(next){
     if(isProduct) productLineOptions = next; else propertyTypeOptions = next;
     saveCategorySettings();
+    refreshLiveCategorySelects(kind);
     if(isProduct) rebuildCriteriaView();
     openCategoryManagerModal(kind);
   }
