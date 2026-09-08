@@ -28,21 +28,29 @@
     --priority-high:#17803D; --priority-high-soft:#DFF3E6; --priority-high-ink:#FFFFFF;
     --priority-medium:#9E8300; --priority-medium-soft:#FBF3D0; --priority-medium-ink:#2A2100;
     /* Pipeline-stage ordinal ramp — one hue (the brand's teal), monotonically darkening from
-       Prospecting to Closing, so color itself reads as "how far along" a deal is, the way the
-       dataviz skill's ordinal-ramp method prescribes (one hue, monotone lightness) rather than
-       cycling a handful of unrelated categorical colors or hue-rotating through a rainbow.
+       Just landed to Closing (the 10 working stages — see DEAL_STAGES below), so color itself
+       reads as "how far along" a deal is, the way the dataviz skill's ordinal-ramp method
+       prescribes (one hue, monotone lightness) rather than cycling a handful of unrelated
+       categorical colors or hue-rotating through a rainbow.
        Onboarded and Dead/Passed intentionally stay on the existing --good/--bad status colors
        below, not this ramp — they're outcomes (succeeded / didn't happen), not "further along,"
        so they keep their own fixed, reserved meaning instead of just being the darkest ramp step.
-       Validated with the dataviz skill's ordinal checks (monotone L, >=0.06 step gaps, light-end
-       contrast >=2:1, single hue) — see scripts/validate_palette.js in that skill for the method. */
-    --pipe1:#75BBCF; --pipe1-soft:#C6E4EC; --pipe1-ink:#183139;
-    --pipe2:#39A5C6; --pipe2-soft:#C6E3EC; --pipe2-ink:#183139;
-    --pipe3:#2A8AA9; --pipe3-soft:#C6E2EC; --pipe3-ink:#FFFFFF;
-    --pipe4:#1F7493; --pipe4-soft:#C6E2EC; --pipe4-ink:#FFFFFF;
-    --pipe5:#185E7C; --pipe5-soft:#C6E0EC; --pipe5-ink:#FFFFFF;
-    --pipe6:#134A65; --pipe6-soft:#C6DFEC; --pipe6-ink:#FFFFFF;
-    --pipe7:#113245; --pipe7-soft:#C6DEEC; --pipe7-ink:#FFFFFF;
+       Validated with the dataviz skill's ordinal checks (monotone L in ~0.06 steps, light-end
+       contrast >=2:1, single hue) — see scripts/validate_palette.js in that skill for the method;
+       ink flips from dark to white at pipe5, wherever it gives the better of the two contrast
+       ratios for that step's fill (a couple of middle steps land a little under the ideal 4.5:1
+       either way — an inherent squeeze for a mid-lightness fill, same tradeoff the original
+       7-step ramp already made at pipe3). */
+    --pipe1:#93C8D5; --pipe1-soft:#CBEBF3; --pipe1-ink:#183139;
+    --pipe2:#71B7CA; --pipe2-soft:#CCEBF4; --pipe2-ink:#183139;
+    --pipe3:#4EA6BF; --pipe3-soft:#CCEBF5; --pipe3-ink:#183139;
+    --pipe4:#2A93B3; --pipe4-soft:#CCEAF6; --pipe4-ink:#183139;
+    --pipe5:#0081A5; --pipe5-soft:#CDEAF7; --pipe5-ink:#FFFFFF;
+    --pipe6:#006E94; --pipe6-soft:#CEEAF7; --pipe6-ink:#FFFFFF;
+    --pipe7:#005B81; --pipe7-soft:#CEE9F8; --pipe7-ink:#FFFFFF;
+    --pipe8:#00496B; --pipe8-soft:#CFE9F9; --pipe8-ink:#FFFFFF;
+    --pipe9:#003754; --pipe9-soft:#D0E9F9; --pipe9-ink:#FFFFFF;
+    --pipe10:#01273D; --pipe10-soft:#D1E8FA; --pipe10-ink:#FFFFFF;
     --shadow:0 1px 2px rgba(24,49,57,.07), 0 10px 28px -14px rgba(24,49,57,.26);
     --font-display:'Source Serif 4',Georgia,'Times New Roman',serif;
     --font-body:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;
@@ -135,7 +143,8 @@
   .dot-pipe1{ background:var(--pipe1); } .dot-pipe2{ background:var(--pipe2); }
   .dot-pipe3{ background:var(--pipe3); } .dot-pipe4{ background:var(--pipe4); }
   .dot-pipe5{ background:var(--pipe5); } .dot-pipe6{ background:var(--pipe6); }
-  .dot-pipe7{ background:var(--pipe7); }
+  .dot-pipe7{ background:var(--pipe7); } .dot-pipe8{ background:var(--pipe8); }
+  .dot-pipe9{ background:var(--pipe9); } .dot-pipe10{ background:var(--pipe10); }
 
   /* ---------- board ---------- */
   .board-wrap{ flex:1; overflow-x:auto; padding:18px 20px 32px; }
@@ -469,6 +478,9 @@
   .pill-pipe5{ background:var(--pipe5-soft); color:var(--pipe5); }
   .pill-pipe6{ background:var(--pipe6-soft); color:var(--pipe6); }
   .pill-pipe7{ background:var(--pipe7-soft); color:var(--pipe7); }
+  .pill-pipe8{ background:var(--pipe8-soft); color:var(--pipe8); }
+  .pill-pipe9{ background:var(--pipe9-soft); color:var(--pipe9); }
+  .pill-pipe10{ background:var(--pipe10-soft); color:var(--pipe10); }
   .pill-solid{ font-weight:800; box-shadow:0 1px 2px rgba(0,0,0,.12); }
   .pill-solid.pill-neutral{ background:var(--neutral); color:var(--neutral-ink); }
   .pill-solid.pill-good{ background:var(--good); color:var(--good-ink); }
@@ -483,6 +495,9 @@
   .pill-solid.pill-pipe5{ background:var(--pipe5); color:var(--pipe5-ink); }
   .pill-solid.pill-pipe6{ background:var(--pipe6); color:var(--pipe6-ink); }
   .pill-solid.pill-pipe7{ background:var(--pipe7); color:var(--pipe7-ink); }
+  .pill-solid.pill-pipe8{ background:var(--pipe8); color:var(--pipe8-ink); }
+  .pill-solid.pill-pipe9{ background:var(--pipe9); color:var(--pipe9-ink); }
+  .pill-solid.pill-pipe10{ background:var(--pipe10); color:var(--pipe10-ink); }
   .pill-solid.pill-priority-high{ background:var(--priority-high); color:var(--priority-high-ink); }
   .pill-solid.pill-priority-medium{ background:var(--priority-medium); color:var(--priority-medium-ink); }
   .card-foot{ display:flex; align-items:center; gap:8px; margin-top:1px; }
@@ -1730,7 +1745,7 @@ const DD_TEMPLATE = [
   ]},
 ];
 const DD_TOTAL = DD_TEMPLATE.reduce((n,c)=>n+c.items.length,0);
-const DD_UNLOCK_STAGES = ["signed_psa_dd","due_diligence","closing","onboarded","dead"];
+const DD_UNLOCK_STAGES = ["signed_psa_dd","due_diligence","ic2","closing","onboarded","dead"];
 
 /* Second due-diligence list, tracked alongside DD_TEMPLATE (the standard collected documents):
    the underlying work that actually produces those documents, from the Screen to Close process
@@ -1790,17 +1805,21 @@ const DD_WORK_TOTAL = DD_WORK_TEMPLATE.reduce((n,c)=>n+c.items.length,0);
    recorded per deal as a running history (d.gateLog: {gate, at, decider, answer, reasonCode, note,
    loggedAt}[]) so a gate can be revisited (e.g. a re-trade at G5) without losing the earlier
    record. Deliberately decoupled from the pipeline stage dropdown — logging a decision here never
-   changes d.stage on its own. */
+   changes d.stage on its own (see DEAL_STAGES above for the one-time exception: migrateStageSchemeV2
+   reads existing gate history to place a deal correctly the first time the new stage set rolls out,
+   but that's a one-time backfill, not an ongoing link). G3 and G5 are named to match the pipeline's
+   IC1/IC2 stages below — the app's two Investment Committee touchpoints, screening decisions vs.
+   the DD-expiration go-hard call, use the same "IC1"/"IC2" vocabulary in both places now. */
 const GATES = [
   {key:"g1", label:"G1 — Screen", meta:"Deal lead · minutes", deciders:"Deal lead",
     answers:["Pursue","Watch — with a date","Pass — with reason code"]},
   {key:"g2", label:"G2 — LOI authorization", meta:"Deal lead + one principal · days", deciders:"Deal lead + one principal",
     answers:["Authorize at stated terms","Authorize at a lower ceiling","Hold","Pass"]},
-  {key:"g3", label:"G3 — Investment Committee", meta:"Investment Committee · days to a week", deciders:"Investment Committee",
+  {key:"g3", label:"G3 — IC1 (Investment Committee)", meta:"Investment Committee · days to a week", deciders:"Investment Committee",
     answers:["Go","Go subject to conditions","Hold","No-Go"]},
   {key:"g4", label:"G4 — Capital", meta:"Principal + capital markets · before G5", deciders:"Principal + capital markets",
     answers:["Capital confirmed","Named gap with a plan","Not confirmed — extend or pass"]},
-  {key:"g5", label:"G5 — Go-hard", meta:"Investment Committee · DD expiration − 5 business days", deciders:"Investment Committee",
+  {key:"g5", label:"G5 — IC2 (Go-hard)", meta:"Investment Committee · DD expiration − 5 business days", deciders:"Investment Committee",
     answers:["Go hard","Go hard after re-trade","Extend at stated cost","Terminate inside DD"]},
   {key:"g6", label:"G6 — Funding authorization", meta:"Principal + second approver · 24–48 hrs out", deciders:"Principal + second approver",
     answers:["Authorize funding","Hold pending a named item"]},
@@ -2051,54 +2070,127 @@ const TASK_COLUMNS = [
    happen) into one pipeline column indistinguishable at a glance. Likewise "Onboarded" conflated
    Closing prep, the Close event, and the 30-day Post-close handoff into one "done" bucket that
    hid any open closing/handoff to-dos. See STAGE_MIGRATION below for how existing deals land. */
-/* Stage colors: "pipe1".."pipe7" are one hue (teal), monotonically darkening from Prospecting to
+/* Stage colors: "pipe1".."pipe10" are one hue (teal), monotonically darkening from Just landed to
    Closing — a proper ordinal ramp (see the --pipeN custom properties above) so color itself shows
    progress through the pipeline instead of a handful of categorical colors repeating out of order.
    Onboarded and Dead/Passed deliberately stay off that ramp, on the app's existing status colors
-   (good/bad) — they're outcomes, not "further along" than Closing. */
+   (good/bad) — they're outcomes, not "further along" than Closing.
+   This is the app's one taxonomy for "what stage is a deal at," used consistently everywhere that
+   shows or filters by stage (the pipeline board, the dashboard's By-stage breakdown and filters,
+   the CSV export, the printed IC memo) — and it's now aligned with the gate log's own checkpoints
+   (see GATES above) rather than running a second, differently-worded system alongside it: Screened
+   is G1, LOI signed is G2, IC1 is G3, IC2 is G5. G4 (Capital) and G6 (Funding authorization) stay
+   gate-log-only rather than getting their own column — neither one is itself a transition point a
+   deal visibly moves through (a deal can sit in Due diligence for months before G4 gets logged, the
+   same way it sits in Closing before G6 does), so they're recorded there instead. */
 const DEAL_STAGES = [
-  {key:"prospecting",    title:"Prospecting",        color:"pipe1"},
-  {key:"underwriting",   title:"Underwriting",       color:"pipe2"},
-  {key:"submitted_loi",  title:"Submitted LOI",      color:"pipe3"},
-  {key:"signed_loi",     title:"Signed LOI",         color:"pipe4"},
-  {key:"signed_psa",     title:"Signed PSA",         color:"pipe5"},
-  {key:"due_diligence",  title:"In Due Diligence",   color:"pipe6"},
-  {key:"closing",        title:"Closing",            color:"pipe7"},
+  {key:"just_landed",    title:"Just landed",        color:"pipe1"},
+  {key:"screened",       title:"Screened",           color:"pipe2"},
+  {key:"underwriting",   title:"Underwriting",       color:"pipe3"},
+  {key:"submitted_loi",  title:"LOI submitted",      color:"pipe4"},
+  {key:"signed_loi",     title:"LOI signed",         color:"pipe5"},
+  {key:"ic1",            title:"IC1 — Investment Committee", color:"pipe6"},
+  {key:"signed_psa",     title:"PSA signed",         color:"pipe7"},
+  {key:"due_diligence",  title:"Due diligence",      color:"pipe8"},
+  {key:"ic2",            title:"IC2 — Go-hard",      color:"pipe9"},
+  {key:"closing",        title:"Closing",            color:"pipe10"},
   {key:"onboarded",      title:"Onboarded",          color:"good"},
   {key:"dead",           title:"Dead / Passed",      color:"bad"},
 ];
-/* legacy stage keys -> current pipeline stages, applied once per deal on load so nothing gets
-   stranded. Every deal previously sitting in the old combined "signed_psa_dd" bucket already had
-   its PSA executed (that stage could only be entered post-IC-approval — see confirmStageChange),
-   so the safe forward migration is straight to "due_diligence" rather than the new, narrower
-   "signed_psa" (which now covers only the brief pre-execution drafting window). "due_diligence"
-   and "closing" are themselves now current stage keys, not legacy ones — do not remap them here. */
+/* legacy stage keys -> the older 9-stage pipeline scheme (v1), applied once per deal on load so
+   nothing gets stranded. Every deal previously sitting in the old combined "signed_psa_dd" bucket
+   already had its PSA executed (that stage could only be entered post-IC-approval — see
+   confirmStageChange), so the safe forward migration is straight to "due_diligence" rather than
+   the narrower "signed_psa" (which only ever covered the brief pre-execution drafting window).
+   "due_diligence" and "closing" are themselves v1 keys already, not legacy ones — do not remap
+   them here. This dict only ever targets a v1 key; migrateStageSchemeV2 below is what carries a v1
+   key the rest of the way to the current 12-key scheme, so it always runs right after this one. */
 const STAGE_MIGRATION = {
   sourcing: "prospecting",
   under_contract: "due_diligence",
   signed_psa_dd: "due_diligence",
   closed: "onboarded",
 };
+/* The 9 keys the pipeline used before the Just landed/Screened/IC1/IC2 split — kept as its own
+   list (rather than re-deriving "is this a known key" from the current DEAL_STAGES) so this check
+   still means the same thing regardless of how DEAL_STAGES itself changes later. */
+const V1_STAGE_KEYS = new Set(["prospecting","underwriting","submitted_loi","signed_loi","signed_psa","due_diligence","closing","onboarded","dead"]);
 /* Legacy stage TITLES as recorded verbatim in activity-log entries from before this stage was
    split, so buildDealGanttRow's history reconstruction (which looks up a stage by its logged
-   title) doesn't silently drop old segments once "Signed PSA/DD" stops being a current title. */
-const LEGACY_STAGE_TITLES = { "Signed PSA/DD": "due_diligence" };
+   title) doesn't silently drop old segments once a title stops being a current one. */
+const LEGACY_STAGE_TITLES = { "Signed PSA/DD": "due_diligence", "Prospecting": "just_landed" };
 /* Stages where a deal is under a signed purchase agreement but not yet closed — PSA through
-   closing prep. Used wherever forward-looking capital/price totals should count "in contract,
-   pre-close" deals (see the comment above IN_CONTRACT_STAGES below for why Onboarded is excluded). */
-const CONTRACT_STAGES = new Set(["signed_psa","due_diligence","closing"]);
+   closing prep (IC2, the DD-expiration go-hard call, happens inside this window too). Used
+   wherever forward-looking capital/price totals should count "in contract, pre-close" deals (see
+   the comment above IN_CONTRACT_STAGES below for why Onboarded is excluded). */
+const CONTRACT_STAGES = new Set(["signed_psa","due_diligence","ic2","closing"]);
 /* Stages that count as a real outcome rather than "still pending" for conversion-rate math
    (dealOutcomeBucket, the Passed deals & hit rate card) — anything from a signed PSA onward. */
-const CONVERTED_STAGES = new Set(["signed_psa","due_diligence","closing","onboarded"]);
+const CONVERTED_STAGES = new Set(["signed_psa","due_diligence","ic2","closing","onboarded"]);
 function migrateDealStages(){
   deals.forEach((d,id)=>{
     const cur = d.stage || "prospecting";
     let mapped = STAGE_MIGRATION[cur];
-    if(!mapped && !DEAL_STAGES.find(s=>s.key===cur)) mapped = DEAL_STAGES[0].key;
+    if(!mapped && !V1_STAGE_KEYS.has(cur) && !DEAL_STAGES.find(s=>s.key===cur)) mapped = DEAL_STAGES[0].key;
     if(mapped && mapped!==cur){
       d.stage = mapped;
       if(db) updateDeal(id, {stage: mapped});
     }
+  });
+}
+/* One-time move from the old 9-key pipeline scheme (v1, above) to the current 12-key one, aligned
+   with the gate log's own checkpoints (see the comment above DEAL_STAGES). Splits the old
+   "prospecting" bucket into "Just landed"/"Screened" using whether G1 has been logged, and — for
+   any deal whose already-logged gate history is further along than its old stage alone would
+   suggest (e.g. sitting in "Signed LOI" but already has a G3 "Go" on file) — advances it to match,
+   so nothing about a deal's real history is quietly walked backwards on the board. Runs once per
+   deal (stamped via stageSchemeV2, since several v1 keys — underwriting, submitted_loi, signed_loi,
+   signed_psa, due_diligence, closing, onboarded, dead — are unchanged, current-scheme keys too, so
+   "is this key still v1" can't answer "have I already migrated this deal" the way earlier
+   migrations here could rely on old keys simply ceasing to exist). After that stamp is set, this
+   never revisits the deal again — same "decoupled from the stage dropdown" rule as the gate log
+   itself: logging a gate decision later never moves the stage on its own, only this one backfill
+   does, and only once. */
+const STAGE_V2_FLOOR = {
+  prospecting: "just_landed",
+  underwriting: "underwriting",
+  submitted_loi: "submitted_loi",
+  signed_loi: "signed_loi",
+  signed_psa: "signed_psa",
+  due_diligence: "due_diligence",
+  closing: "closing",
+  onboarded: "onboarded",
+  dead: "dead",
+};
+const STAGE_KEY_ORDER = DEAL_STAGES.map(s=>s.key);
+function stageV2GateImplied(d){
+  const log = Array.isArray(d.gateLog) ? d.gateLog : [];
+  const latestAnswer = gateKey => {
+    const entries = log.filter(e=>e && e.gate===gateKey);
+    if(!entries.length) return "";
+    return entries.slice().sort((a,b)=> new Date(a.loggedAt||a.at||0) - new Date(b.loggedAt||b.at||0)).pop().answer || "";
+  };
+  let implied = null;
+  const advanceTo = key => { if(!implied || STAGE_KEY_ORDER.indexOf(key) > STAGE_KEY_ORDER.indexOf(implied)) implied = key; };
+  if(latestAnswer("g1")==="Pursue") advanceTo("screened");
+  if(/^Authorize/.test(latestAnswer("g2"))) advanceTo("signed_loi");
+  if(["Go","Go subject to conditions"].includes(latestAnswer("g3"))) advanceTo("ic1");
+  if(["Go hard","Go hard after re-trade"].includes(latestAnswer("g5"))) advanceTo("ic2");
+  return implied;
+}
+function migrateStageSchemeV2(){
+  deals.forEach((d,id)=>{
+    if(d.stageSchemeV2) return;
+    const cur = d.stage || "prospecting";
+    const floor = STAGE_V2_FLOOR[cur] || (DEAL_STAGES.find(s=>s.key===cur) ? cur : DEAL_STAGES[0].key);
+    let next = floor;
+    if(cur!=="dead" && cur!=="onboarded"){
+      const implied = stageV2GateImplied(d);
+      if(implied && STAGE_KEY_ORDER.indexOf(implied) > STAGE_KEY_ORDER.indexOf(floor)) next = implied;
+    }
+    d.stage = next;
+    d.stageSchemeV2 = true;
+    if(db) updateDeal(id, {stage: next, stageSchemeV2: true});
   });
 }
 /* one-time upgrade from the original single-lender debt fields to a debtSources[] array, so a
@@ -2537,7 +2629,7 @@ function brokerLabel(b){
    entirely computed from the deals collection so it never goes stale */
 function brokerDealStats(brokerId){
   const linked = [...deals.entries()].filter(([id,d])=>(d.brokerId||"")===brokerId);
-  const active = linked.filter(([id,d])=>(d.stage||"prospecting")!=="dead");
+  const active = linked.filter(([id,d])=>(d.stage||"just_landed")!=="dead");
   const dead = linked.length - active.length;
   const totalVolume = linked.reduce((s,[id,d])=> s+(Number(d.purchasePrice)||0), 0);
   const dates = linked.map(([id,d])=>d.createdAt).filter(Boolean).sort();
@@ -2597,7 +2689,7 @@ const CRITICAL_DATE_FIELDS = [
 /* funnel progress (excludes the "dead" stage from the sequence) */
 function dealStageProgressPct(d){
   const seq = DEAL_STAGES.filter(s=>s.key!=="dead");
-  const stage = d.stage || "prospecting";
+  const stage = d.stage || "just_landed";
   if(stage==="dead") return {pct:100, dead:true};
   const idx = seq.findIndex(s=>s.key===stage);
   const pct = seq.length>1 ? Math.round((Math.max(idx,0)/(seq.length-1))*100) : 0;
@@ -2614,7 +2706,7 @@ function progressGradientColor(idx, total){
 }
 function progressColorForDeal(d){
   const seq = DEAL_STAGES.filter(s=>s.key!=="dead");
-  const stage = d.stage || "prospecting";
+  const stage = d.stage || "just_landed";
   if(stage==="dead") return "var(--bad)";
   return progressGradientColor(seq.findIndex(s=>s.key===stage), seq.length);
 }
@@ -2623,8 +2715,8 @@ function dealProgressBarHtml(d, opts){
   const {pct, dead} = dealStageProgressPct(d);
   const size = opts.size||"sm";
   const seq = DEAL_STAGES.filter(s=>s.key!=="dead");
-  const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"prospecting")) || DEAL_STAGES[0];
-  const curIdx = seq.findIndex(s=>s.key===(d.stage||"prospecting"));
+  const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
+  const curIdx = seq.findIndex(s=>s.key===(d.stage||"just_landed"));
   const curColor = progressColorForDeal(d);
   const segsHtml = dead
     ? `<span class="deal-progress-seg-dead"></span>`
@@ -2643,7 +2735,7 @@ function dealProgressBarHtml(d, opts){
 
 function dealPassesFilters(d){
   const f = dashboardFilters;
-  if(f.stage && (d.stage||"prospecting")!==f.stage) return false;
+  if(f.stage && (d.stage||"just_landed")!==f.stage) return false;
   if(f.productLine && (d.productLine||"")!==f.productLine) return false;
   if(f.source && (d.source||"")!==f.source) return false;
   if(f.propertyType && (d.propertyType||"")!==f.propertyType) return false;
@@ -3346,6 +3438,7 @@ async function boot(){
     db.collection("deals").onSnapshot(snap=>{
       deals = new Map(snap.docs.map(d=>[d.id, d.data()]));
       migrateDealStages();
+      migrateStageSchemeV2();
       migrateDebtSources();
       migrateProductLineOptions();
       recomputeProductLineColors();
@@ -3404,6 +3497,7 @@ async function boot(){
     txt.textContent = "Not connected — changes stay in this browser tab only";
     document.getElementById("autoClearSelect").value = String(autoClearDays);
     migrateDealStages();
+    migrateStageSchemeV2();
     migrateDebtSources();
     categorySettingsLoaded = true;
     migrateProductLineOptions();
@@ -3645,14 +3739,14 @@ function renderCounts(){
   document.getElementById("tasksCount").textContent = tasks.size;
   // Acquisitions nav badge: active pipeline only — a dead/passed deal isn't something still being
   // pursued, so it shouldn't inflate the count of deals in play.
-  document.getElementById("dealsCount").textContent = [...deals.values()].filter(d=>(d.stage||"prospecting")!=="dead").length;
+  document.getElementById("dealsCount").textContent = [...deals.values()].filter(d=>(d.stage||"just_landed")!=="dead").length;
   const brokersCountEl = document.getElementById("brokersCount");
   if(brokersCountEl) brokersCountEl.textContent = brokers.size;
   const ddCountEl = document.getElementById("ddTasksCount");
-  if(ddCountEl) ddCountEl.textContent = [...deals.values()].filter(d=>{ const s=d.stage||"prospecting"; return s==="due_diligence" || s==="closing"; }).length;
+  if(ddCountEl) ddCountEl.textContent = [...deals.values()].filter(d=>{ const s=d.stage||"just_landed"; return s==="due_diligence" || s==="ic2" || s==="closing"; }).length;
   const capitalCountEl = document.getElementById("capitalCount");
   if(capitalCountEl){
-    const preClose = [...deals.values()].filter(d=> CONTRACT_STAGES.has(d.stage||"prospecting"));
+    const preClose = [...deals.values()].filter(d=> CONTRACT_STAGES.has(d.stage||"just_landed"));
     const gapCount = preClose.filter(d=> debtDealTotals(d).gap>0 || equityDealTotals(d).gap>0).length;
     capitalCountEl.textContent = gapCount;
   }
@@ -3748,8 +3842,8 @@ function computeSuggestedTasks(){
 
   // DD checklist items overdue / due within a week, for deals actively in DD
   [...deals.entries()].forEach(([id,d])=>{
-    const ddStage = d.stage||"prospecting";
-    if(ddStage!=="due_diligence" && ddStage!=="closing") return;
+    const ddStage = d.stage||"just_landed";
+    if(ddStage!=="due_diligence" && ddStage!=="ic2" && ddStage!=="closing") return;
     const name = d.name||d.address||"Untitled deal";
     const cache = checklistCache.get(id) || new Map();
     DD_ITEMS_FLAT.forEach(item=>{
@@ -3775,7 +3869,7 @@ function computeSuggestedTasks(){
 
   // Pending IC decisions / unassessed screening criteria
   [...deals.entries()].forEach(([id,d])=>{
-    const stage = d.stage||"prospecting";
+    const stage = d.stage||"just_landed";
     if(stage==="dead" || stage==="onboarded") return;
     const name = d.name||d.address||"Untitled deal";
     if(d.icFlagged && !d.icDecision){
@@ -3911,7 +4005,8 @@ function stageHighlightFields(stageKey, d, extra){
 
   let fields;
   switch(stageKey){
-    case "prospecting":
+    case "just_landed":
+    case "screened":
       fields = [
         {label:"Location", value: escapeHtml(d.address||"—")},
         {label:"Asking price", value: priceStr},
@@ -3945,6 +4040,17 @@ function stageHighlightFields(stageKey, d, extra){
         {label:"Earnest money", value: d.deposit1Amount?fmtMoneyShort(d.deposit1Amount):"—"},
       ];
       break;
+    case "ic1": {
+      const icCur = IC_DECISION_META[d.icDecision||""] || IC_DECISION_META[""];
+      fields = [
+        {label:"Offer price", value: priceStr},
+        {label:"Criteria score", value: (d.icScore!=null && d.icScoreCount) ? `${d.icScore.toFixed(1)}/10` : "Not rated",
+          cls: d.icScore==null ? "" : (d.icScore>=7.5?"good":d.icScore>=5?"warn":"bad")},
+        {label:"IC decision", value: icCur.label, cls: stripPillPrefix(icCur.cls)},
+        {label:"Capital needed", value: capStr},
+      ];
+      break;
+    }
     case "signed_psa":
       fields = [
         {label:"DD end / inspection", value: nonRefDate, cls: nonRefCls},
@@ -3954,6 +4060,7 @@ function stageHighlightFields(stageKey, d, extra){
       ];
       break;
     case "due_diligence":
+    case "ic2":
       fields = [
         {label:"DD progress", value: `${complete}/${applicable} (${ddPct}%)`},
         {label:"Non-refundable date", value: nonRefDate, cls: nonRefCls},
@@ -4059,12 +4166,12 @@ function buildStageDealRow(id, d, stage){
   const sel = row.querySelector(".move-select");
   DEAL_STAGES.forEach(s=>{
     const o = document.createElement("option"); o.value=s.key; o.textContent="Move to "+s.title;
-    if((d.stage||"prospecting")===s.key) o.selected = true;
+    if((d.stage||"just_landed")===s.key) o.selected = true;
     sel.appendChild(o);
   });
   sel.addEventListener("click", e=>e.stopPropagation());
   sel.addEventListener("change", ()=>{
-    const newStage = sel.value, prevStage = d.stage||"prospecting";
+    const newStage = sel.value, prevStage = d.stage||"just_landed";
     confirmStageChange(d, newStage, ()=> updateDeal(id, {stage: newStage, order: Date.now()}), ()=>{ sel.value = prevStage; });
   });
   const ownerInput = row.querySelector(".stage-owner-input");
@@ -4117,12 +4224,12 @@ function buildStageDealRowCompact(id, d, stage){
   const sel = row.querySelector(".src-move");
   DEAL_STAGES.forEach(s=>{
     const o = document.createElement("option"); o.value=s.key; o.textContent=s.title;
-    if((d.stage||"prospecting")===s.key) o.selected = true;
+    if((d.stage||"just_landed")===s.key) o.selected = true;
     sel.appendChild(o);
   });
   sel.addEventListener("click", e=>e.stopPropagation());
   sel.addEventListener("change", ()=>{
-    const newStage = sel.value, prevStage = d.stage||"prospecting";
+    const newStage = sel.value, prevStage = d.stage||"just_landed";
     confirmStageChange(d, newStage, ()=> updateDeal(id, {stage: newStage, order: Date.now()}), ()=>{ sel.value = prevStage; });
   });
   const ownerInput = row.querySelector(".src-owner-input");
@@ -4179,7 +4286,7 @@ function renderPipelineStages(){
   toolbar.querySelector("#exportCsvBtn").addEventListener("click", exportPipelineCsv);
 
   DEAL_STAGES.forEach(stage=>{
-    let list = allDeals.filter(([id,d])=> (d.stage||"prospecting")===stage.key);
+    let list = allDeals.filter(([id,d])=> (d.stage||"just_landed")===stage.key);
     if(q){
       list = list.filter(([id,d])=> matchesFilter([d.name,d.address,d.lead,d.notes,d.psaStatus,d.source,d.productLine].join(" ")||"", q));
     }
@@ -4266,10 +4373,10 @@ function renderComparePicker(){
   const list = document.getElementById("comparePickerList");
   if(!list) return;
   const active = [...deals.entries()]
-    .filter(([id,d])=> (d.stage||"prospecting")!=="dead")
+    .filter(([id,d])=> (d.stage||"just_landed")!=="dead")
     .sort((a,b)=> (a[1].name||"").localeCompare(b[1].name||""));
   list.innerHTML = active.length ? active.map(([id,d])=>{
-    const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"prospecting")) || DEAL_STAGES[0];
+    const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
     return `<label class="compare-check-row">
       <input type="checkbox" data-id="${id}" ${compareSelectedIds.has(id)?"checked":""}>
       <span class="dot dot-${stage.color}"></span>
@@ -4477,7 +4584,7 @@ async function exportPipelineCsv(){
   rows.forEach(([id,d])=>{
     const cap = calcCapitalStack(d);
     const uw = calcUnderwriting(d);
-    const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"prospecting"));
+    const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed"));
     const ppu = pricePerUnit(d);
     const icAssessed = (d.icFit||0)+(d.icWatch||0)+(d.icNoFit||0);
     const icSummary = icAssessed ? `${icAssessed}/${d.icTotal||activeIcCriteria(d).length} (${d.icFit||0} fit, ${d.icWatch||0} watch, ${d.icNoFit||0} no-fit)` : "";
@@ -4530,7 +4637,7 @@ function getUrgentAlerts(dealMap, asOfIso){
   const stalled = [];
   const now = asOfIso ? new Date(asOfIso+"T00:00:00").getTime() : Date.now();
   map.forEach((d,id)=>{
-    const stage = d.stage||"prospecting";
+    const stage = d.stage||"just_landed";
     if(stage==="dead" || stage==="onboarded") return;
     const ref = d.updatedAt || d.createdAt;
     if(!ref) return;
@@ -4610,11 +4717,11 @@ function basicsTableCardHtml(dealEntries){
   if(!rows.length){
     return `<div class="dash-card basics-card" style="margin-bottom:16px;">
       <h4 class="section-label">Under contract — basics</h4>
-      <div class="empty-hint">No deals are under contract yet — this fills in once a deal reaches Signed PSA.</div>
+      <div class="empty-hint">No deals are under contract yet — this fills in once a deal reaches PSA signed.</div>
     </div>`;
   }
   const rowHtml = ([id,d])=>{
-    const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"prospecting")) || DEAL_STAGES[0];
+    const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
     const nextDep = nextDepositDue(d);
     return `<tr class="basics-row" data-deal="${escapeAttr(id)}">
       <td class="basics-td basics-td-name">${escapeHtml(d.name||"Untitled deal")}</td>
@@ -4650,7 +4757,7 @@ function basicsTableCardHtml(dealEntries){
    merges overdue dates + decisions-needed into an urgent tier, and upcoming/stalled into a
    lighter "coming up" tier below it, rather than the small icon chips + separate card used before. */
 function needsAttentionCardHtml(overdue, decisionEntries, upcoming, stalled){
-  const flaggedEntries = [...deals.entries()].filter(([id,d])=> d.icFlagged && (d.stage||"prospecting")!=="dead");
+  const flaggedEntries = [...deals.entries()].filter(([id,d])=> d.icFlagged && (d.stage||"just_landed")!=="dead");
   const urgentCount = overdue.length + decisionEntries.length + flaggedEntries.length;
   const urgentRows = [
     ...overdue.map(e=>{
@@ -4834,7 +4941,7 @@ function openIcMemoModal(id){
   if(existing) existing.remove();
   const d = deals.get(id);
   if(!d) return;
-  const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"prospecting")) || DEAL_STAGES[0];
+  const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
   const cap = calcCapitalStack(d);
   const uw = calcUnderwriting(d);
   const applicable = d.ddApplicable ?? DD_TOTAL;
@@ -5043,10 +5150,10 @@ function renderDashboard(){
   if(!wrap) return;
   const all = [...deals.values()];
   const filtered = all.filter(dealPassesFilters);
-  const active = filtered.filter(d=> (d.stage||"prospecting")!=="dead");
+  const active = filtered.filter(d=> (d.stage||"just_landed")!=="dead");
 
   dashboardDealsFiltered = new Map([...deals.entries()].filter(([id,d])=>dealPassesFilters(d)));
-  const activeEntries = [...deals.entries()].filter(([id,d])=>dealPassesFilters(d) && (d.stage||"prospecting")!=="dead");
+  const activeEntries = [...deals.entries()].filter(([id,d])=>dealPassesFilters(d) && (d.stage||"just_landed")!=="dead");
   const decisionEntries = activeEntries.filter(([id,d])=>(d.decisionRequired||"").trim());
 
   /* Debt / equity are forward capital commitments, not pipeline-wide speculation or already-
@@ -5055,8 +5162,8 @@ function renderDashboard(){
      deals are tracked as a progress signal elsewhere (Avg days to close, the closed-deals trend,
      the Onboarded row in By stage) rather than folded into a forward-looking funding number. */
   const IN_CONTRACT_STAGES = CONTRACT_STAGES;
-  const inContractDeals = active.filter(d=> IN_CONTRACT_STAGES.has(d.stage||"prospecting"));
-  const inContractEntries = activeEntries.filter(([id,d])=> IN_CONTRACT_STAGES.has(d.stage||"prospecting"));
+  const inContractDeals = active.filter(d=> IN_CONTRACT_STAGES.has(d.stage||"just_landed"));
+  const inContractEntries = activeEntries.filter(([id,d])=> IN_CONTRACT_STAGES.has(d.stage||"just_landed"));
   let totalDebt=0, totalEquity=0, inContractPricedCount=0;
   inContractDeals.forEach(d=>{
     const cap = calcCapitalStack(d);
@@ -5078,7 +5185,7 @@ function renderDashboard(){
     (Array.isArray(d.extraDeposits) && d.extraDeposits.some(dep=>dep.date && dep.amount))
   );
   const capitalNeedDeals = active.filter(d=>{
-    const stage = d.stage||"prospecting";
+    const stage = d.stage||"just_landed";
     if(IN_CONTRACT_STAGES.has(stage)) return true;
     if(LOI_STAGES.has(stage) && hasFirmDepositDate(d)) return true;
     return false;
@@ -5093,20 +5200,20 @@ function renderDashboard(){
      editable annual goal. The funnel underneath it shows the live pipeline behind that number:
      everything currently sitting at each earlier stage, next to how many have made it all the
      way to Closed in that same window. */
-  const closedInPeriod = active.filter(d=> (d.stage||"prospecting")==="onboarded" && inHeroTimeframe(d.actualCloseDate));
+  const closedInPeriod = active.filter(d=> (d.stage||"just_landed")==="onboarded" && inHeroTimeframe(d.actualCloseDate));
   const closedCapitalPeriod = closedInPeriod.reduce((s,d)=> s+(Number(d.purchasePrice)||0), 0);
-  const funnelProspecting = active.filter(d=> (d.stage||"prospecting")==="prospecting");
-  const funnelLoi = active.filter(d=> LOI_STAGES.has(d.stage||"prospecting"));
+  const funnelProspecting = active.filter(d=> (d.stage||"just_landed")==="just_landed");
+  const funnelLoi = active.filter(d=> LOI_STAGES.has(d.stage||"just_landed"));
   const funnelStages = [
-    {key:"prospecting", label:"Prospecting", color:"stage1", count:funnelProspecting.length, capital: funnelProspecting.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
+    {key:"just_landed", label:"Just landed", color:"stage1", count:funnelProspecting.length, capital: funnelProspecting.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
     {key:"loi", label:"LOI", color:"stage2", count:funnelLoi.length, capital: funnelLoi.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
     {key:"psa", label:"Under Contract", color:"stage3", count:inContractDeals.length, capital: inContractDeals.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
     {key:"closed", label:"Closed", color:"closed", count:closedInPeriod.length, capital: closedCapitalPeriod, periodOnly:true},
   ];
-  const prospectingEntries = activeEntries.filter(([id,d])=> (d.stage||"prospecting")==="prospecting");
+  const prospectingEntries = activeEntries.filter(([id,d])=> (d.stage||"just_landed")==="just_landed");
   const targetCount = active.filter(d=>d.meetsTargetCriteria).length;
   const stageCounts = DEAL_STAGES.map(s=>{
-    const stageDeals = filtered.filter(d=>(d.stage||"prospecting")===s.key);
+    const stageDeals = filtered.filter(d=>(d.stage||"just_landed")===s.key);
     const capital = stageDeals.reduce((sum,d)=>{ const cap=calcCapitalStack(d); return sum+(cap?cap.basis:(Number(d.purchasePrice)||0)); }, 0);
     const ages = stageDeals.map(d=>{
       const ref = d.updatedAt || d.createdAt;
@@ -5129,7 +5236,7 @@ function renderDashboard(){
      `active` specifically so each deal keeps its id — the popup needs it to open the real deal
      detail slideover when a card is clicked. */
   const dealPopupSummary = (id, d) => {
-    const stageMeta = DEAL_STAGES.find(s=>s.key===(d.stage||"prospecting")) || DEAL_STAGES[0];
+    const stageMeta = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
     return {
       id, name: d.name||d.address||"Untitled deal",
       stageTitle: stageMeta.title, stageColor: stageMeta.color,
@@ -5423,7 +5530,7 @@ function agendaInMotionCardHtml(entries, asOfIso){
   const refTime = asOfIso ? new Date(asOfIso+"T23:59:59").getTime() : Date.now();
   return `<div style="margin-left:36px;display:flex;flex-direction:column;gap:2px;">
     ${rows.map(([id,d])=>{
-      const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"prospecting")) || DEAL_STAGES[0];
+      const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
       const note = (d.decisionRequired||d.nextStep||"").trim();
       const ref = d.updatedAt||d.createdAt;
       const days = ref ? Math.floor((refTime-new Date(ref).getTime())/86400000) : null;
@@ -5501,18 +5608,18 @@ function renderAgendaView(){
   if(!wrap) return;
   const meetingDate = agendaMeetingDate || new Date().toISOString().slice(0,10);
   const isToday = !agendaMeetingDate;
-  const activeEntries = [...deals.entries()].filter(([id,d])=> (d.stage||"prospecting")!=="dead");
+  const activeEntries = [...deals.entries()].filter(([id,d])=> (d.stage||"just_landed")!=="dead");
   const decisionEntries = activeEntries.filter(([id,d])=>(d.decisionRequired||"").trim());
   const {overdue, upcoming, stalled} = getUrgentAlerts(deals, meetingDate);
   const upcoming7 = upcoming.filter(e=>e.days<=7);
   const flaggedCount = activeEntries.filter(([id,d])=> d.icFlagged).length;
   const urgentTotal = overdue.length + decisionEntries.length + flaggedCount + upcoming7.length;
 
-  const prospectingEntries = activeEntries.filter(([id,d])=> (d.stage||"prospecting")==="prospecting");
-  const IN_MOTION_STAGES = new Set(["underwriting","submitted_loi","signed_loi"]);
-  const inMotionEntries = activeEntries.filter(([id,d])=> IN_MOTION_STAGES.has(d.stage||"prospecting"));
+  const prospectingEntries = activeEntries.filter(([id,d])=> (d.stage||"just_landed")==="just_landed");
+  const IN_MOTION_STAGES = new Set(["screened","underwriting","submitted_loi","signed_loi","ic1"]);
+  const inMotionEntries = activeEntries.filter(([id,d])=> IN_MOTION_STAGES.has(d.stage||"just_landed"));
   const IN_CONTRACT_STAGES = CONTRACT_STAGES;
-  const inContractEntries = activeEntries.filter(([id,d])=> IN_CONTRACT_STAGES.has(d.stage||"prospecting"));
+  const inContractEntries = activeEntries.filter(([id,d])=> IN_CONTRACT_STAGES.has(d.stage||"just_landed"));
   const capNeedBuckets = bucketCapitalNeed(getCapitalNeedItems(deals), meetingDate);
 
   const weekAgo = addDaysIso(meetingDate, -7);
@@ -6023,7 +6130,7 @@ function renderPipelineMap(byState, byMarket){
 function getDealEvents(dealMap){
   const events = [];
   (dealMap || deals).forEach((d,id)=>{
-    if((d.stage||"prospecting")==="dead") return;
+    if((d.stage||"just_landed")==="dead") return;
     const name = d.name || d.address || "Untitled deal";
     if(d.inspectionEndDate){
       events.push({dealId:id, name, type:"inspection", date:d.inspectionEndDate, amount:null});
@@ -6076,7 +6183,7 @@ function capNeedSplit(category, amount, d){
 function getCapitalNeedItems(dealMap){
   const items = [];
   (dealMap || deals).forEach((d,id)=>{
-    if((d.stage||"prospecting")==="dead") return;
+    if((d.stage||"just_landed")==="dead") return;
     const name = d.name || d.address || "Untitled deal";
     const extraDeposits = d.extraDeposits||[];
     const extraDepositTotal = extraDeposits.reduce((s,dep)=> s+(Number(dep.amount)||0), 0);
@@ -6166,7 +6273,7 @@ function capitalNeedCardHtml(buckets){
    conversion rate — deals still active with no outcome yet are shown as context but excluded from
    the rate itself, since their outcome isn't known. */
 function dealOutcomeBucket(d){
-  const stage = d.stage || "prospecting";
+  const stage = d.stage || "just_landed";
   if(stage==="dead") return "dead";
   if(CONVERTED_STAGES.has(stage)) return "converted";
   return "pending";
@@ -6240,11 +6347,11 @@ function dealPassedAt(id, d){
 }
 function passedDealsCardHtml(dealMap){
   const passed = [...dealMap.entries()]
-    .filter(([id,d])=> (d.stage||"prospecting")==="dead")
+    .filter(([id,d])=> (d.stage||"just_landed")==="dead")
     .map(([id,d])=> ({id, d, at: dealPassedAt(id,d)}))
     .sort((a,b)=> (b.at||"").localeCompare(a.at||""));
   const convertedCount = [...dealMap.values()].filter(d=>{
-    const s = d.stage||"prospecting";
+    const s = d.stage||"just_landed";
     return CONVERTED_STAGES.has(s);
   }).length;
   const decided = passed.length + convertedCount;
@@ -6375,15 +6482,15 @@ function openOnePagerModal(){
   const existing = document.getElementById("onePagerOverlay");
   if(existing) existing.remove();
   const all = [...deals.values()];
-  const active = all.filter(d=> (d.stage||"prospecting")!=="dead");
-  const activeEntries = [...deals.entries()].filter(([id,d])=> (d.stage||"prospecting")!=="dead");
+  const active = all.filter(d=> (d.stage||"just_landed")!=="dead");
+  const activeEntries = [...deals.entries()].filter(([id,d])=> (d.stage||"just_landed")!=="dead");
   const decisionEntries = activeEntries.filter(([id,d])=>(d.decisionRequired||"").trim());
   const {overdue, upcoming, stalled} = getUrgentAlerts(deals);
 
   let totalCapital=0;
   active.forEach(d=>{ const cap = calcCapitalStack(d); if(cap) totalCapital += cap.basis; });
   const IN_CONTRACT_STAGES = CONTRACT_STAGES;
-  const inContractDeals = active.filter(d=> IN_CONTRACT_STAGES.has(d.stage||"prospecting"));
+  const inContractDeals = active.filter(d=> IN_CONTRACT_STAGES.has(d.stage||"just_landed"));
   let totalDebt=0, totalEquity=0;
   inContractDeals.forEach(d=>{ const cap = calcCapitalStack(d); if(cap){ totalDebt+=cap.debtAmount; totalEquity+=cap.equityAmount; } });
   const closeDurations = active.filter(d=>d.actualCloseDate && d.createdAt).map(d=> Math.round((new Date(d.actualCloseDate+"T00:00:00") - new Date(d.createdAt)) / 86400000)).filter(n=>!isNaN(n)&&n>=0);
@@ -6445,7 +6552,7 @@ function openOnePagerModal(){
    log (or that haven't changed stage since) fall back to a single segment from their created date. */
 function buildDealGanttRow(id, d){
   const name = d.name || d.address || "Untitled deal";
-  const stage = d.stage || "prospecting";
+  const stage = d.stage || "just_landed";
   const stageMeta = DEAL_STAGES.find(s=>s.key===stage) || DEAL_STAGES[0];
   const keyByTitle = t => (DEAL_STAGES.find(s=>s.title===t)||{}).key || LEGACY_STAGE_TITLES[t] || null;
   const stageEvents = activityLog
@@ -6477,7 +6584,7 @@ function renderGanttChart(dealMap){
   const el = document.getElementById("ganttGrid");
   if(!el) return;
   const rows = [...dealMap.entries()]
-    .filter(([id,d])=> (d.stage||"prospecting")!=="dead")
+    .filter(([id,d])=> (d.stage||"just_landed")!=="dead")
     .map(([id,d])=> buildDealGanttRow(id,d))
     .filter(r=> r.segments.length);
 
@@ -7178,7 +7285,8 @@ function openEditDealModal(){
       state: document.getElementById("dState").value,
       lead: document.getElementById("dLead").value.trim(),
       notes: document.getElementById("dNotes").value.trim(),
-      stage: "prospecting",
+      stage: "just_landed",
+      stageSchemeV2: true,
       psaStatus: "Not Started",
       meetsTargetCriteria: false,
       fund: "", propertyType: document.getElementById("dPropType").value, dealType: document.getElementById("dDealType").value, stageOwners: {},
@@ -7628,7 +7736,7 @@ function openDealDetail(id){
 
   initSlideResizeHandle();
   document.getElementById("slideAddress").value = d.address||"";
-  document.getElementById("slideStage").value = d.stage||"prospecting";
+  document.getElementById("slideStage").value = d.stage||"just_landed";
   document.getElementById("slidePsa").value = d.psaStatus||"Not Started";
   document.getElementById("slideLead").value = d.lead||"";
   document.getElementById("slideState").value = d.state||"";
@@ -7726,7 +7834,7 @@ function openDealDetail(id){
     renderDealLocationMap(id, v);
   });
   document.getElementById("slideStage").addEventListener("change", e=>{
-    const newStage = e.target.value, prevStage = d.stage||"prospecting";
+    const newStage = e.target.value, prevStage = d.stage||"just_landed";
     confirmStageChange(d, newStage,
       ()=>{ save({stage: newStage, order: Date.now()}); d.stage = newStage; renderDDSection(); renderSlideProgress(d); renderKeyMetrics(d); },
       ()=>{ document.getElementById("slideStage").value = prevStage; }
@@ -7937,7 +8045,7 @@ function wireGateLogForm(dealId){
 function renderKeyMetrics(dealLike){
   const wrap = document.getElementById("keyMetricsWrap");
   if(!wrap) return;
-  const stage = dealLike.stage || "prospecting";
+  const stage = dealLike.stage || "just_landed";
   if(!DD_UNLOCK_STAGES.includes(stage)){ wrap.innerHTML = ""; return; }
   const uw = calcUnderwriting(dealLike);
   if(!uw || !uw.sf){
@@ -7964,7 +8072,7 @@ function renderKeyMetrics(dealLike){
 function renderSlideProgress(d){
   const el = document.getElementById("slideProgress");
   if(!el) return;
-  const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"prospecting")) || DEAL_STAGES[0];
+  const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
   const {dead} = dealStageProgressPct(d);
   el.innerHTML = `${dealProgressBarHtml(d, {size:"lg", showLabel:false})}
     <span class="pill ${dead?"pill-bad":"pill-"+stage.color}" style="flex:none;margin-top:6px;display:inline-block;">${escapeHtml(stage.title)}</span>`;
@@ -8722,14 +8830,14 @@ function renderDDSection(){
   const wrap = document.getElementById("ddSection");
   if(!wrap) return;
   const d = deals.get(openDealId) || {};
-  const stage = d.stage || "prospecting";
+  const stage = d.stage || "just_landed";
   const unlocked = DD_UNLOCK_STAGES.includes(stage);
 
   if(!unlocked){
     wrap.innerHTML = `<div class="locked-panel">
       <div class="lock-icon">🔒</div>
       <div><strong>Checklist locked</strong></div>
-      <div>The standard due diligence process unlocks once this deal reaches <strong>In Due Diligence</strong>.</div>
+      <div>The standard due diligence process unlocks once this deal reaches <strong>Due diligence</strong>.</div>
     </div>`;
     return;
   }
@@ -8759,14 +8867,14 @@ function renderDDWorkSection(){
   const wrap = document.getElementById("ddWorkSection");
   if(!wrap) return;
   const d = deals.get(openDealId) || {};
-  const stage = d.stage || "prospecting";
+  const stage = d.stage || "just_landed";
   const unlocked = DD_UNLOCK_STAGES.includes(stage);
 
   if(!unlocked){
     wrap.innerHTML = `<div class="locked-panel">
       <div class="lock-icon">🔒</div>
       <div><strong>Checklist locked</strong></div>
-      <div>The work behind due diligence unlocks once this deal reaches <strong>In Due Diligence</strong>.</div>
+      <div>The work behind due diligence unlocks once this deal reaches <strong>Due diligence</strong>.</div>
     </div>`;
     return;
   }
@@ -8850,7 +8958,7 @@ function reconcileDdTasksSubs(dealEntries){
   });
 }
 function buildDdTaskSection(id, d){
-  const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"prospecting")) || DEAL_STAGES[0];
+  const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
   const {catsWrap, complete, applicable, pct} = buildDdCategories(id, {});
 
   const section = document.createElement("details");
@@ -8888,14 +8996,14 @@ function renderDdTasksView(){
   const wrap = document.getElementById("ddTasksWrap");
   if(!wrap) return;
   const q = (document.getElementById("searchInput").value||"").trim().toLowerCase();
-  let list = [...deals.entries()].filter(([id,d])=> ["due_diligence","closing"].includes(d.stage||"prospecting"));
+  let list = [...deals.entries()].filter(([id,d])=> ["due_diligence","ic2","closing"].includes(d.stage||"just_landed"));
   reconcileDdTasksSubs(list);
   if(q){ list = list.filter(([id,d])=> matchesFilter([d.name,d.address].join(" ")||"", q)); }
   list.sort((a,b)=> (a[1].name||"").localeCompare(b[1].name||""));
 
   wrap.innerHTML = "";
   if(!list.length){
-    wrap.innerHTML = `<div class="stage-empty-line" style="padding:26px 4px;">No projects are in due diligence yet — this checklist unlocks once a deal reaches <strong>In Due Diligence</strong>, and drops off once the deal closes.</div>`;
+    wrap.innerHTML = `<div class="stage-empty-line" style="padding:26px 4px;">No projects are in due diligence yet — this checklist unlocks once a deal reaches <strong>Due diligence</strong>, and drops off once the deal closes.</div>`;
     return;
   }
   const toolbar = document.createElement("div");
@@ -9034,8 +9142,8 @@ function renderDebtView(){
   const wrap = document.getElementById("debtWrap");
   if(!wrap) return;
   const all = [...deals.entries()];
-  const preClose = all.filter(([id,d])=> CONTRACT_STAGES.has(d.stage||"prospecting"));
-  const closed = all.filter(([id,d])=> (d.stage||"prospecting")==="onboarded");
+  const preClose = all.filter(([id,d])=> CONTRACT_STAGES.has(d.stage||"just_landed"));
+  const closed = all.filter(([id,d])=> (d.stage||"just_landed")==="onboarded");
   preClose.sort((a,b)=> debtDealTotals(b[1]).gap - debtDealTotals(a[1]).gap);
   closed.sort((a,b)=> (b[1].actualCloseDate||"").localeCompare(a[1].actualCloseDate||""));
 
@@ -9055,7 +9163,7 @@ function renderDebtView(){
       <div class="kpi-tile"><span class="kpi-label">Gap</span><span class="kpi-value${gapTotal>0?" bad":""}">${fmtMoneyShort(gapTotal)}</span><span class="kpi-sub">${gapTotal>0?"not yet covered by a lender":"fully covered"}</span></div>
       <div class="kpi-tile"><span class="kpi-label">No sources yet</span><span class="kpi-value">${noSourcesCount}</span><span class="kpi-sub">of ${preClose.length} deal${preClose.length===1?"":"s"}</span></div>
     </div>
-    ${preClose.length ? preClose.map(([id,d])=>debtDealCardHtml(id,d)).join("") : `<div class="empty-hint">No deals are under contract yet — this fills in once a deal reaches Signed PSA.</div>`}
+    ${preClose.length ? preClose.map(([id,d])=>debtDealCardHtml(id,d)).join("") : `<div class="empty-hint">No deals are under contract yet — this fills in once a deal reaches PSA signed.</div>`}
     ${closed.length ? `<details class="weekly-group" style="margin-top:16px;">
       <summary>Closed / funded<span class="weekly-group-count">${closed.length}</span></summary>
       <div style="padding:10px 13px;">${closed.map(([id,d])=>debtDealCardHtml(id,d)).join("")}</div>
@@ -9153,8 +9261,8 @@ function renderEquityView(){
   const wrap = document.getElementById("equityWrap");
   if(!wrap) return;
   const all = [...deals.entries()];
-  const preClose = all.filter(([id,d])=> CONTRACT_STAGES.has(d.stage||"prospecting"));
-  const closed = all.filter(([id,d])=> (d.stage||"prospecting")==="onboarded");
+  const preClose = all.filter(([id,d])=> CONTRACT_STAGES.has(d.stage||"just_landed"));
+  const closed = all.filter(([id,d])=> (d.stage||"just_landed")==="onboarded");
   preClose.sort((a,b)=> equityDealTotals(b[1]).gap - equityDealTotals(a[1]).gap);
   closed.sort((a,b)=> (b[1].actualCloseDate||"").localeCompare(a[1].actualCloseDate||""));
 
@@ -9175,7 +9283,7 @@ function renderEquityView(){
       <div class="kpi-tile"><span class="kpi-label">Gap</span><span class="kpi-value${gapTotal>0?" bad":""}">${fmtMoneyShort(gapTotal)}</span><span class="kpi-sub">${gapTotal>0?"not yet covered":"fully covered"}</span></div>
       <div class="kpi-tile"><span class="kpi-label">No sources yet</span><span class="kpi-value">${noSourcesCount}</span><span class="kpi-sub">of ${preClose.length} deal${preClose.length===1?"":"s"}</span></div>
     </div>
-    ${preClose.length ? preClose.map(([id,d])=>equityDealCardHtml(id,d)).join("") : `<div class="empty-hint">No deals are under contract yet — this fills in once a deal reaches Signed PSA.</div>`}
+    ${preClose.length ? preClose.map(([id,d])=>equityDealCardHtml(id,d)).join("") : `<div class="empty-hint">No deals are under contract yet — this fills in once a deal reaches PSA signed.</div>`}
     ${closed.length ? `<details class="weekly-group" style="margin-top:16px;">
       <summary>Closed / funded<span class="weekly-group-count">${closed.length}</span></summary>
       <div style="padding:10px 13px;">${closed.map(([id,d])=>equityDealCardHtml(id,d)).join("")}</div>
@@ -10089,7 +10197,7 @@ function renderBrokerLinkedDeals(){
   }
   const sorted = stats.deals.slice().sort((a,b)=> (b[1].createdAt||"").localeCompare(a[1].createdAt||""));
   wrap.innerHTML = `<div class="broker-deal-list">${sorted.map(([id,d])=>{
-    const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"prospecting")) || DEAL_STAGES[0];
+    const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
     return `<div class="broker-deal-row" data-id="${escapeAttr(id)}">
       <span class="broker-deal-name">${escapeHtml(d.name||"Untitled deal")}</span>
       <span class="pill pill-${stage.color}">${escapeHtml(stage.title)}</span>
@@ -10128,16 +10236,17 @@ function openConfirm(message, onConfirm, confirmLabel, onCancel){
   document.getElementById("confirmYes").addEventListener("click", ()=>{ close(); onConfirm(); });
 }
 
-/* Gate for moving a deal INTO Signed PSA or Onboarded — the two points in the flow chart where a
-   project commits to something binding: Signed PSA is where the IC gate (G3, Go-Hard) is supposed
-   to sit before a PSA gets executed, and Onboarded is where a project stops being merely
-   underwritten/negotiated and becomes a committed, resourced project. If there's no recorded
-   Go decision from the Investment Criteria / Go-No-Go panel, this asks for confirmation
-   instead of silently advancing an unreviewed deal. `apply` runs on confirm (or immediately
-   if no gate applies); `cancel` runs only if the user backs out, so callers can reset any
-   UI (e.g. a <select>) that already changed visually. */
+/* Gate for moving a deal INTO IC1 or Onboarded — the two points in the flow chart where a project
+   commits to something binding: IC1 is where the Investment Committee gate (G3) is supposed to sit
+   before a PSA gets executed, and Onboarded is where a project stops being merely underwritten/
+   negotiated and becomes a committed, resourced project. If there's no recorded Go decision from
+   the Investment Criteria / Go-No-Go panel, this asks for confirmation instead of silently
+   advancing an unreviewed deal. `apply` runs on confirm (or immediately if no gate applies);
+   `cancel` runs only if the user backs out, so callers can reset any UI (e.g. a <select>) that
+   already changed visually. (Before IC1 existed as its own stage, this fired on Signed PSA
+   instead — moved up to IC1 now that it's the stage that actually represents the IC gate.) */
 function confirmStageChange(d, newStage, apply, cancel){
-  const GATE_STAGES = new Set(["signed_psa","onboarded"]);
+  const GATE_STAGES = new Set(["ic1","onboarded"]);
   if(GATE_STAGES.has(newStage) && (d.icDecision||"")!=="go"){
     const cur = IC_DECISION_META[d.icDecision||""] || IC_DECISION_META[""];
     const stageTitle = (DEAL_STAGES.find(s=>s.key===newStage)||{}).title || newStage;
