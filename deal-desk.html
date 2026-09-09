@@ -14,6 +14,10 @@
      artifact). Free, no API key. -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<!-- SheetJS (xlsx.js) — reads an uploaded .xlsx/.xls workbook client-side for the due diligence
+     checklist's "Import from Excel" button, including cell styles (bold) so category-header rows
+     can be told apart from item rows. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --bg:#F6F9F9; --surface:#FFFFFF; --surface-2:#E9F1F2;
@@ -593,6 +597,13 @@
   .field textarea{ resize:vertical; min-height:60px; font-family:var(--font-body); }
   .field-row{ display:flex; gap:10px; }
   .field-row .field{ flex:1; }
+  /* A fixed-position 1st/2nd-deposit "Clear" button (see slideDep1ClearBtn/slideDep2ClearBtn) —
+     laid out like a .field (empty label row + control row) so it lines up with the amount/date/
+     status inputs beside it, but flex:none so it stays button-width instead of sharing the row
+     equally with them. */
+  .field-row .field-clear{ flex:none; }
+  .field-clear label{ visibility:hidden; }
+  .field-clear .btn-icon{ white-space:nowrap; }
   .confirm-text{ font-size:13.5px; color:var(--ink-soft); padding:0 20px 4px; }
   .checkbox-field{ display:flex; align-items:center; gap:8px; }
   .checkbox-field input{ width:16px; height:16px; accent-color:var(--accent); }
@@ -1262,6 +1273,41 @@
     padding:5px 8px; width:100%; color:var(--ink-soft);
   }
   .dd-notes:focus{ color:var(--ink); }
+
+  /* ---------- DD checklist v2 — one flat, editable table (item/category/status/responsible/
+     assigned/due date) replacing the old nested category-accordion checklists above. Row layout
+     follows the same flex-row/.repeat-row idiom used elsewhere in the slideover. ---------- */
+  .ddchk-toolbar{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin:14px 0 8px; flex-wrap:wrap; }
+  .ddchk-actions{ display:flex; gap:8px; flex-wrap:wrap; }
+  .ddchk-table{ display:flex; flex-direction:column; gap:6px; }
+  .ddchk-head{
+    display:flex; gap:6px; padding:0 9px; font-size:10px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.03em; color:var(--ink-faint);
+  }
+  .ddchk-row{
+    display:flex; gap:6px; align-items:center; background:var(--surface-2); border:1px solid var(--border);
+    border-radius:8px; padding:7px 9px;
+  }
+  .ddchk-row.ddchk-row-overdue{ border-color:var(--bad); }
+  .ddchk-item{ flex:2 1 150px; min-width:0; }
+  .ddchk-category{ flex:1.1 1 100px; min-width:0; }
+  .ddchk-status{
+    font-size:11px; font-weight:800; border-radius:6px; padding:4px 6px; border:1.5px solid var(--border);
+    background:var(--surface); flex:0 0 122px; width:122px; transition:background .1s,color .1s,border-color .1s;
+  }
+  .ddchk-responsible{ flex:1 1 90px; min-width:0; }
+  .ddchk-assigned{ flex:1 1 90px; min-width:0; }
+  .ddchk-due{ flex:0 0 130px; }
+  .ddchk-remove{ flex:none; }
+  .ddchk-input{
+    border:1px solid var(--border); background:var(--surface); color:var(--ink); border-radius:6px;
+    padding:5px 7px; font-size:12px; font-family:var(--font-body); width:100%; box-sizing:border-box;
+  }
+  .ddchk-overdue-flag{
+    font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:var(--bad-ink);
+    background:var(--bad); border-radius:20px; padding:2px 6px; flex:none; white-space:nowrap;
+  }
+  @media (max-width:760px){ .ddchk-head{ display:none; } .ddchk-row{ flex-wrap:wrap; } }
   .ic-criteria-head{
     padding:10px 13px; display:flex; align-items:center; gap:9px;
     font-family:var(--font-display); font-weight:800; font-size:14.5px; color:var(--brass);
@@ -1735,6 +1781,76 @@ const DD_WORK_TEMPLATE = [
   ]},
 ];
 const DD_WORK_TOTAL = DD_WORK_TEMPLATE.reduce((n,c)=>n+c.items.length,0);
+
+/* =================== due diligence checklist v2 — one flat, editable list =================== */
+/* Replaces the two checkbox-per-item checklists above (DD_TEMPLATE "documents collected" and
+   DD_WORK_TEMPLATE "the work that produces it") with a single simple list per deal — one line per
+   item, with Category / Status / Responsible party / Assigned to / Due date as plain editable
+   columns, rows addable and removable, importable from an Excel checklist — instead of two
+   separate nested-accordion checkbox lists with a status-select + target-date + notes sub-form
+   per item. DD_TEMPLATE/DD_WORK_TEMPLATE stay defined above (unused by any live UI now) purely so
+   migrateDdChecklist below has something to match a deal's already-recorded per-item statuses
+   against — see that function for why this can't just be deleted outright.
+   DD_DEFAULT_TEMPLATE is the reusable starting checklist every new deal is seeded with (fully
+   editable/removable afterward, and re-importable from an Excel file at any time): built from the
+   two legacy templates' item sets — every legacyKey below is one of theirs, kept so
+   migrateDdChecklist can carry an existing deal's real progress into the matching new row instead
+   of losing it — reshaped into the flat Category/Item form the checklist you shared (Kashi's) uses. */
+const DD_DEFAULT_TEMPLATE = [
+  ...DD_TEMPLATE.flatMap(cat=> cat.items.map(item=> ({legacyKey:item.key, category:cat.category, item:item.label}))),
+  ...DD_WORK_TEMPLATE.flatMap(cat=> cat.items.map(item=> ({legacyKey:item.key, category:cat.category, item:item.label}))),
+];
+/* Fresh row ids each time so two deals (or a deal re-seeded after being cleared) never share one —
+   cloneDefaultDdChecklist() is what a brand-new deal's ddChecklist starts as. */
+function cloneDefaultDdChecklist(){
+  return DD_DEFAULT_TEMPLATE.map(t=> ({
+    id: localId(), item:t.item, category:t.category, status:"not_started",
+    responsible:"", assignedTo:"", dueDate:"", legacyKey:t.legacyKey,
+  }));
+}
+/* One-time per-deal migration: the first time a deal without its own d.ddChecklist array is
+   opened (brand-new deals get one at creation, so this only ever fires for deals that predate
+   this feature), build its checklist from DD_DEFAULT_TEMPLATE, then overlay whatever real
+   progress the deal already had recorded in the two legacy per-item collections (checklistCache /
+   workChecklistCache — loaded, same as before, from the deals/{id}/checklist and
+   deals/{id}/workChecklist Supabase subcollections when the deal detail opens) — matched by
+   legacyKey, so a deal that was genuinely 73% through the old checklist keeps reading as 73%
+   through the new one instead of silently resetting to 0%. A legacy item with a non-default
+   status/date lands on its matching new row (updating status/dueDate — legacy has no
+   responsible/assignedTo, so those stay blank for the user to fill in); one with nothing
+   recorded is left as the untouched default-template row. Stamped via ddChecklist itself being
+   present, so this never re-runs and never overwrites edits made after migration. */
+function migrateDdChecklist(dealId){
+  const d = deals.get(dealId);
+  if(!d || Array.isArray(d.ddChecklist)) return;
+  const rows = cloneDefaultDdChecklist();
+  const byLegacyKey = new Map(rows.map(r=> [r.legacyKey, r]));
+  const overlay = (cache)=>{
+    (cache||new Map()).forEach((v, key)=>{
+      if(!v) return;
+      const hasSignal = (v.status && v.status!=="not_started") || v.targetDate;
+      if(!hasSignal) return;
+      const row = byLegacyKey.get(key);
+      if(!row) return;
+      row.status = v.status||row.status;
+      row.dueDate = v.targetDate||row.dueDate;
+    });
+  };
+  overlay(checklistCache.get(dealId));
+  overlay(workChecklistCache.get(dealId));
+  d.ddChecklist = rows;
+  recomputeDdChecklistProgress(dealId);
+}
+function recomputeDdChecklistProgress(dealId){
+  const d = deals.get(dealId);
+  if(!d) return;
+  const rows = Array.isArray(d.ddChecklist) ? d.ddChecklist : [];
+  let complete=0, na=0;
+  rows.forEach(r=>{ if(r.status==="complete") complete++; if(r.status==="na") na++; });
+  const applicable = rows.length - na;
+  d.ddComplete = complete; d.ddApplicable = applicable; d.ddTotal = rows.length;
+  updateDeal(dealId, {ddChecklist: rows, ddComplete: complete, ddApplicable: applicable, ddTotal: rows.length});
+}
 
 /* Gate log — the six Go/Hold/No-Go decision checkpoints from the Screen to Close process map,
    recorded per deal as a running history (d.gateLog: {gate, at, decider, answer, reasonCode, note,
@@ -3459,7 +3575,7 @@ async function boot(){
       renderBoard(); renderCounts();
       if(view==="brokers") renderBrokersView();
       if(openBrokerId) renderBrokerModalContent();
-      if(openDealId){ renderDDSection(); renderDDWorkSection(); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderScreeningPdfRow(); renderGateLogSummary(); }
+      if(openDealId){ renderDDChecklistSection(); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderScreeningPdfRow(); renderGateLogSummary(); }
     }, ()=>{});
     db.doc("settings/categories").onSnapshot(snap=>{
       const data = snap.data();
@@ -3589,13 +3705,14 @@ function logDealCreated(dealId, data){
   db.collection("activity").add({dealId, dealName:data.name||data.address||"Untitled deal", at:new Date().toISOString(), who:whoName()||"", created:true}).catch(()=>{});
 }
 async function createDeal(data){
-  const full = Object.assign({ddComplete:0, ddApplicable:DD_TOTAL, ddTotal:DD_TOTAL}, data);
+  const ddChecklist = cloneDefaultDdChecklist();
+  const full = Object.assign({ddChecklist, ddComplete:0, ddApplicable:ddChecklist.length, ddTotal:ddChecklist.length}, data);
   if(db){ const ref = await db.collection("deals").add(full); logDealCreated(ref.id, full); return ref.id; }
   else{ const id = localId(); deals.set(id, full); renderBoard(); renderCounts(); return id; }
 }
 async function updateDeal(id, data){
   if(db){ logDealActivity(id, deals.get(id), data); await db.doc("deals/"+id).update(data); }
-  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDSection(); renderDDWorkSection(); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderScreeningPdfRow(); renderGateLogSummary(); } }
+  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDChecklistSection(); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderScreeningPdfRow(); renderGateLogSummary(); } }
 }
 async function deleteDeal(id){
   if(db){ await db.doc("deals/"+id).delete(); }
@@ -3633,46 +3750,6 @@ async function updateAgendaItem(id, data){
 async function deleteAgendaItem(id){
   if(db){ await db.doc("agendaItems/"+id).delete(); }
   else{ agendaItems.delete(id); if(view==="agenda") renderAgendaView(); }
-}
-
-async function setChecklistItem(dealId, key, patch){
-  let cache = checklistCache.get(dealId);
-  if(!cache){ cache = new Map(); checklistCache.set(dealId, cache); }
-  const current = cache.get(key) || {status:"not_started", notes:""};
-  const next = Object.assign({}, current, patch, {updatedAt: new Date().toISOString(), updatedBy: whoName()||undefined});
-  cache.set(key, next);
-  if(db){ await db.doc("deals/"+dealId+"/checklist/"+key).set(next); }
-  recomputeDealProgress(dealId);
-  renderDDSection();
-}
-function recomputeDealProgress(dealId){
-  const cache = checklistCache.get(dealId) || new Map();
-  let complete=0, na=0;
-  cache.forEach(v=>{ if(v.status==="complete") complete++; if(v.status==="na") na++; });
-  const applicable = DD_TOTAL - na;
-  updateDeal(dealId, {ddComplete:complete, ddApplicable:applicable, ddTotal:DD_TOTAL});
-}
-
-/* Second checklist's own set/recompute pair — same shape as setChecklistItem/recomputeDealProgress
-   above, kept on its own sub-collection (workChecklist) and its own deal fields (workComplete/
-   workApplicable/workTotal) so it never mixes into DD_TOTAL/ddComplete math used elsewhere
-   (dashboard rollups, the deal-compare tool's "DD completion" criterion, etc.). */
-async function setWorkChecklistItem(dealId, key, patch){
-  let cache = workChecklistCache.get(dealId);
-  if(!cache){ cache = new Map(); workChecklistCache.set(dealId, cache); }
-  const current = cache.get(key) || {status:"not_started", notes:""};
-  const next = Object.assign({}, current, patch, {updatedAt: new Date().toISOString(), updatedBy: whoName()||undefined});
-  cache.set(key, next);
-  if(db){ await db.doc("deals/"+dealId+"/workChecklist/"+key).set(next); }
-  recomputeWorkChecklistProgress(dealId);
-  renderDDWorkSection();
-}
-function recomputeWorkChecklistProgress(dealId){
-  const cache = workChecklistCache.get(dealId) || new Map();
-  let complete=0, na=0;
-  cache.forEach(v=>{ if(v.status==="complete") complete++; if(v.status==="na") na++; });
-  const applicable = DD_WORK_TOTAL - na;
-  updateDeal(dealId, {workComplete:complete, workApplicable:applicable, workTotal:DD_WORK_TOTAL});
 }
 
 async function setCriteriaItem(dealId, key, patch){
@@ -3831,7 +3908,6 @@ function renderBoard(){
    screening criteria. Purely derived from existing deal data — nothing here is stored — so it
    recomputes fresh on every render and a suggestion disappears on its own once the underlying
    task exists or the condition is resolved. */
-const DD_ITEMS_FLAT = DD_TEMPLATE.flatMap(cat=> cat.items.map(it=> Object.assign({category:cat.category}, it)));
 const SUGGESTED_TASK_CATEGORY_META = {
   dd:      {label:"DD checklist", color:"warn"},
   deposit: {label:"Deposit",      color:"accent"},
@@ -3859,17 +3935,16 @@ function computeSuggestedTasks(){
     const ddStage = d.stage||"just_landed";
     if(ddStage!=="due_diligence" && ddStage!=="ic2" && ddStage!=="closing") return;
     const name = d.name||d.address||"Untitled deal";
-    const cache = checklistCache.get(id) || new Map();
-    DD_ITEMS_FLAT.forEach(item=>{
-      const v = cache.get(item.key);
-      if(!v || !v.targetDate || v.status==="complete" || v.status==="na") return;
-      const days = daysUntil(v.targetDate);
+    const rows = Array.isArray(d.ddChecklist) ? d.ddChecklist : [];
+    rows.forEach((item, idx)=>{
+      if(!item.dueDate || item.status==="complete" || item.status==="na") return;
+      const days = daysUntil(item.dueDate);
       if(days===null || days>7) return;
       const isOverdue = days<0;
-      push({dealId:id, sigKey:`${id}::dd::${item.key}`, category:"dd",
-        title:`${item.label}${isOverdue?" — overdue":" — due soon"} (${name})`,
-        notes:`${item.category} — ${isOverdue?`${Math.abs(days)}d overdue`:days===0?"due today":`due ${fmtDate(v.targetDate)}`}`,
-        priority: isOverdue?"high":"medium", dueDate: v.targetDate});
+      push({dealId:id, sigKey:`${id}::dd::${item.id||idx}`, category:"dd",
+        title:`${item.item||"Checklist item"}${isOverdue?" — overdue":" — due soon"} (${name})`,
+        notes:`${item.category||""}${item.category?" — ":""}${isOverdue?`${Math.abs(days)}d overdue`:days===0?"due today":`due ${fmtDate(item.dueDate)}`}`,
+        priority: isOverdue?"high":"medium", dueDate: item.dueDate});
     });
   });
 
@@ -4182,7 +4257,7 @@ function buildStageDealRow(id, d, stage, allEvents){
 
   const cap = calcCapitalStack(d);
   const uw = calcUnderwriting(d);
-  const applicable = d.ddApplicable ?? DD_TOTAL;
+  const applicable = d.ddApplicable ?? DD_DEFAULT_TEMPLATE.length;
   const complete = d.ddComplete ?? 0;
   const ddPct = applicable>0 ? Math.round((complete/applicable)*100) : 0;
   const highlights = stageHighlightFields(stage.key, d, {cap, uw, applicable, complete, ddPct});
@@ -4488,7 +4563,7 @@ function renderCompareMatrix(){
   selected.forEach(([id,d])=>{
     const cap = calcCapitalStack(d);
     const uw = calcUnderwriting(d);
-    const applicable = d.ddApplicable ?? DD_TOTAL;
+    const applicable = d.ddApplicable ?? DD_DEFAULT_TEMPLATE.length;
     const complete = d.ddComplete ?? 0;
     ctxOf.set(id, {cap, uw, applicable, complete});
   });
@@ -4672,7 +4747,7 @@ async function exportPipelineCsv(){
       d.purchasePrice??"", d.targetUnits??"", ppu?Math.round(ppu):"",
       cap?Math.round(cap.basis):"", cap?Math.round(cap.debtAmount):"", cap?Math.round(cap.equityAmount):"",
       (uw && uw.marginRevenue!=null) ? (uw.marginRevenue*100).toFixed(1) : "",
-      d.ddComplete??"", d.ddApplicable??DD_TOTAL,
+      d.ddComplete??"", d.ddApplicable??DD_DEFAULT_TEMPLATE.length,
       d.source||"", (brokers.get(d.brokerId||"")||{}).name||"", (brokers.get(d.brokerId||"")||{}).firm||"",
       d.productLine||"", d.propertyType||"", d.dealType||"",
       d.lead||"", d.meetsTargetCriteria?"Yes":"No",
@@ -6032,13 +6107,27 @@ function renderPipelineMap(byState, byMarket){
    complete, IC approval, PSA/effective date) are milestones, not deadlines — they're still
    fully visible on the deal's own Critical Dates checklist, just not fed into the alert/
    calendar "due date" machinery where they'd always read as overdue the moment they're filled
-   in (see CRITICAL_DATE_FIELDS in the deal detail view). */
+   in (see CRITICAL_DATE_FIELDS in the deal detail view).
+   Every event type here has its own "this is resolved, stop flagging it" condition — deposits
+   drop out once their status leaves Not Due/Due (CAPNEED_OPEN_STATUSES), closing drops out once
+   actualCloseDate is set — except inspectionEndDate used to have none at all: a deal whose DD/
+   inspection deadline had simply passed kept reading as "overdue" forever, even long after the
+   deal moved on to Closing or Onboarded, because nothing ever superseded that one date. Bug fix:
+   IC2 is literally "the DD-expiration go-hard call" (see the comment above GATES), so by the time
+   a deal is actually sitting in ic2 or later, that original date has already been acted on one
+   way or another and is history, not a live deadline — same idea as closing dropping out once
+   actualCloseDate is set. This does NOT touch deals still in signed_psa/due_diligence with a
+   genuinely past date: if the real DD period was extended but the field on the deal wasn't
+   updated to match, "overdue" is accurate to what's on file — update (or clear) that deal's own
+   "Non-refundable / DD end date" under Critical dates, there's no separate resolved/extended flag
+   for it the way deposits have a status field. */
+const DD_DEADLINE_RESOLVED_STAGES = new Set(["ic2","closing","onboarded"]);
 function getDealEvents(dealMap){
   const events = [];
   (dealMap || deals).forEach((d,id)=>{
     if((d.stage||"just_landed")==="dead") return;
     const name = d.name || d.address || "Untitled deal";
-    if(d.inspectionEndDate){
+    if(d.inspectionEndDate && !DD_DEADLINE_RESOLVED_STAGES.has(d.stage||"just_landed")){
       events.push({dealId:id, name, type:"inspection", date:d.inspectionEndDate, amount:null});
     }
     if(d.deposit1Amount && CAPNEED_OPEN_STATUSES.has(d.deposit1Status||"Not Due")){
@@ -7588,6 +7677,7 @@ function openDealDetail(id){
               <div class="field"><label for="slideDep1Status">1st deposit status</label>
                 <select id="slideDep1Status">${DEPOSIT_STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join("")}</select>
               </div>
+              <div class="field field-clear"><label>Clear</label><button type="button" class="btn-icon" id="slideDep1ClearBtn" title="Clear the 1st deposit">✕ Clear</button></div>
             </div>
             <div class="field-row">
               <div class="field"><label for="slideDep2Amt">2nd deposit amount</label><div class="money-field"><span class="money-field-prefix">$</span><input id="slideDep2Amt" type="text" inputmode="numeric"></div></div>
@@ -7595,6 +7685,7 @@ function openDealDetail(id){
               <div class="field"><label for="slideDep2Status">2nd deposit status</label>
                 <select id="slideDep2Status">${DEPOSIT_STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join("")}</select>
               </div>
+              <div class="field field-clear"><label>Clear</label><button type="button" class="btn-icon" id="slideDep2ClearBtn" title="Clear the 2nd deposit">✕ Clear</button></div>
             </div>
           </div>
           <div class="deposit-extra-head">
@@ -7695,13 +7786,8 @@ function openDealDetail(id){
         </div>
 
         <div>
-          <h4 class="section-label">Standard acquisition due diligence</h4>
-          <div id="ddSection"></div>
-        </div>
-
-        <div>
-          <h4 class="section-label">Due diligence — the work that produces it</h4>
-          <div id="ddWorkSection"></div>
+          <h4 class="section-label">Due diligence checklist</h4>
+          <div id="ddChecklistSection"></div>
         </div>
         </div>
       </div>
@@ -7807,7 +7893,7 @@ function openDealDetail(id){
   document.getElementById("slideStage").addEventListener("change", e=>{
     const newStage = e.target.value, prevStage = d.stage||"just_landed";
     confirmStageChange(d, newStage,
-      ()=>{ save({stage: newStage, order: Date.now()}); d.stage = newStage; renderDDSection(); renderSlideProgress(d); renderKeyMetrics(d); },
+      ()=>{ save({stage: newStage, order: Date.now()}); d.stage = newStage; renderDDChecklistSection(); renderSlideProgress(d); renderKeyMetrics(d); },
       ()=>{ document.getElementById("slideStage").value = prevStage; }
     );
   });
@@ -7897,6 +7983,28 @@ function openDealDetail(id){
   document.getElementById("slideDep2Amt").addEventListener("change", e=> save({deposit2Amount: parseMoneyStr(e.target.value)}));
   document.getElementById("slideDep2Date").addEventListener("change", e=> save({deposit2Date: e.target.value}));
   document.getElementById("slideDep2Status").addEventListener("change", e=> save({deposit2Status: e.target.value}));
+  /* "Clear" for the 1st/2nd deposit — unlike Additional deposits below (an actual array you can
+     remove a row from), these two are fixed fields on the deal, so there's nothing to "delete";
+     clearing resets amount/date/status back to blank/"Not Due" in one click instead of making
+     someone blank out three separate inputs by hand (the amount field in particular doesn't
+     accept an empty value comfortably once formatted). */
+  document.getElementById("slideDep1ClearBtn").addEventListener("click", ()=>{
+    document.getElementById("slideDep1Amt").value = "";
+    document.getElementById("slideDep1Date").value = "";
+    document.getElementById("slideDep1Status").value = "Not Due";
+    save({deposit1Amount: null, deposit1Date: "", deposit1Status: "Not Due"});
+    d.deposit1Date = "";
+    // Keep "Earnest money date" under Critical dates in sync — same underlying field (see the
+    // deposit1Date change handler above, which mirrors the other direction).
+    const cdEarnest = document.getElementById("cdEarnest");
+    if(cdEarnest){ cdEarnest.value = ""; updateCdateMark({id:"cdEarnest", field:"deposit1Date"}); }
+  });
+  document.getElementById("slideDep2ClearBtn").addEventListener("click", ()=>{
+    document.getElementById("slideDep2Amt").value = "";
+    document.getElementById("slideDep2Date").value = "";
+    document.getElementById("slideDep2Status").value = "Not Due";
+    save({deposit2Amount: null, deposit2Date: "", deposit2Status: "Not Due"});
+  });
   document.getElementById("addDepositBtn").addEventListener("click", ()=>{
     const next = (d.extraDeposits||[]).concat([{label:"", amount:null, date:"", status:"Not Due"}]);
     d.extraDeposits = next;
@@ -7917,19 +8025,39 @@ function openDealDetail(id){
     if(elUnit) elUnit.textContent = (price>0 && units>0) ? fmtMoneyShort(price/units)+"/unit" : "—";
   }
 
+  /* Due diligence checklist: d.ddChecklist is a plain array field on the deal itself (loads with
+     it, no subscription needed), except for the one-time migration a pre-existing deal needs the
+     first time it's opened — that still reads the two legacy per-item subcollections below, the
+     same way the old two-checklist system did. Migration only fires once BOTH legacy sources have
+     actually loaded (not before) — running it against whichever cache happens to resolve first
+     would migrate the deal on incomplete data, and the migration guard (d.ddChecklist already
+     set) means it would never get a second chance to pick up the other source. */
   if(!checklistCache.has(id)) checklistCache.set(id, new Map());
+  if(!workChecklistCache.has(id)) workChecklistCache.set(id, new Map());
   if(db){
+    let ddDocsLoaded = false, ddWorkLoaded = false;
+    const maybeMigrateDdChecklist = ()=>{
+      if(ddDocsLoaded && ddWorkLoaded) migrateDdChecklist(id);
+      renderDDChecklistSection();
+    };
     dealUnsub = db.collection("deals/"+id+"/checklist").onSnapshot(snap=>{
       const cache = new Map();
       snap.docs.forEach(doc=> cache.set(doc.id, doc.data()));
       checklistCache.set(id, cache);
-      renderDDSection();
-      recomputeDealProgress(id);
+      ddDocsLoaded = true;
+      maybeMigrateDdChecklist();
+    }, ()=>{});
+    dealWorkChecklistUnsub = db.collection("deals/"+id+"/workChecklist").onSnapshot(snap=>{
+      const cache = new Map();
+      snap.docs.forEach(doc=> cache.set(doc.id, doc.data()));
+      workChecklistCache.set(id, cache);
+      ddWorkLoaded = true;
+      maybeMigrateDdChecklist();
     }, ()=>{});
   } else {
-    renderDDSection();
+    migrateDdChecklist(id);
   }
-  renderDDSection();
+  renderDDChecklistSection();
 
   if(!criteriaCache.has(id)) criteriaCache.set(id, new Map());
   if(db){
@@ -7944,20 +8072,6 @@ function openDealDetail(id){
     renderIcCriteriaSection();
   }
   renderIcCriteriaSection();
-
-  if(!workChecklistCache.has(id)) workChecklistCache.set(id, new Map());
-  if(db){
-    dealWorkChecklistUnsub = db.collection("deals/"+id+"/workChecklist").onSnapshot(snap=>{
-      const cache = new Map();
-      snap.docs.forEach(doc=> cache.set(doc.id, doc.data()));
-      workChecklistCache.set(id, cache);
-      renderDDWorkSection();
-      recomputeWorkChecklistProgress(id);
-    }, ()=>{});
-  } else {
-    renderDDWorkSection();
-  }
-  renderDDWorkSection();
 
   wireGateLogForm(id);
   renderGateLogSummary();
@@ -8093,88 +8207,6 @@ function renderPhotoStrip(d){
       <figcaption>${escapeHtml(p.label)}</figcaption>
     </figure>`).join("")}
   </div>`;
-}
-
-/* Builds a template's category/item checklist for a given deal as a wired-up DOM node — the
-   shared engine behind both due-diligence lists (the standard collected-documents template and
-   the "work that produces it" template), each with its own cache and setItemFn so their
-   completion math never mixes.
-   opts.openFirstIndex: category index to expand by default (undefined = all collapsed). */
-function buildChecklistCategories(dealId, template, total, cache, setItemFn, opts){
-  opts = opts || {};
-  cache = cache || new Map();
-  let complete=0, na=0;
-  const catsWrap = document.createElement("div");
-  catsWrap.style.cssText = "display:flex;flex-direction:column;gap:10px;";
-  template.forEach((cat, ci)=>{
-    let catComplete = 0;
-    const details = document.createElement("details");
-    details.className = "category";
-    details.open = opts.openFirstIndex===ci;
-    const summaryEl = document.createElement("summary");
-    summaryEl.innerHTML = `<span></span><span class="cat-count"></span>`;
-    summaryEl.querySelector("span").textContent = cat.category;
-    details.appendChild(summaryEl);
-    cat.items.forEach(item=>{
-      const v = cache.get(item.key) || {status:"not_started", notes:""};
-      if(v.status==="complete"){ complete++; catComplete++; }
-      if(v.status==="na"){ na++; }
-      const row = document.createElement("div");
-      row.className = "dd-item";
-      row.innerHTML = `
-        <div class="dd-item-row">
-          <span class="dd-item-label"></span>
-          <span class="dd-overdue-flag" style="display:none;">Overdue</span>
-          <select class="dd-status"></select>
-        </div>
-        <div class="dd-item-row-meta">
-          <span class="dd-target-date-label">Target date</span>
-          <input class="dd-target-date" type="date">
-        </div>
-        <input class="dd-notes" type="text" placeholder="Notes…">`;
-      row.querySelector(".dd-item-label").textContent = item.label;
-      const sel = row.querySelector(".dd-status");
-      Object.entries(STATUS_META).forEach(([k,meta])=>{
-        const o = document.createElement("option"); o.value=k; o.textContent=meta.label;
-        if((v.status||"not_started")===k) o.selected = true;
-        sel.appendChild(o);
-      });
-      const dateInput = row.querySelector(".dd-target-date");
-      dateInput.value = v.targetDate||"";
-      const overdueFlag = row.querySelector(".dd-overdue-flag");
-      const refreshOverdue = ()=>{
-        const done = sel.value==="complete" || sel.value==="na";
-        const overdue = !done && dateInput.value && daysUntil(dateInput.value)<0;
-        overdueFlag.style.display = overdue ? "" : "none";
-      };
-      colorSelectByStatus(sel, (STATUS_META[sel.value]||STATUS_META.not_started).cls);
-      refreshOverdue();
-      sel.addEventListener("change", ()=>{
-        setItemFn(dealId, item.key, {status: sel.value});
-        colorSelectByStatus(sel, STATUS_META[sel.value].cls);
-        refreshOverdue();
-      });
-      dateInput.addEventListener("change", ()=>{
-        setItemFn(dealId, item.key, {targetDate: dateInput.value});
-        refreshOverdue();
-      });
-      const notesInput = row.querySelector(".dd-notes");
-      notesInput.value = v.notes||"";
-      notesInput.addEventListener("change", ()=> setItemFn(dealId, item.key, {notes: notesInput.value}));
-      details.appendChild(row);
-    });
-    summaryEl.querySelector(".cat-count").textContent = `${catComplete}/${cat.items.length}`;
-    catsWrap.appendChild(details);
-  });
-  const applicable = total - na;
-  const pct = applicable>0 ? Math.round((complete/applicable)*100) : 0;
-  return {catsWrap, complete, na, applicable, pct};
-}
-function buildDdCategories(dealId, opts){
-  return buildChecklistCategories(dealId, DD_TEMPLATE, DD_TOTAL, checklistCache.get(dealId), setChecklistItem, opts);
-}
-function buildWorkChecklistCategories(dealId, opts){
-  return buildChecklistCategories(dealId, DD_WORK_TEMPLATE, DD_WORK_TOTAL, workChecklistCache.get(dealId), setWorkChecklistItem, opts);
 }
 
 async function addCustomCriterion(dealId, label, requirement, type){
@@ -8814,9 +8846,13 @@ function demographicsPanelHtml(d, opts){
     ${d.demoSourceNote ? `<div class="wealth-source-note">Source: ${escapeHtml(d.demoSourceNote)}</div>` : ""}`;
 }
 
-function renderDDSection(){
+/* =================== DD checklist v2 — render + row CRUD =================== */
+/* Single flat, editable table per deal (d.ddChecklist) — replaces the old nested category-
+   accordion renderDDSection/renderDDWorkSection above. Same locked-panel gating (DD_UNLOCK_STAGES),
+   same .dd-summary progress bar, reusing STATUS_META/colorSelectByStatus for the status column. */
+function renderDDChecklistSection(){
   if(!openDealId) return;
-  const wrap = document.getElementById("ddSection");
+  const wrap = document.getElementById("ddChecklistSection");
   if(!wrap) return;
   const d = deals.get(openDealId) || {};
   const stage = d.stage || "just_landed";
@@ -8826,64 +8862,285 @@ function renderDDSection(){
     wrap.innerHTML = `<div class="locked-panel">
       <div class="lock-icon">🔒</div>
       <div><strong>Checklist locked</strong></div>
-      <div>The standard due diligence process unlocks once this deal reaches <strong>Due diligence</strong>.</div>
+      <div>The due diligence checklist unlocks once this deal reaches <strong>Due diligence</strong>.</div>
     </div>`;
     return;
   }
 
+  const rows = Array.isArray(d.ddChecklist) ? d.ddChecklist : [];
   const stageMeta = DEAL_STAGES.find(s=>s.key===stage);
-  const {catsWrap, complete, na, applicable, pct} = buildDdCategories(openDealId, {openFirstIndex:0});
-  catsWrap.style.marginTop = "12px";
+  let complete=0, na=0;
+  rows.forEach(r=>{ if(r.status==="complete") complete++; if(r.status==="na") na++; });
+  const applicable = rows.length - na;
+  const pct = applicable>0 ? Math.round((complete/applicable)*100) : 0;
+
+  wrap.innerHTML = "";
 
   const summary = document.createElement("div");
   summary.className = "dd-summary";
   summary.innerHTML = `<div class="num mono" id="ddPct">${pct}%</div>
     <div style="flex:1">
       <div class="progress-track"><div class="progress-fill${pct>=100 && applicable>0?" complete":""}" id="ddFill" style="width:${pct}%"></div></div>
-      <div class="progress-label" id="ddLabel" style="margin-top:5px">${complete} of ${applicable} complete${na?` (${na} n/a)`:""}</div>
+      <div class="progress-label" id="ddLabel" style="margin-top:5px">${rows.length ? `${complete} of ${applicable} complete${na?` (${na} n/a)`:""}` : "No items yet"}</div>
     </div>
     <span class="pill pill-${stageMeta?stageMeta.color:"neutral"} dd-stage-pill">${stageMeta?stageMeta.title:""}</span>`;
-
-  wrap.innerHTML = "";
   wrap.appendChild(summary);
-  wrap.appendChild(catsWrap);
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "ddchk-toolbar";
+  toolbar.innerHTML = `
+    <span class="filter-note">${rows.length} item${rows.length===1?"":"s"}</span>
+    <div class="ddchk-actions">
+      <button type="button" class="btn-icon" id="ddchkAddBtn">+ Add item</button>
+      <button type="button" class="btn-icon" id="ddchkImportBtn">⬆ Import from Excel</button>
+      <input type="file" id="ddchkImportInput" accept=".xlsx,.xls" style="display:none;">
+    </div>`;
+  wrap.appendChild(toolbar);
+
+  const table = document.createElement("div");
+  table.className = "ddchk-table";
+  if(rows.length){
+    const head = document.createElement("div");
+    head.className = "ddchk-head";
+    head.innerHTML = `<span class="ddchk-item">Item</span><span class="ddchk-category">Category</span>
+      <span class="ddchk-status">Status</span><span class="ddchk-responsible">Responsible party</span>
+      <span class="ddchk-assigned">Assigned to</span><span class="ddchk-due">Due date</span><span class="ddchk-remove"></span>`;
+    table.appendChild(head);
+    rows.forEach((row, i)=> table.appendChild(buildDdChecklistRow(openDealId, row, i)));
+  } else {
+    table.innerHTML = `<div class="locked-note">No checklist items yet — add one, or import from an existing Excel checklist.</div>`;
+  }
+  wrap.appendChild(table);
+
+  document.getElementById("ddchkAddBtn").addEventListener("click", ()=> addDdChecklistRow(openDealId));
+  const importBtn = document.getElementById("ddchkImportBtn");
+  const importInput = document.getElementById("ddchkImportInput");
+  importBtn.addEventListener("click", ()=> importInput.click());
+  importInput.addEventListener("change", (e)=>{
+    const file = e.target.files && e.target.files[0];
+    importInput.value = "";
+    if(file) handleDdChecklistImportFile(openDealId, file);
+  });
+}
+/* One row = one wired-up .ddchk-row DOM node. Each field commits on change via updateDeal (through
+   recomputeDdChecklistProgress, which also keeps ddComplete/ddApplicable/ddTotal in sync) — same
+   commit-on-change idiom as renderExtraDeposits/renderRepeatableList elsewhere in the slideover.
+   Status/due-date changes and removal re-render via rerenderFn (progress bar + overdue flag can
+   change); the plain text fields don't need a re-render, just a save. rerenderFn defaults to the
+   deal-detail slideover's section but is overridden by the "DD Checklist tab" (all-in-DD-deals
+   view below), which needs to re-render itself instead, not whichever deal happens to be open in
+   the slideover. */
+function buildDdChecklistRow(dealId, row, i, rerenderFn){
+  rerenderFn = rerenderFn || renderDDChecklistSection;
+  const el = document.createElement("div");
+  el.className = "ddchk-row";
+  const done = row.status==="complete" || row.status==="na";
+  const overdue = !done && row.dueDate && daysUntil(row.dueDate)<0;
+  if(overdue) el.classList.add("ddchk-row-overdue");
+  el.innerHTML = `
+    <input class="ddchk-input ddchk-item" data-key="item" type="text" placeholder="Checklist item">
+    <input class="ddchk-input ddchk-category" data-key="category" type="text" placeholder="Category">
+    <select class="ddchk-status" data-key="status"></select>
+    <input class="ddchk-input ddchk-responsible" data-key="responsible" type="text" placeholder="Responsible party">
+    <input class="ddchk-input ddchk-assigned" data-key="assignedTo" type="text" placeholder="Assigned to">
+    <input class="ddchk-due" data-key="dueDate" type="date">
+    ${overdue?`<span class="ddchk-overdue-flag">Overdue</span>`:""}
+    <button type="button" class="btn-icon ddchk-remove" title="Remove item">✕</button>`;
+  el.querySelector('[data-key="item"]').value = row.item||"";
+  el.querySelector('[data-key="category"]').value = row.category||"";
+  el.querySelector('[data-key="responsible"]').value = row.responsible||"";
+  el.querySelector('[data-key="assignedTo"]').value = row.assignedTo||"";
+  el.querySelector('[data-key="dueDate"]').value = row.dueDate||"";
+  const sel = el.querySelector('[data-key="status"]');
+  Object.entries(STATUS_META).forEach(([k,meta])=>{
+    const o = document.createElement("option"); o.value=k; o.textContent=meta.label;
+    if((row.status||"not_started")===k) o.selected = true;
+    sel.appendChild(o);
+  });
+  colorSelectByStatus(sel, (STATUS_META[sel.value]||STATUS_META.not_started).cls);
+
+  const commitField = (key, val, opts)=>{
+    const cur = deals.get(dealId);
+    if(!cur || !Array.isArray(cur.ddChecklist) || !cur.ddChecklist[i]) return;
+    const next = cur.ddChecklist.slice();
+    next[i] = Object.assign({}, next[i], {[key]: val});
+    cur.ddChecklist = next;
+    recomputeDdChecklistProgress(dealId);
+    if(opts && opts.rerender) rerenderFn();
+  };
+  el.querySelector('[data-key="item"]').addEventListener("change", e=> commitField("item", e.target.value));
+  el.querySelector('[data-key="category"]').addEventListener("change", e=> commitField("category", e.target.value));
+  el.querySelector('[data-key="responsible"]').addEventListener("change", e=> commitField("responsible", e.target.value));
+  el.querySelector('[data-key="assignedTo"]').addEventListener("change", e=> commitField("assignedTo", e.target.value));
+  el.querySelector('[data-key="dueDate"]').addEventListener("change", e=> commitField("dueDate", e.target.value, {rerender:true}));
+  sel.addEventListener("change", ()=>{
+    colorSelectByStatus(sel, STATUS_META[sel.value].cls);
+    commitField("status", sel.value, {rerender:true});
+  });
+  el.querySelector(".ddchk-remove").addEventListener("click", ()=>{
+    const cur = deals.get(dealId);
+    if(!cur || !Array.isArray(cur.ddChecklist)) return;
+    cur.ddChecklist = cur.ddChecklist.filter((_,idx)=> idx!==i);
+    recomputeDdChecklistProgress(dealId);
+    rerenderFn();
+  });
+  return el;
+}
+function addDdChecklistRow(dealId, rerenderFn){
+  rerenderFn = rerenderFn || renderDDChecklistSection;
+  const cur = deals.get(dealId);
+  if(!cur) return;
+  const next = (Array.isArray(cur.ddChecklist)?cur.ddChecklist:[]).concat([{
+    id: localId(), item:"", category:"", status:"not_started", responsible:"", assignedTo:"", dueDate:"",
+  }]);
+  cur.ddChecklist = next;
+  recomputeDdChecklistProgress(dealId);
+  rerenderFn();
 }
 
-/* Second due-diligence checklist — "the work that produces it" (DD_WORK_TEMPLATE) — same gating,
-   same layout as renderDDSection, its own wrap/ids so the two sections render independently. */
-function renderDDWorkSection(){
-  if(!openDealId) return;
-  const wrap = document.getElementById("ddWorkSection");
-  if(!wrap) return;
-  const d = deals.get(openDealId) || {};
-  const stage = d.stage || "just_landed";
-  const unlocked = DD_UNLOCK_STAGES.includes(stage);
+/* ---------- Excel import ----------
+   Parses a checklist laid out the way the uploaded Kashi DD Checklist.xlsx is: a "Status" column
+   header somewhere in the sheet, an item-name column immediately to its left, and Responsible
+   party/Assigned to/Due date in the three columns to its right — with bold section-header rows
+   (only the item column populated) setting the category for the plain item rows beneath them.
+   Falls back to "a row with nothing in the other columns is a category header" when the workbook
+   carries no bold/style info at all (some exports strip styles), since that's the closest
+   available signal without it. */
+function ddChecklistStatusFromText(text){
+  const t = String(text==null?"":text).trim().toLowerCase();
+  if(!t) return "not_started";
+  if(t.includes("complete") || t.includes("done")) return "complete";
+  if(t.includes("n/a") || t==="na" || t.includes("not applicable")) return "na";
+  if(t.includes("flag") || t.includes("issue") || t.includes("block")) return "flagged";
+  if(t.includes("progress") || t.includes("pending") || t.includes("working") || t.includes("started")) return "in_progress";
+  return "not_started";
+}
+function ddChecklistDateFromCell(v){
+  if(v==null || v==="") return "";
+  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  const s = String(v).trim();
+  if(!s) return "";
+  const parsed = new Date(s);
+  return isNaN(parsed) ? "" : parsed.toISOString().slice(0,10);
+}
+function parseDdChecklistWorkbook(workbook){
+  const sheetName = workbook.SheetNames[0];
+  const ws = workbook.Sheets[sheetName];
+  if(!ws || !ws["!ref"]) return [];
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+  const cellAt = (r,c)=> ws[XLSX.utils.encode_cell({r,c})];
+  const cellText = (r,c)=>{ const cell = cellAt(r,c); return cell ? cell.v : undefined; };
+  const cellBold = (r,c)=>{ const cell = cellAt(r,c); return !!(cell && cell.s && cell.s.font && cell.s.font.bold); };
 
-  if(!unlocked){
-    wrap.innerHTML = `<div class="locked-panel">
-      <div class="lock-icon">🔒</div>
-      <div><strong>Checklist locked</strong></div>
-      <div>The work behind due diligence unlocks once this deal reaches <strong>Due diligence</strong>.</div>
-    </div>`;
-    return;
+  let stylesAvailable = false;
+  for(let r=range.s.r; r<=range.e.r && !stylesAvailable; r++){
+    for(let c=range.s.c; c<=range.e.c; c++){
+      const cell = cellAt(r,c);
+      if(cell && cell.s && cell.s.font){ stylesAvailable = true; break; }
+    }
   }
 
-  const stageMeta = DEAL_STAGES.find(s=>s.key===stage);
-  const {catsWrap, complete, na, applicable, pct} = buildWorkChecklistCategories(openDealId, {openFirstIndex:0});
-  catsWrap.style.marginTop = "12px";
+  let headerRow = -1, statusCol = -1;
+  for(let r=range.s.r; r<=range.e.r && headerRow<0; r++){
+    for(let c=range.s.c; c<=range.e.c; c++){
+      const v = cellText(r,c);
+      if(typeof v === "string" && v.trim().toLowerCase()==="status"){ headerRow = r; statusCol = c; break; }
+    }
+  }
+  if(headerRow<0) return [];
+  const itemCol = statusCol - 1;
+  const responsibleCol = statusCol + 1;
+  const assignedCol = statusCol + 2;
+  const dueCol = statusCol + 3;
+  if(itemCol < range.s.c) return [];
 
-  const summary = document.createElement("div");
-  summary.className = "dd-summary";
-  summary.innerHTML = `<div class="num mono" id="ddWorkPct">${pct}%</div>
-    <div style="flex:1">
-      <div class="progress-track"><div class="progress-fill${pct>=100 && applicable>0?" complete":""}" id="ddWorkFill" style="width:${pct}%"></div></div>
-      <div class="progress-label" id="ddWorkLabel" style="margin-top:5px">${complete} of ${applicable} complete${na?` (${na} n/a)`:""}</div>
-    </div>
-    <span class="pill pill-${stageMeta?stageMeta.color:"neutral"} dd-stage-pill">${stageMeta?stageMeta.title:""}</span>`;
-
-  wrap.innerHTML = "";
-  wrap.appendChild(summary);
-  wrap.appendChild(catsWrap);
+  const rows = [];
+  let currentCategory = "";
+  for(let r=headerRow+1; r<=range.e.r; r++){
+    const itemVal = cellText(r, itemCol);
+    const itemText = (itemVal==null?"":String(itemVal)).trim();
+    if(!itemText) continue;
+    const statusVal = cellText(r, statusCol);
+    const respVal = cellText(r, responsibleCol);
+    const assignedVal = cellText(r, assignedCol);
+    const dueVal = cellText(r, dueCol);
+    const hasOtherData = [statusVal, respVal, assignedVal, dueVal].some(v=> v!=null && String(v).trim()!=="");
+    const isCategoryRow = stylesAvailable ? (cellBold(r, itemCol) && !hasOtherData) : !hasOtherData;
+    if(isCategoryRow){ currentCategory = itemText; continue; }
+    rows.push({
+      item: itemText,
+      category: currentCategory,
+      status: ddChecklistStatusFromText(statusVal),
+      responsible: respVal==null?"":String(respVal).trim(),
+      assignedTo: assignedVal==null?"":String(assignedVal).trim(),
+      dueDate: ddChecklistDateFromCell(dueVal),
+    });
+  }
+  return rows;
+}
+function handleDdChecklistImportFile(dealId, file){
+  if(typeof XLSX === "undefined"){
+    showToast("Excel import isn't available right now — the spreadsheet library didn't load.", "bad");
+    return;
+  }
+  const reader = new FileReader();
+  reader.onerror = ()=> showToast("Couldn't read that file.", "bad");
+  reader.onload = (e)=>{
+    let workbook;
+    try{
+      workbook = XLSX.read(e.target.result, {type:"array", cellStyles:true, cellDates:true});
+    }catch(err){
+      showToast("That doesn't look like a valid Excel file.", "bad");
+      return;
+    }
+    const parsedRows = parseDdChecklistWorkbook(workbook);
+    if(!parsedRows.length){
+      showToast(`No checklist rows found — expected a column headed "Status".`, "bad");
+      return;
+    }
+    openDdImportChoice(dealId, parsedRows);
+  };
+  reader.readAsArrayBuffer(file);
+}
+/* Append-vs-replace choice — its own small modal (openConfirm is yes/no only, and this needs a
+   third "add to what's there" option) reusing the same overlay/modal/btn classes as openConfirm. */
+function openDdImportChoice(dealId, parsedRows){
+  const root = document.getElementById("modalRoot");
+  if(!root) return;
+  const withIds = parsedRows.map(r=> Object.assign({id: localId()}, r));
+  root.innerHTML = `
+    <div class="overlay" id="ddImportOverlay">
+      <div class="modal" style="width:min(420px,100%)" role="alertdialog" aria-modal="true">
+        <div class="modal-head"><h2>Import ${withIds.length} checklist item${withIds.length===1?"":"s"}</h2></div>
+        <div class="confirm-text">Add these to the existing checklist, or replace it entirely?</div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="ddImportCancel">Cancel</button>
+          <button class="btn btn-danger" id="ddImportReplace">Replace checklist</button>
+          <button class="btn btn-primary" id="ddImportAppend">Add to checklist</button>
+        </div>
+      </div>
+    </div>`;
+  const close = ()=>{ root.innerHTML = ""; };
+  document.getElementById("ddImportOverlay").addEventListener("click", e=>{ if(e.target.id==="ddImportOverlay") close(); });
+  document.getElementById("ddImportCancel").addEventListener("click", close);
+  document.getElementById("ddImportAppend").addEventListener("click", ()=>{
+    close();
+    const cur = deals.get(dealId);
+    if(!cur) return;
+    cur.ddChecklist = (Array.isArray(cur.ddChecklist)?cur.ddChecklist:[]).concat(withIds);
+    recomputeDdChecklistProgress(dealId);
+    renderDDChecklistSection();
+    showToast(`Added ${withIds.length} item${withIds.length===1?"":"s"} to the checklist.`, "good");
+  });
+  document.getElementById("ddImportReplace").addEventListener("click", ()=>{
+    close();
+    const cur = deals.get(dealId);
+    if(!cur) return;
+    cur.ddChecklist = withIds;
+    recomputeDdChecklistProgress(dealId);
+    renderDDChecklistSection();
+    showToast(`Replaced the checklist with ${withIds.length} imported item${withIds.length===1?"":"s"}.`, "good");
+  });
 }
 
 /* =================== Gate log — Screen to Close decision checkpoints =================== */
@@ -8928,6 +9185,10 @@ function teardownDdTasksSubs(){
   ddTasksUnsubs.forEach(unsub=>{ try{ unsub(); }catch(e){} });
   ddTasksUnsubs.clear();
 }
+/* Loads both legacy per-item subcollections (not just checklist — workChecklist too, needed so a
+   deal reached only through this tab still migrates with its full legacy progress, the same
+   "wait for both sources" care openDealDetail's subscription block takes) so migrateDdChecklist
+   below has real data to overlay instead of migrating a deal on an incomplete cache. */
 function reconcileDdTasksSubs(dealEntries){
   const wantIds = new Set(dealEntries.map(([id])=>id));
   ddTasksUnsubs.forEach((unsub, id)=>{
@@ -8935,20 +9196,38 @@ function reconcileDdTasksSubs(dealEntries){
   });
   dealEntries.forEach(([id])=>{
     if(!checklistCache.has(id)) checklistCache.set(id, new Map());
-    if(ddTasksUnsubs.has(id) || !db) return;
-    const unsub = db.collection("deals/"+id+"/checklist").onSnapshot(snap=>{
+    if(!workChecklistCache.has(id)) workChecklistCache.set(id, new Map());
+    if(!db){ migrateDdChecklist(id); return; }
+    if(ddTasksUnsubs.has(id)) return;
+    let ddDocsLoaded = false, ddWorkLoaded = false;
+    const maybeMigrate = ()=>{
+      if(ddDocsLoaded && ddWorkLoaded) migrateDdChecklist(id);
+      if(view==="ddchecklist") renderDdTasksView();
+    };
+    const unsub1 = db.collection("deals/"+id+"/checklist").onSnapshot(snap=>{
       const cache = new Map();
       snap.docs.forEach(doc=> cache.set(doc.id, doc.data()));
       checklistCache.set(id, cache);
-      recomputeDealProgress(id);
-      if(view==="ddchecklist") renderDdTasksView();
+      ddDocsLoaded = true;
+      maybeMigrate();
     }, ()=>{});
-    ddTasksUnsubs.set(id, unsub);
+    const unsub2 = db.collection("deals/"+id+"/workChecklist").onSnapshot(snap=>{
+      const cache = new Map();
+      snap.docs.forEach(doc=> cache.set(doc.id, doc.data()));
+      workChecklistCache.set(id, cache);
+      ddWorkLoaded = true;
+      maybeMigrate();
+    }, ()=>{});
+    ddTasksUnsubs.set(id, ()=>{ try{ unsub1(); }catch(e){} try{ unsub2(); }catch(e){} });
   });
 }
 function buildDdTaskSection(id, d){
   const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
-  const {catsWrap, complete, applicable, pct} = buildDdCategories(id, {});
+  const rows = Array.isArray(d.ddChecklist) ? d.ddChecklist : [];
+  let complete=0, na=0;
+  rows.forEach(r=>{ if(r.status==="complete") complete++; if(r.status==="na") na++; });
+  const applicable = rows.length - na;
+  const pct = applicable>0 ? Math.round((complete/applicable)*100) : 0;
 
   const section = document.createElement("details");
   section.className = "stage-section";
@@ -8974,7 +9253,20 @@ function buildDdTaskSection(id, d){
     sub.textContent = d.address;
     body.appendChild(sub);
   }
-  body.appendChild(catsWrap);
+  const table = document.createElement("div");
+  table.className = "ddchk-table";
+  if(rows.length){
+    const head = document.createElement("div");
+    head.className = "ddchk-head";
+    head.innerHTML = `<span class="ddchk-item">Item</span><span class="ddchk-category">Category</span>
+      <span class="ddchk-status">Status</span><span class="ddchk-responsible">Responsible party</span>
+      <span class="ddchk-assigned">Assigned to</span><span class="ddchk-due">Due date</span><span class="ddchk-remove"></span>`;
+    table.appendChild(head);
+    rows.forEach((row, i)=> table.appendChild(buildDdChecklistRow(id, row, i, renderDdTasksView)));
+  } else {
+    table.innerHTML = `<div class="locked-note">No checklist items yet — open the deal to add some.</div>`;
+  }
+  body.appendChild(table);
   section.appendChild(body);
 
   const openBtn = summary.querySelector(".ddtask-open-btn");
