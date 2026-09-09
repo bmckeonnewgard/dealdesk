@@ -6786,8 +6786,16 @@ function renderUpcomingList(events){
   }
   el.innerHTML = rows.map(ev=>{
     const meta = EVENT_TYPE_META[ev.type]||{label:ev.type,color:"neutral"};
+    // A "closed" event is a record of something that already happened, not a pending obligation —
+    // its date is always in the past by construction, so running it through urgencyClass/
+    // urgencySuffix (built for pending deadlines) mislabels it "overdue". renderCalendarGrid
+    // already excludes "closed" from its own past-due bucket for the same reason; mirror that here
+    // instead of pill-bad-and-"· overdue" on a deal that's done.
+    const isClosed = ev.type==="closed";
+    const pillCls = isClosed ? "pill-good" : urgencyClass(ev.date);
+    const suffix = isClosed ? "" : urgencySuffix(ev.date);
     return `<div class="upcoming-row" data-deal="${escapeAttr(ev.dealId)}">
-      <span class="pill pill-solid ${urgencyClass(ev.date)} mono upcoming-date">${fmtDate(ev.date)}${urgencySuffix(ev.date)}</span>
+      <span class="pill pill-solid ${pillCls} mono upcoming-date">${fmtDate(ev.date)}${suffix}</span>
       <span class="upcoming-name">${escapeHtml(ev.name)}</span>
       <span class="upcoming-type"><span class="dot dot-${meta.color}"></span>${meta.label}</span>
       <span class="upcoming-amt mono">${ev.amount ? fmtMoneyShort(ev.amount) : ""}</span>
