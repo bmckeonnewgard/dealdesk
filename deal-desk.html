@@ -941,6 +941,14 @@
   .basics-row:hover .basics-td{ background:var(--surface-2); }
   .basics-date-val.bad{ color:var(--bad); font-weight:700; }
   .basics-date-val.warn{ color:var(--warn); font-weight:700; }
+  /* A financing-gap subset row directly under a project's own row in the basics table — same red
+     flag treatment as .attn-row-flag, but sized to sit inside the table rather than as its own card. */
+  .basics-gap-row .basics-gap-td{
+    padding:5px 12px 8px 0; border-bottom:1px solid var(--border); background:rgba(192,57,43,0.06);
+    border-left:2px solid #C0392B;
+  }
+  .basics-gap-flag{ font-weight:700; color:#C0392B; font-size:11px; margin-right:8px; }
+  .basics-gap-detail{ color:var(--ink-soft); font-size:11.5px; font-weight:600; }
   .basics-date-val.neutral{ color:var(--ink); }
   .capneed-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-top:10px; }
   .capneed-col{ background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; gap:9px; min-width:0; }
@@ -1361,18 +1369,9 @@
   }
   .mc-remove{ flex:none; margin-bottom:2px; }
 
-  /* ---------- go / no-go decision (gates onboarding, feeds the IC memo) ---------- */
-  .ic-decision-box{
-    border:1px solid var(--border); border-radius:10px; padding:13px 14px;
-    display:flex; flex-direction:column; gap:11px; background:var(--surface-2);
-  }
-  .ic-decision-suggest{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .ic-decision-suggest-label{ color:var(--ink-faint); font-weight:600; font-size:11.5px; }
-  .ic-flag-toggle{
-    display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:700; color:var(--ink);
-    cursor:pointer; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface);
-  }
-  .ic-flag-toggle input{ width:15px; height:15px; accent-color:#C0392B; cursor:pointer; }
+  /* ---------- flag for IC discussion (card header, next to the priority selector) ---------- */
+  .star-btn.ic-flag-btn.active{ color:#C0392B; }
+  .star-btn.ic-flag-btn:hover{ color:#C0392B; }
   .ic-flag-badge{
     display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:800; padding:2px 7px;
     border-radius:20px; background:#C0392B; color:#fff; letter-spacing:.01em;
@@ -1859,12 +1858,15 @@ function recomputeDdChecklistProgress(dealId){
    changes d.stage on its own. Two things do read this log without writing to it: migrateStageSchemeV2
    (see DEAL_STAGES above), a one-time backfill that placed a deal correctly the first time the v2
    stage set rolled out, not an ongoing link; and confirmStageChange, which checks the latest G2
-   answer (via latestGateEntry) before letting a deal move into "LOI submitted," and the latest
-   icDecision before IC1/Onboarded — same "ask for confirmation, never move it for you" treatment
-   in both cases. G3 and G5 are named to match the pipeline's IC1/IC2 stages below — the app's two
-   Investment Committee touchpoints, screening decisions vs. the DD-expiration go-hard call, use the
-   same "IC1"/"IC2" vocabulary in both places now — and G2 likewise now has its own "LOI
-   authorization" pipeline stage rather than being logged with no on-board marker. */
+   answer (via latestGateEntry) before letting a deal move into "LOI submitted" — "ask for
+   confirmation, never move it for you." (A parallel check used to also gate IC1/Onboarded on a
+   separate, manually-recorded "Go/No-Go decision" field, but that panel was redundant with this
+   same gate log — G3/G5 below already record the Investment Committee's IC1/IC2 calls — so it was
+   removed; the flag-for-IC-discussion toggle that lived alongside it moved up to the card header.)
+   G3 and G5 are named to match the pipeline's IC1/IC2 stages below — the app's two Investment
+   Committee touchpoints, screening decisions vs. the DD-expiration go-hard call, use the same
+   "IC1"/"IC2" vocabulary in both places now — and G2 likewise now has its own "LOI authorization"
+   pipeline stage rather than being logged with no on-board marker. */
 const GATES = [
   {key:"g1", label:"G1 — Screen", meta:"Deal lead · minutes", deciders:"Deal lead",
     answers:["Pursue","Watch — with a date","Pass — with reason code"]},
@@ -2058,15 +2060,6 @@ const IC_STATUS_META = {
   nofit: {label:"Doesn't fit",  cls:"pill-bad"},
 };
 
-/* Formal Go / No-Go decision — the gate between screening (Investment Criteria above) and
-   committing further resources to a deal, recorded per deal and surfaced in the pipeline,
-   dashboard filters, and the printed IC memo. */
-const IC_DECISION_META = {
-  "":     {label:"Not decided", cls:"pill-neutral"},
-  go:     {label:"Go",          cls:"pill-good"},
-  hold:   {label:"Hold",        cls:"pill-warn"},
-  no_go:  {label:"No-Go",       cls:"pill-bad"},
-};
 /* Debt financing status — separate from the modeled debt/equity split (calcCapitalStack), which
    is just an assumption until a lender is actually lined up. This tracks whether that assumption
    has become a real commitment. */
@@ -2088,25 +2081,6 @@ const EQUITY_STATUS_META = {
   funded:        {label:"Funded / closed", cls:"pill-good", color:"good"},
 };
 const EQUITY_STATUS_OPTIONS = Object.keys(EQUITY_STATUS_META);
-/* auto-suggestion from the IC screening tallies already stored on the deal (icFit/icWatch/icNoFit/icTotal) —
-   non-binding, just a starting point for the analyst's actual decision below it */
-function icSuggestion(d){
-  const total = d.icTotal || activeIcCriteria(d).length;
-  const fit = d.icFit||0, watch = d.icWatch||0, nofit = d.icNoFit||0;
-  const assessed = fit+watch+nofit;
-  if(!assessed) return null;
-  if(nofit>0) return "no_go";
-  if(watch>0 || assessed<total) return "hold";
-  if(fit===total) return "go";
-  return null;
-}
-function icDecisionPillHtml(d){
-  const key = d.icDecision||"";
-  if(!key) return "";
-  const m = IC_DECISION_META[key];
-  if(!m) return "";
-  return `<span class="pill pill-solid ${m.cls}" title="IC decision: ${m.label}">${m.label}</span>`;
-}
 function icFlagBadgeHtml(d){
   if(!d.icFlagged) return "";
   return `<span class="ic-flag-badge" title="${escapeAttr(d.icFlagNote ? "Flagged for IC discussion: "+d.icFlagNote : "Flagged for IC discussion")}">🚩 IC discussion</span>`;
@@ -2481,21 +2455,12 @@ function icScorePillHtml(d){
   return `<span class="pill pill-solid ${cls}" title="Average of ${d.icScoreCount} rated screening criteria">★ ${d.icScore.toFixed(1)}/10</span>`;
 }
 
-/* Pursue / Watch / Pass recommendation + national market tier — from the weekly acquisitions pipeline report */
-const REC_META = {
-  pursue: {label:"Pursue", cls:"pill-good"},
-  watch:  {label:"Watch",  cls:"pill-warn"},
-  pass:   {label:"Pass",   cls:"pill-bad"},
-};
+/* National market tier — from the weekly acquisitions pipeline report */
 const MARKET_TIER_META = {
   "1": {label:"Tier 1", cls:"pill-accent"},
   "2": {label:"Tier 2", cls:"pill-brass"},
   "3": {label:"Tier 3", cls:"pill-neutral"},
 };
-function recPillHtml(d){
-  const r = REC_META[d.recommendation];
-  return r ? `<span class="pill ${r.cls}" title="Recommendation: ${r.label}">${r.label}</span>` : "";
-}
 
 /* Product line color coding — a stable color per distinct product line (e.g. "Porsche Design Clubhouse"
    vs "Highlands Ranch"), recomputed whenever the deals collection changes so it stays consistent across
@@ -2799,15 +2764,15 @@ async function findOrCreateBrokerByName(name, extra){
    reused from elsewhere. Ordered to match the Screen-to-Close process map (see GATES/DEAL_STAGES
    above): materials feed underwriting, underwriting completion gates G2 (LOI authorization —
    its own pipeline stage now, between Underwriting and LOI submitted), which is why LOI
-   submitted/signed sit after it rather than before. "IC decision" reuses
-   icDecisionDate — the same field the formal Go/No-Go panel (renderIcDecisionSection) writes —
-   rather than the old standalone icApprovalDate, which nothing else in the app ever read or set. */
+   submitted/signed sit after it rather than before. The formal Go/No-Go decision milestone that
+   used to sit here (icDecisionDate) was removed along with the rest of that panel — the Screen to
+   Close gate log's G3 (IC1) / G5 (IC2) entries already record when and what the Investment
+   Committee decided, so this list no longer duplicates that. */
 const CRITICAL_DATE_FIELDS = [
   {id:"cdMaterials",      field:"materialsReceivedDate",   label:"Materials received"},
   {id:"cdUw",             field:"underwritingCompleteDate",label:"Underwriting complete"},
   {id:"cdLoi",            field:"loiSubmittedDate",        label:"LOI submitted"},
   {id:"cdLoiSigned",      field:"loiSignedDate",           label:"LOI signed"},
-  {id:"cdIc",             field:"icDecisionDate",          label:"IC decision (Go/No-Go)"},
   {id:"cdPsa",            field:"effectiveDate",           label:"PSA execution / effective date"},
   {id:"cdEarnest",        field:"deposit1Date",            label:"Earnest money date"},
   {id:"cdNonRefundable",  field:"inspectionEndDate",       label:"Non-refundable / DD end date"},
@@ -2870,12 +2835,7 @@ function dealPassesFilters(d){
   if(f.propertyType && (d.propertyType||"")!==f.propertyType) return false;
   if(f.lead && (d.lead||"")!==f.lead) return false;
   if(f.state && dealStateCode(d)!==f.state) return false;
-  if(f.recommendation && (d.recommendation||"")!==f.recommendation) return false;
   if(f.marketTier && (d.marketTier||"")!==f.marketTier) return false;
-  if(f.icDecision){
-    if(f.icDecision==="none"){ if(d.icDecision) return false; }
-    else if((d.icDecision||"")!==f.icDecision) return false;
-  }
   return true;
 }
 function anyDashboardFilterActive(){
@@ -2929,7 +2889,7 @@ let calendarRangeMonths = (()=>{
   try{ const v = Number(localStorage.getItem("dealdesk_calendar_range")); return [12,24,36].includes(v) ? v : 12; }
   catch(e){ return 12; }
 })();
-let dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:""};
+let dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", marketTier:""};
 let pipelineDensity = (()=>{ try{ return localStorage.getItem("dealdesk_pipeline_density")||"compact"; }catch(e){ return "compact"; } })();
 /* Deal-detail slideover width — adjustable by dragging the handle on its left edge (see
    initSlideResizeHandle, wired inside openDealDetail), remembered per browser like the density
@@ -3679,8 +3639,6 @@ const DEAL_ACTIVITY_FIELDS = {
   closingDate:         {label:"Expected close",        fmt:v=> v ? fmtDate(v) : "—"},
   actualCloseDate:     {label:"Actual close",          fmt:v=> v ? fmtDate(v) : "—"},
   decisionRequired:    {label:"Decision needed",       fmt:v=> (v||"").trim() || "—"},
-  recommendation:      {label:"Recommendation",        fmt:v=> (REC_META[v]||{}).label || "—"},
-  icDecision:          {label:"IC decision",           fmt:v=> (IC_DECISION_META[v]||{}).label || "Not decided"},
   meetsTargetCriteria: {label:"Meets target criteria", fmt:v=> v ? "Yes" : "No"},
   brokerId:            {label:"Broker",                fmt:v=> brokerLabel(brokers.get(v)) || "—"},
   debtStatus:          {label:"Debt financing",        fmt:v=> (DEBT_STATUS_META[v||""]||{}).label || "Not started"},
@@ -3961,13 +3919,13 @@ function computeSuggestedTasks(){
     const stage = d.stage||"just_landed";
     if(stage==="dead" || stage==="onboarded") return;
     const name = d.name||d.address||"Untitled deal";
-    if(d.icFlagged && !d.icDecision){
+    if(d.icFlagged){
       push({dealId:id, sigKey:`${id}::ic::flag`, category:"ic",
         title:`Schedule IC discussion — ${name}`,
         notes: d.icFlagNote ? `Flagged: ${d.icFlagNote}` : "Flagged for IC discussion.",
         priority:"high", dueDate:""});
     }
-    if(CONTRACT_STAGES.has(stage) && !d.icDecision){
+    if(CONTRACT_STAGES.has(stage)){
       const cache = criteriaCache.get(id) || new Map();
       const list = activeIcCriteria(d);
       const tbd = list.filter(c=> !cache.get(c.key) || cache.get(c.key).status==="tbd").length;
@@ -4087,8 +4045,16 @@ function stageHighlightFields(stageKey, d, extra){
   const debtEquityStr = cap ? `${fmtMoneyShort(cap.debtAmount)} / ${fmtMoneyShort(cap.equityAmount)}` : "—";
   const closeDate = d.closingDate ? fmtDate(d.closingDate)+urgencySuffix(d.closingDate) : "—";
   const closeCls = d.closingDate ? stripPillPrefix(urgencyClass(d.closingDate)) : "";
-  const nonRefDate = d.inspectionEndDate ? fmtDate(d.inspectionEndDate)+urgencySuffix(d.inspectionEndDate) : "—";
-  const nonRefCls = d.inspectionEndDate ? stripPillPrefix(urgencyClass(d.inspectionEndDate)) : "";
+  // Once a deal has reached IC2 (the DD-expiration go-hard call) — or, transitively, Closing/
+  // Onboarded — its DD/inspection deadline is resolved the same way getDealEvents already treats
+  // it (DD_DEADLINE_RESOLVED_STAGES): don't keep flagging a stale "overdue" badge on this card's
+  // highlight chip once the deal has actually moved past that checkpoint. "closing"/"onboarded"
+  // don't reach here at all (their own field lists below don't include this chip), so this only
+  // ever matters for the ic2 case, but checking DD_DEADLINE_RESOLVED_STAGES rather than hardcoding
+  // "ic2" keeps this in lockstep with getDealEvents if that set ever changes.
+  const ddDeadlineResolved = DD_DEADLINE_RESOLVED_STAGES.has(stageKey);
+  const nonRefDate = d.inspectionEndDate ? fmtDate(d.inspectionEndDate)+(ddDeadlineResolved?"":urgencySuffix(d.inspectionEndDate)) : "—";
+  const nonRefCls = d.inspectionEndDate ? (ddDeadlineResolved?"":stripPillPrefix(urgencyClass(d.inspectionEndDate))) : "";
   const ppu = pricePerUnit(d);
   const ppuStr = ppu ? fmtMoneyShort(ppu)+"/unit" : "—";
 
@@ -4140,12 +4106,10 @@ function stageHighlightFields(stageKey, d, extra){
       ];
       break;
     case "ic1": {
-      const icCur = IC_DECISION_META[d.icDecision||""] || IC_DECISION_META[""];
       fields = [
         {label:"Offer price", value: priceStr},
         {label:"Criteria score", value: (d.icScore!=null && d.icScoreCount) ? `${d.icScore.toFixed(1)}/10` : "Not rated",
           cls: d.icScore==null ? "" : (d.icScore>=7.5?"good":d.icScore>=5?"warn":"bad")},
-        {label:"IC decision", value: icCur.label, cls: stripPillPrefix(icCur.cls)},
         {label:"Capital needed", value: capStr},
       ];
       break;
@@ -4268,7 +4232,7 @@ function buildStageDealRow(id, d, stage, allEvents){
         <span class="stage-row-title"></span>
         <button class="star-btn${d.meetsTargetCriteria?" active":""}" title="Meets target criteria">★</button>
         <select class="priority-select" title="Priority"></select>
-        ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}${recPillHtml(d)}${tierPillHtml(d)}${icSummaryPillHtml(d)}${icScorePillHtml(d)}${icDecisionPillHtml(d)}${icFlagBadgeHtml(d)}
+        ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}${tierPillHtml(d)}${icSummaryPillHtml(d)}${icScorePillHtml(d)}${icFlagBadgeHtml(d)}
       </div>
       ${d.address ? `<div class="stage-row-sub"></div>` : ""}
       ${dealProgressBarHtml(d, {size:"sm"})}
@@ -4342,7 +4306,7 @@ function buildStageDealRowCompact(id, d, stage, allEvents){
     <span class="dot dot-${stage.color}"></span>
     <div class="src-name-wrap">
       <span class="src-name"></span>
-      ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}${recPillHtml(d)}
+      ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}
       ${d.address ? `<span class="src-address"></span>` : ""}
     </div>
     <span class="src-market"></span>
@@ -4407,7 +4371,7 @@ function renderPipelineStages(){
   board.appendChild(toolbar);
   const clearBtn = toolbar.querySelector("#pipelineFilterClearBtn");
   if(clearBtn) clearBtn.addEventListener("click", ()=>{
-    dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:""};
+    dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", marketTier:""};
     renderPipelineStages();
   });
   toolbar.querySelector("#densityCompactBtn").addEventListener("click", ()=> setPipelineDensity("compact"));
@@ -4731,7 +4695,7 @@ async function exportPipelineCsv(){
     return;
   }
   const rows = [...deals.entries()].filter(([id,d])=>dealPassesFilters(d));
-  const headers = ["Deal name","Stage","Recommendation","Address","State","Market tier","Investment criteria assessed","IC decision","IC decided by","IC decision date","Purchase price","Targeted units","Price per unit","Capital needed","Debt","Equity","Est. margin %","DD complete","DD applicable","Source","Broker","Broker firm","Product line","Property type","Deal type","Deal lead","Meets target criteria","Next step","Decision required","Created","Last updated","Expected close date","Actual close date","Notes"];
+  const headers = ["Deal name","Stage","Address","State","Market tier","Investment criteria assessed","Purchase price","Targeted units","Price per unit","Capital needed","Debt","Equity","Est. margin %","DD complete","DD applicable","Source","Broker","Broker firm","Product line","Property type","Deal type","Deal lead","Meets target criteria","Next step","Decision required","Created","Last updated","Expected close date","Actual close date","Notes"];
   const lines = [headers.map(csvEscape).join(",")];
   rows.forEach(([id,d])=>{
     const cap = calcCapitalStack(d);
@@ -4741,9 +4705,8 @@ async function exportPipelineCsv(){
     const icAssessed = (d.icFit||0)+(d.icWatch||0)+(d.icNoFit||0);
     const icSummary = icAssessed ? `${icAssessed}/${d.icTotal||activeIcCriteria(d).length} (${d.icFit||0} fit, ${d.icWatch||0} watch, ${d.icNoFit||0} no-fit)` : "";
     lines.push([
-      d.name||"", stage?stage.title:"", REC_META[d.recommendation]?REC_META[d.recommendation].label:"",
+      d.name||"", stage?stage.title:"",
       d.address||"", dealStateCode(d)||"", d.marketTier?"Tier "+d.marketTier:"", icSummary,
-      IC_DECISION_META[d.icDecision||""].label, d.icDecisionBy||"", d.icDecisionDate||"",
       d.purchasePrice??"", d.targetUnits??"", ppu?Math.round(ppu):"",
       cap?Math.round(cap.basis):"", cap?Math.round(cap.debtAmount):"", cap?Math.round(cap.equityAmount):"",
       (uw && uw.marginRevenue!=null) ? (uw.marginRevenue*100).toFixed(1) : "",
@@ -4864,7 +4827,8 @@ function openAlertDetail(kind, list){
 /* A single scannable row per in-contract deal (Signed PSA / Due Diligence / Closing) with the core
    facts leadership asks for first — name, location, status, lot size, price, and the key dates —
    rather than needing to open each deal to find them. */
-function basicsTableCardHtml(dealEntries){
+function basicsTableCardHtml(dealEntries, opts){
+  const inlineGaps = !!(opts && opts.inlineFinancingGaps);
   const rows = dealEntries.slice().sort((a,b)=> (a[1].name||a[1].address||"").localeCompare(b[1].name||b[1].address||""));
   if(!rows.length){
     return `<div class="dash-card basics-card" style="margin-bottom:16px;">
@@ -4872,10 +4836,19 @@ function basicsTableCardHtml(dealEntries){
       <div class="empty-hint">No deals are under contract yet — this fills in once a deal reaches PSA signed.</div>
     </div>`;
   }
+  let gapDealCount = 0, gapDebtTotal = 0, gapEquityTotal = 0;
   const rowHtml = ([id,d])=>{
     const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
     const nextDep = nextDepositDue(d);
-    return `<tr class="basics-row" data-deal="${escapeAttr(id)}">
+    // Same DD_DEADLINE_RESOLVED_STAGES gate getDealEvents/stageHighlightFields use: once a deal has
+    // reached IC2/Closing/Onboarded its DD/inspection deadline is resolved, so this "Inspection end"
+    // column shouldn't keep flagging it "overdue" in red — that reads as an unresolved problem on a
+    // deal that has already moved past the checkpoint that deadline was gating.
+    const ddDeadlineResolved = DD_DEADLINE_RESOLVED_STAGES.has(d.stage||"just_landed");
+    const inspectionCell = d.inspectionEndDate
+      ? `<span class="basics-date-val ${ddDeadlineResolved?"":stripPillPrefix(urgencyClass(d.inspectionEndDate))}">${fmtDate(d.inspectionEndDate)}${ddDeadlineResolved?"":urgencySuffix(d.inspectionEndDate)}</span>`
+      : "—";
+    const mainRow = `<tr class="basics-row" data-deal="${escapeAttr(id)}">
       <td class="basics-td basics-td-name">${escapeHtml(d.name||"Untitled deal")}</td>
       <td class="basics-td">${escapeHtml(d.address||"—")}</td>
       <td class="basics-td"><span class="pill pill-solid pill-${stage.color}">${escapeHtml(stage.title)}</span></td>
@@ -4885,12 +4858,31 @@ function basicsTableCardHtml(dealEntries){
       <td class="basics-td mono">${perAcre(d) ? fmtMoneyShort(perAcre(d))+"/ac" : "—"}</td>
       <td class="basics-td mono">${d.effectiveDate ? fmtDate(d.effectiveDate) : "—"}</td>
       <td class="basics-td mono">${nextDep ? `<span class="basics-date-val ${stripPillPrefix(urgencyClass(nextDep.date))}">${fmtDate(nextDep.date)}${urgencySuffix(nextDep.date)}</span> ${fmtMoneyShort(nextDep.amount)}` : "—"}</td>
-      <td class="basics-td mono">${d.inspectionEndDate ? `<span class="basics-date-val ${stripPillPrefix(urgencyClass(d.inspectionEndDate))}">${fmtDate(d.inspectionEndDate)}${urgencySuffix(d.inspectionEndDate)}</span>` : "—"}</td>
+      <td class="basics-td mono">${inspectionCell}</td>
       <td class="basics-td mono">${d.closingDate ? `<span class="basics-date-val ${stripPillPrefix(urgencyClass(d.closingDate))}">${fmtDate(d.closingDate)}${urgencySuffix(d.closingDate)}</span>` : "—"}</td>
     </tr>`;
+    if(!inlineGaps) return mainRow;
+    // Financing gaps used to be their own separate card below this table, repeating each project's
+    // name to say what it still needs — folded in here instead as a subset row directly under that
+    // same project, so the gap reads as this deal's own open item rather than a second list to
+    // cross-reference by name.
+    const debtGap = Math.max(debtDealTotals(d).gap||0, 0);
+    const equityGap = Math.max(equityDealTotals(d).gap||0, 0);
+    if(debtGap<=0 && equityGap<=0) return mainRow;
+    gapDealCount++; gapDebtTotal += debtGap; gapEquityTotal += equityGap;
+    const gapDetail = [debtGap>0?`Debt ${fmtMoneyShort(debtGap)}`:"", equityGap>0?`Equity ${fmtMoneyShort(equityGap)}`:""].filter(Boolean).join(" · ");
+    const gapRow = `<tr class="basics-row basics-gap-row" data-deal="${escapeAttr(id)}">
+      <td class="basics-td basics-gap-td" colspan="11"><span class="basics-gap-flag">⚠ Financing gap</span><span class="basics-gap-detail">${gapDetail}</span></td>
+    </tr>`;
+    return mainRow + gapRow;
   };
+  const rowsHtml = rows.map(rowHtml).join("");
+  const gapSummary = inlineGaps && gapDealCount
+    ? `<div class="financing-gap-sub">${gapDebtTotal>0?`Debt: ${fmtMoneyShort(gapDebtTotal)}`:""}${(gapDebtTotal>0&&gapEquityTotal>0)?" · ":""}${gapEquityTotal>0?`Equity: ${fmtMoneyShort(gapEquityTotal)}`:""} still open across ${gapDealCount} deal${gapDealCount===1?"":"s"}</div>`
+    : "";
   return `<div class="dash-card basics-card" style="margin-bottom:16px;">
     <h4 class="section-label">Under contract — basics <span class="cat-count">${rows.length} deal${rows.length===1?"":"s"}</span></h4>
+    ${gapSummary}
     <div class="basics-table-wrap">
       <table class="basics-table">
         <thead><tr>
@@ -4898,7 +4890,7 @@ function basicsTableCardHtml(dealEntries){
           <th>Purchase price</th><th>$/acre</th><th>Effective date</th><th>Next deposit due</th>
           <th>Inspection end</th><th>Closing date</th>
         </tr></thead>
-        <tbody>${rows.map(rowHtml).join("")}</tbody>
+        <tbody>${rowsHtml}</tbody>
       </table>
     </div>
   </div>`;
@@ -5042,14 +5034,13 @@ function prospectsForReviewCardHtml(dealEntries){
     </div>`;
   }
   const rowHtml = ([id,d])=>{
-    const recMeta = REC_META[d.recommendation];
     const days = d.createdAt ? Math.max(0, Math.floor((Date.now()-new Date(d.createdAt).getTime())/86400000)) : null;
     const bits = [d.source ? escapeHtml(d.source) : "", days!==null ? `${days}d in pipeline` : ""].filter(Boolean).join(" · ");
     const priority = dealPriority(d);
     const priorityCls = priority==="high" ? "attn-row-priority-high" : priority==="medium" ? "attn-row-priority-medium" : "attn-row-neutral";
     return `<button type="button" class="attn-row ${priorityCls}" data-deal="${escapeAttr(id)}">
       <span class="attn-row-name">${escapeHtml(d.name||d.address||"Untitled deal")}</span>
-      <span class="attn-row-text"><span class="pill ${PRIORITY_META[priority].cls}">${PRIORITY_META[priority].label}</span> ${icScoreBadgeHtml(d)} ${recMeta ? `<span class="pill pill-solid ${recMeta.cls}">${recMeta.label}</span>` : `<span class="pill pill-neutral">Not screened</span>`} ${bits}</span>
+      <span class="attn-row-text"><span class="pill ${PRIORITY_META[priority].cls}">${PRIORITY_META[priority].label}</span> ${icScoreBadgeHtml(d)} ${bits}</span>
     </button>`;
   };
   return `<div class="dash-card prospects-card" style="margin-bottom:16px;">
@@ -5254,9 +5245,7 @@ function renderDashboard(){
       <select id="filterPropType"><option value="">All property types</option>${propertyTypeOptions.map(s=>`<option value="${s}">${s}</option>`).join("")}</select>
       <select id="filterLead"><option value="">All deal leads</option>${leads.map(l=>`<option value="${escapeAttr(l)}">${escapeHtml(l)}</option>`).join("")}</select>
       <select id="filterState"><option value="">All states</option>${STATE_OPTIONS}</select>
-      <select id="filterRecommendation"><option value="">All recommendations</option><option value="pursue">Pursue</option><option value="watch">Watch</option><option value="pass">Pass</option></select>
       <select id="filterMarketTier"><option value="">All market tiers</option><option value="1">Tier 1</option><option value="2">Tier 2</option><option value="3">Tier 3</option></select>
-      <select id="filterIcDecision"><option value="">All IC decisions</option><option value="none">Not decided</option>${Object.entries(IC_DECISION_META).filter(([k])=>k).map(([k,m])=>`<option value="${k}">${m.label}</option>`).join("")}</select>
       ${filtersActive ? `<button type="button" class="btn-icon" id="filterClearBtn">✕ Clear filters</button>` : ""}
       ${filtersActive ? `<span class="filter-note">Showing ${filtered.length} of ${all.length} deals</span>` : ""}
       <button type="button" class="btn-icon" id="onePagerBtn" style="margin-left:auto;">🖨 One-pager</button>
@@ -5392,21 +5381,17 @@ function renderDashboard(){
   document.getElementById("filterPropType").value = dashboardFilters.propertyType;
   document.getElementById("filterLead").value = dashboardFilters.lead;
   document.getElementById("filterState").value = dashboardFilters.state;
-  document.getElementById("filterRecommendation").value = dashboardFilters.recommendation;
   document.getElementById("filterMarketTier").value = dashboardFilters.marketTier;
-  document.getElementById("filterIcDecision").value = dashboardFilters.icDecision;
   document.getElementById("filterStage").addEventListener("change", e=>{ dashboardFilters.stage=e.target.value; renderDashboard(); });
   document.getElementById("filterProductLine").addEventListener("change", e=>{ dashboardFilters.productLine=e.target.value; renderDashboard(); });
   document.getElementById("filterSource").addEventListener("change", e=>{ dashboardFilters.source=e.target.value; renderDashboard(); });
   document.getElementById("filterPropType").addEventListener("change", e=>{ dashboardFilters.propertyType=e.target.value; renderDashboard(); });
   document.getElementById("filterLead").addEventListener("change", e=>{ dashboardFilters.lead=e.target.value; renderDashboard(); });
   document.getElementById("filterState").addEventListener("change", e=>{ dashboardFilters.state=e.target.value; renderDashboard(); });
-  document.getElementById("filterRecommendation").addEventListener("change", e=>{ dashboardFilters.recommendation=e.target.value; renderDashboard(); });
   document.getElementById("filterMarketTier").addEventListener("change", e=>{ dashboardFilters.marketTier=e.target.value; renderDashboard(); });
-  document.getElementById("filterIcDecision").addEventListener("change", e=>{ dashboardFilters.icDecision=e.target.value; renderDashboard(); });
   const clearBtn = document.getElementById("filterClearBtn");
   if(clearBtn) clearBtn.addEventListener("click", ()=>{
-    dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", recommendation:"", marketTier:"", icDecision:""};
+    dashboardFilters = {stage:"", productLine:"", source:"", propertyType:"", lead:"", state:"", marketTier:""};
     renderDashboard();
   });
   wrap.querySelectorAll(".attn-row").forEach(row=>{
@@ -5469,7 +5454,7 @@ function agendaInMotionCardHtml(entries, asOfIso){
     const at = a[1].updatedAt||a[1].createdAt||"", bt = b[1].updatedAt||b[1].createdAt||"";
     return at<bt ? -1 : at>bt ? 1 : 0; // oldest-touched first, so anything going quiet surfaces first
   });
-  if(!rows.length) return `<div class="empty-hint" style="margin-left:36px;">Nothing in underwriting or LOI right now.</div>`;
+  if(!rows.length) return `<div class="empty-hint" style="margin-left:36px;">Nothing at LOI right now.</div>`;
   const refTime = asOfIso ? new Date(asOfIso+"T23:59:59").getTime() : Date.now();
   return `<div style="margin-left:36px;display:flex;flex-direction:column;gap:2px;">
     ${rows.map(([id,d])=>{
@@ -5585,11 +5570,15 @@ function renderAgendaView(){
   const flaggedCount = activeEntries.filter(([id,d])=> d.icFlagged).length;
   const urgentTotal = overdue.length + decisionEntries.length + flaggedCount + upcoming7.length;
 
-  const prospectingEntries = activeEntries.filter(([id,d])=> (d.stage||"just_landed")==="just_landed");
+  // "Prospects under review" pulls Screened/Underwriting deals into their own docket (below) rather
+  // than leaving them anonymously inside "Deals in motion" — same reasoning as IC1/IC2 getting their
+  // own docket instead of sitting inside that same bucket.
+  const PROSPECTS_UNDER_REVIEW_STAGES = new Set(["screened","underwriting"]);
+  const prospectingEntries = activeEntries.filter(([id,d])=> PROSPECTS_UNDER_REVIEW_STAGES.has(d.stage||"just_landed"));
   // IC1 and IC2 are this meeting's own decision points (G3/G5 — see GATES above), so they get their
   // own docket below rather than sitting anonymously inside "Deals in motion" with everything still
-  // being underwritten or awaiting an LOI signature.
-  const IN_MOTION_STAGES = new Set(["screened","underwriting","loi_authorization","submitted_loi","signed_loi"]);
+  // awaiting an LOI signature.
+  const IN_MOTION_STAGES = new Set(["loi_authorization","submitted_loi","signed_loi"]);
   const inMotionEntries = activeEntries.filter(([id,d])=> IN_MOTION_STAGES.has(d.stage||"just_landed"));
   const IC_GATE_STAGES = new Set(["ic1","ic2"]);
   const icDecisionEntries = activeEntries.filter(([id,d])=> IC_GATE_STAGES.has(d.stage||"just_landed"));
@@ -5621,14 +5610,14 @@ function renderAgendaView(){
       body: icDecisionsDueCardHtml(icDecisionEntries),
     },
     prospects: {
-      title: "Prospects for review",
-      sub: "Everything still at prospecting stage — go / watch / pass.",
+      title: "Prospects under review",
+      sub: "Screened and Underwriting-stage deals actively being evaluated.",
       count: prospectingEntries.length,
       body: prospectsForReviewCardHtml(prospectingEntries),
     },
     inmotion: {
       title: "Deals in motion",
-      sub: "Underwriting and LOI-stage deals — status and open decisions.",
+      sub: "LOI-stage deals — status and open decisions.",
       count: inMotionEntries.length,
       body: agendaInMotionCardHtml(inMotionEntries, meetingDate),
     },
@@ -5636,7 +5625,7 @@ function renderAgendaView(){
       title: "Under contract — status check",
       sub: "Under contract — dates, DD progress, and financing gaps.",
       count: inContractEntries.length,
-      body: basicsTableCardHtml(inContractEntries) + financingGapsCardHtml(inContractEntries),
+      body: basicsTableCardHtml(inContractEntries, {inlineFinancingGaps:true}),
     },
     capital: {
       title: "Capital needed",
@@ -6298,27 +6287,16 @@ function qualityRowHtml(label, g){
 }
 function dealQualityCardHtml(dealMap){
   const list = [...dealMap.values()];
-  const icRows = outcomeBreakdown(list, d=>d.icDecision||null, ["go","hold","no_go"]);
-  const recRows = outcomeBreakdown(list, d=>d.recommendation||null, ["pursue","watch","pass"]);
   const targetRows = outcomeBreakdown(list, d=>d.meetsTargetCriteria ? "yes" : "no", ["yes","no"]);
-  const notDecided = list.filter(d=>!d.icDecision).length;
-  if(!icRows.length && !recRows.length && !targetRows.length){
+  if(!targetRows.length){
     return `<div class="dash-card quality-card" style="margin-top:16px;">
       <h4 class="section-label">Deal quality — is screening predicting outcomes?</h4>
-      <div class="empty-hint">Once deals have an IC decision, recommendation, or target-criteria flag and have moved to signed or dead, this shows whether those calls are actually panning out.</div>
+      <div class="empty-hint">Once deals have a target-criteria flag and have moved to signed or dead, this shows whether those calls are actually panning out.</div>
     </div>`;
   }
   return `<div class="dash-card quality-card" style="margin-top:16px;">
     <h4 class="section-label">Deal quality — is screening predicting outcomes?</h4>
     <p class="quality-sub">Of decided deals (signed or dead — pending deals aren't counted in the rate yet), how often each call turned out right.</p>
-    ${icRows.length ? `<div class="quality-group">
-      <div class="quality-group-title">By IC decision${notDecided?` <span class="quality-group-note">(${notDecided} not yet decided)</span>`:""}</div>
-      ${icRows.map(g=>qualityRowHtml(IC_DECISION_META[g.key].label, g)).join("")}
-    </div>` : ""}
-    ${recRows.length ? `<div class="quality-group">
-      <div class="quality-group-title">By recommendation</div>
-      ${recRows.map(g=>qualityRowHtml(REC_META[g.key].label, g)).join("")}
-    </div>` : ""}
     ${targetRows.length ? `<div class="quality-group">
       <div class="quality-group-title">By meets-target-criteria</div>
       ${targetRows.map(g=>qualityRowHtml(g.key==="yes"?"Meets target criteria":"Doesn't meet target criteria", g)).join("")}
@@ -7296,13 +7274,11 @@ function openEditDealModal(){
       targetUnits: document.getElementById("dUnits").value ? Number(document.getElementById("dUnits").value) : null,
       productLine: document.getElementById("dProductLine").value.trim(),
       source, brokerId,
-      photoUrl1: "", photoUrl2: "", photoUrl3: "",
       effectiveDate: "", inspectionEndDate: "", closingDate: "", actualCloseDate: "",
       loiSubmittedDate: "", loiSignedDate: "", materialsReceivedDate: "", underwritingCompleteDate: "",
       deposit1Amount: null, deposit1Status: "Not Due", deposit1Date: "",
       deposit2Amount: null, deposit2Date: "", deposit2Status: "Not Due",
       extraDeposits: [],
-      icDecision: "", icDecisionBy: "", icDecisionDate: "", icDecisionNotes: "",
       folderUrl: "", proformaUrl: "",
       grossDevelopableSf: null, buildCostPerSf: null,
       softCostPct: 20, contingencyPct: 5,
@@ -7510,7 +7486,7 @@ function initSlideResizeHandle(){
 
 /* =================== project card print (PDF) =================== */
 /* A quick, printable snapshot of the project card's main view — deal basics, deal overview,
-   critical dates, deposits, photos — for handing someone a one-look summary without the full
+   critical dates, deposits — for handing someone a one-look summary without the full
    operational detail (DD checklist, gate log, IC criteria, etc.) further down the same panel.
    Same overlay + @media print pattern as the Weekly Agenda and Weekly One-Pager (openPrintableWindow). */
 function openCardPrintModal(id){
@@ -7519,7 +7495,6 @@ function openCardPrintModal(id){
   const d = deals.get(id);
   if(!d) return;
   const stage = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
-  const photos = [d.photoUrl1, d.photoUrl2, d.photoUrl3].filter(Boolean);
   const tableHtml = (rows)=> `<table class="cardprint-table">${rows.map(([l,v])=>`<tr><td class="cardprint-th">${escapeHtml(l)}</td><td class="cardprint-td">${escapeHtml(String(v))}</td></tr>`).join("")}</table>`;
 
   const basicsRows = [
@@ -7547,7 +7522,6 @@ function openCardPrintModal(id){
   (d.extraDeposits||[]).forEach(dep=>{
     depositRows.push([dep.label||"Additional deposit", (dep.amount?fmtMoneyShort(dep.amount):"—") + (dep.date?` — due ${fmtDate(dep.date)}`:"") + ` (${dep.status||"Not Due"})`]);
   });
-  const photosHtml = photos.length ? `<div class="cardprint-photos">${photos.map(p=>`<img src="${escapeAttr(normalizeUrl(p))}" onerror="this.style.display='none'">`).join("")}</div>` : "";
 
   const overlay = document.createElement("div");
   overlay.className = "overlay";
@@ -7576,7 +7550,6 @@ function openCardPrintModal(id){
         <div><h4 class="section-label">Deal overview</h4>${tableHtml(overviewRows)}</div>
         <div><h4 class="section-label">Critical dates</h4>${tableHtml(dateRows)}</div>
         <div><h4 class="section-label">Deposits</h4>${tableHtml(depositRows)}</div>
-        ${photosHtml ? `<div><h4 class="section-label">Property photos</h4>${photosHtml}</div>` : ""}
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -7598,16 +7571,18 @@ function openDealDetail(id){
           <input class="slide-title-input" id="slideTitle" type="text" value="${escapeAttr(d.name||"")}" placeholder="Project name">
           <button class="star-btn${d.meetsTargetCriteria?" active":""}" id="slideStar" title="Meets target criteria" style="font-size:20px;">★</button>
           <select class="priority-select" id="slidePriority" title="Priority"></select>
+          <button type="button" class="star-btn ic-flag-btn${d.icFlagged?" active":""}" id="slideIcFlagBtn" title="Flag for discussion at Investment Committee (Harvey / Jay)" style="font-size:20px;">🚩</button>
           <button type="button" class="btn-icon" id="slideCardPrintBtn" title="Print project card">🖨 Print</button>
           <button class="btn btn-ghost" id="slideClose" aria-label="Close">✕</button>
         </div>
         <div class="slide-sub" id="slideSub"></div>
+        <div id="slideIcFlagNoteWrap" style="${d.icFlagged?"":"display:none;"}margin-top:8px;">
+          <input type="text" id="slideIcFlagNote" value="${escapeAttr(d.icFlagNote||"")}" placeholder="What you want Harvey/Jay's input on…" style="width:100%;border:1px solid var(--border);background:var(--surface-2);color:var(--ink);border-radius:8px;padding:6px 9px;font-family:var(--font-body);font-size:12.5px;">
+        </div>
         <div id="slideProgress" style="margin-top:10px;"></div>
       </div>
       <div class="slide-body">
         <div class="slide-tab-panel" id="slideTabOverview">
-        <div class="photo-strip-wrap" id="photoStripWrap"></div>
-
         <div class="deal-location-map-wrap" id="dealLocationMapWrap"></div>
 
         <div>
@@ -7704,15 +7679,6 @@ function openDealDetail(id){
         </div>
 
         <div>
-          <h4 class="section-label">Property photos</h4>
-          <div class="deal-fields">
-            <div class="field"><label for="slidePhoto1">Photo 1 URL (exterior)</label><input id="slidePhoto1" type="text" placeholder="https://…"></div>
-            <div class="field"><label for="slidePhoto2">Photo 2 URL (site / amenities)</label><input id="slidePhoto2" type="text" placeholder="https://…"></div>
-            <div class="field"><label for="slidePhoto3">Photo 3 URL (aerial)</label><input id="slidePhoto3" type="text" placeholder="https://…"></div>
-          </div>
-        </div>
-
-        <div>
           <h4 class="section-label">Overview</h4>
           <div class="deal-fields">
             <div class="field"><label for="slideAddress">Address</label><input id="slideAddress" type="text"></div>
@@ -7736,9 +7702,6 @@ function openDealDetail(id){
           <h4 class="section-label">Weekly pipeline report</h4>
           <div class="deal-fields">
             <div class="field-row">
-              <div class="field"><label for="slideRecommendation">Recommendation</label>
-                <select id="slideRecommendation"><option value="">Not set</option><option value="pursue">Pursue</option><option value="watch">Watch</option><option value="pass">Pass</option></select>
-              </div>
               <div class="field"><label for="slideMarketTier">Market tier</label>
                 <select id="slideMarketTier"><option value="">Not tiered</option><option value="1">Tier 1 — immediate focus</option><option value="2">Tier 2 — active monitoring</option><option value="3">Tier 3 — longer-term</option></select>
               </div>
@@ -7766,11 +7729,6 @@ function openDealDetail(id){
         <div>
           <h4 class="section-label">Investment criteria</h4>
           <div id="icScoreCardWrap"></div>
-        </div>
-
-        <div>
-          <h4 class="section-label">Go / No-Go decision</h4>
-          <div id="icDecisionSection"></div>
         </div>
 
         <div>
@@ -7808,7 +7766,6 @@ function openDealDetail(id){
   document.getElementById("slideLead").value = d.lead||"";
   document.getElementById("slideState").value = d.state||"";
   document.getElementById("slideTarget").checked = !!d.meetsTargetCriteria;
-  document.getElementById("slideRecommendation").value = d.recommendation||"";
   document.getElementById("slideMarketTier").value = d.marketTier||"";
   document.getElementById("slideNextStep").value = d.nextStep||"";
   document.getElementById("slideDecisionRequired").value = d.decisionRequired||"";
@@ -7822,9 +7779,6 @@ function openDealDetail(id){
   document.getElementById("slideProductLine").value = d.productLine||"";
   document.getElementById("slideSource").value = d.source||"";
   document.getElementById("slideBroker").value = d.brokerId||"";
-  document.getElementById("slidePhoto1").value = d.photoUrl1||"";
-  document.getElementById("slidePhoto2").value = d.photoUrl2||"";
-  document.getElementById("slidePhoto3").value = d.photoUrl3||"";
   CRITICAL_DATE_FIELDS.forEach(f=>{
     document.getElementById(f.id).value = d[f.field]||"";
     updateCdateMark(f);
@@ -7845,7 +7799,6 @@ function openDealDetail(id){
   renderKeyMetrics(d);
   renderSlideProgress(d);
   renderOverviewGrid(d);
-  renderPhotoStrip(d);
   renderExtraDeposits();
   renderDealLocationMap(id, d.address || "");
   renderScreeningPdfRow();
@@ -7885,6 +7838,15 @@ function openDealDetail(id){
     updateDeal(id, {priority: prioritySel.value});
     colorSelectByStatus(prioritySel, PRIORITY_META[prioritySel.value].cls);
   });
+  document.getElementById("slideIcFlagBtn").addEventListener("click", ()=>{
+    const flagged = !d.icFlagged;
+    d.icFlagged = flagged;
+    document.getElementById("slideIcFlagBtn").classList.toggle("active", flagged);
+    document.getElementById("slideIcFlagNoteWrap").style.display = flagged ? "" : "none";
+    updateDeal(id, Object.assign({icFlagged: flagged}, flagged ? {icFlaggedBy: whoName()||"", icFlaggedAt: new Date().toISOString()} : {}));
+    if(flagged) document.getElementById("slideIcFlagNote").focus();
+  });
+  document.getElementById("slideIcFlagNote").addEventListener("change", e=> updateDeal(id, {icFlagNote: e.target.value.trim()}));
   document.getElementById("slideCardPrintBtn").addEventListener("click", ()=> openCardPrintModal(id));
   document.getElementById("slideDelete").addEventListener("click", ()=>{
     close();
@@ -7909,7 +7871,6 @@ function openDealDetail(id){
   document.getElementById("slideLead").addEventListener("change", e=> save({lead: e.target.value.trim()}));
   document.getElementById("slideState").addEventListener("change", e=>{ save({state: e.target.value}); d.state = e.target.value; });
   document.getElementById("slideTarget").addEventListener("change", e=>{ d.meetsTargetCriteria = e.target.checked; document.getElementById("slideStar").classList.toggle("active", e.target.checked); save({meetsTargetCriteria: e.target.checked}); });
-  document.getElementById("slideRecommendation").addEventListener("change", e=>{ save({recommendation: e.target.value}); d.recommendation = e.target.value; });
   document.getElementById("slideMarketTier").addEventListener("change", e=>{ save({marketTier: e.target.value}); d.marketTier = e.target.value; });
   document.getElementById("slideNextStep").addEventListener("change", e=> save({nextStep: e.target.value.trim()}));
   document.getElementById("slideDecisionRequired").addEventListener("change", e=> save({decisionRequired: e.target.value.trim()}));
@@ -7952,9 +7913,6 @@ function openDealDetail(id){
       save({brokerId: e.target.value}); d.brokerId = e.target.value; renderOverviewGrid(d);
     });
   }
-  document.getElementById("slidePhoto1").addEventListener("change", e=>{ save({photoUrl1: e.target.value.trim()}); d.photoUrl1=e.target.value.trim(); renderPhotoStrip(d); });
-  document.getElementById("slidePhoto2").addEventListener("change", e=>{ save({photoUrl2: e.target.value.trim()}); d.photoUrl2=e.target.value.trim(); renderPhotoStrip(d); });
-  document.getElementById("slidePhoto3").addEventListener("change", e=>{ save({photoUrl3: e.target.value.trim()}); d.photoUrl3=e.target.value.trim(); renderPhotoStrip(d); });
   CRITICAL_DATE_FIELDS.forEach(f=>{
     document.getElementById(f.id).addEventListener("change", e=>{
       save({[f.field]: e.target.value});
@@ -7964,12 +7922,6 @@ function openDealDetail(id){
       // Deposits — keep that field's own copy in sync too rather than waiting on a re-render.
       if(f.field==="deposit1Date"){
         const mirror = document.getElementById("slideDep1Date");
-        if(mirror) mirror.value = e.target.value;
-      }
-      // "IC decision" here is the same underlying field as the formal Go/No-Go panel's own
-      // "Decision date" input further down — keep that copy in sync too.
-      if(f.field==="icDecisionDate"){
-        const mirror = document.getElementById("icDecisionDate");
         if(mirror) mirror.value = e.target.value;
       }
     });
@@ -8200,23 +8152,6 @@ function renderOverviewGrid(d){
     <div class="ov-label">${label}</div><div class="ov-value">${escapeHtml(val)}</div>`).join("");
 }
 
-function renderPhotoStrip(d){
-  const el = document.getElementById("photoStripWrap");
-  if(!el) return;
-  const photos = [
-    {url:d.photoUrl1, label:"Exterior"},
-    {url:d.photoUrl2, label:"Site / amenities"},
-    {url:d.photoUrl3, label:"Aerial"},
-  ].filter(p=>p.url);
-  if(!photos.length){ el.innerHTML = ""; return; }
-  el.innerHTML = `<div class="photo-strip">
-    ${photos.map(p=>`<figure class="photo-item">
-      <img src="${escapeAttr(normalizeUrl(p.url))}" alt="${escapeAttr(p.label)}" loading="lazy" onerror="this.closest('.photo-item').classList.add('broken')">
-      <figcaption>${escapeHtml(p.label)}</figcaption>
-    </figure>`).join("")}
-  </div>`;
-}
-
 async function addCustomCriterion(dealId, label, requirement, type){
   const d = deals.get(dealId) || {};
   const list = (d.customCriteria || []).slice();
@@ -8383,11 +8318,6 @@ function openIcScorecardModal(id){
 function renderIcCriteriaSection(){
   if(!openDealId) return;
   renderIcScoreCard();
-  // renderIcDecisionSection() populates the "Go / No-Go decision" box that lives directly on the
-  // main card (#icDecisionSection) — it must run here, unconditionally, rather than after the
-  // modal-only wrap check below, or it would only ever fire once the scorecard modal (which reuses
-  // this same function to refresh its own #icCriteriaSection list) had been opened at least once.
-  renderIcDecisionSection();
   const wrap = document.getElementById("icCriteriaSection");
   if(!wrap) return;
   const {wrap: listEl, fit, watch, nofit, tbd, total, isAutoCondo, source} = buildIcCriteriaList(openDealId);
@@ -8432,72 +8362,6 @@ function renderIcCriteriaSection(){
   wrap.innerHTML = "";
   wrap.appendChild(summary);
   wrap.appendChild(box);
-}
-
-/* Formal Go / No-Go decision panel: a non-binding suggestion computed from the IC screening
-   tallies above, plus the analyst's actual recorded decision (who, when, why). Feeds the
-   onboarding gate (confirmStageChange) and the printed IC memo. */
-function renderIcDecisionSection(){
-  if(!openDealId) return;
-  const wrap = document.getElementById("icDecisionSection");
-  if(!wrap) return;
-  const d = deals.get(openDealId) || {};
-  const suggestion = icSuggestion(d);
-  const sugMeta = suggestion ? IC_DECISION_META[suggestion] : null;
-  wrap.innerHTML = `
-    <div class="ic-decision-box">
-      <div class="ic-decision-suggest">
-        <span class="ic-decision-suggest-label">Suggested from screening criteria:</span>
-        ${sugMeta ? `<span class="pill pill-solid ${sugMeta.cls}">${sugMeta.label}</span>` : `<span class="pill pill-neutral">Assess the criteria above first</span>`}
-      </div>
-      <div class="field-row">
-        <div class="field"><label for="icDecisionSelect">Decision</label>
-          <select id="icDecisionSelect">${Object.entries(IC_DECISION_META).map(([k,m])=>`<option value="${k}">${m.label}</option>`).join("")}</select>
-        </div>
-        <div class="field"><label for="icDecisionBy">Decided by</label><input id="icDecisionBy" type="text" placeholder="Name"></div>
-        <div class="field"><label for="icDecisionDate">Decision date</label><input id="icDecisionDate" type="date"></div>
-      </div>
-      <div class="field"><label for="icDecisionNotes">Rationale</label><textarea id="icDecisionNotes" placeholder="Why this decision — key drivers, conditions, risks…"></textarea></div>
-      <label class="ic-flag-toggle" for="icFlagCheck">
-        <input type="checkbox" id="icFlagCheck">
-        <span>🚩 Flag for discussion at Investment Committee (Harvey / Jay)</span>
-      </label>
-      <div class="field" id="icFlagNoteField" style="display:none;"><label for="icFlagNote">What to flag / discuss</label><textarea id="icFlagNote" placeholder="What you want Harvey/Jay's input on…"></textarea></div>
-    </div>`;
-  document.getElementById("icDecisionSelect").value = d.icDecision||"";
-  document.getElementById("icDecisionBy").value = d.icDecisionBy||"";
-  document.getElementById("icDecisionDate").value = d.icDecisionDate||"";
-  document.getElementById("icDecisionNotes").value = d.icDecisionNotes||"";
-  colorSelectByStatus(document.getElementById("icDecisionSelect"), IC_DECISION_META[d.icDecision||""].cls);
-  document.getElementById("icDecisionSelect").addEventListener("change", e=>{
-    updateDeal(openDealId, {icDecision: e.target.value});
-    colorSelectByStatus(e.target, IC_DECISION_META[e.target.value].cls);
-  });
-  document.getElementById("icDecisionBy").addEventListener("change", e=> updateDeal(openDealId, {icDecisionBy: e.target.value.trim()}));
-  document.getElementById("icDecisionDate").addEventListener("change", e=>{
-    updateDeal(openDealId, {icDecisionDate: e.target.value});
-    // Mirror into "IC decision" under Critical dates — same underlying field, shown in both
-    // places (Critical dates as a milestone checklist item, here alongside the recorded decision).
-    const cdIc = document.getElementById("cdIc");
-    if(cdIc){
-      cdIc.value = e.target.value;
-      const mark = document.getElementById("cdIcMark");
-      if(mark){ mark.textContent = e.target.value ? "✓" : "—"; mark.classList.toggle("done", !!e.target.value); }
-    }
-  });
-  document.getElementById("icDecisionNotes").addEventListener("change", e=> updateDeal(openDealId, {icDecisionNotes: e.target.value}));
-  const flagCheck = document.getElementById("icFlagCheck");
-  const flagNoteField = document.getElementById("icFlagNoteField");
-  const flagNote = document.getElementById("icFlagNote");
-  flagCheck.checked = !!d.icFlagged;
-  flagNote.value = d.icFlagNote||"";
-  flagNoteField.style.display = d.icFlagged ? "" : "none";
-  flagCheck.addEventListener("change", e=>{
-    const flagged = e.target.checked;
-    flagNoteField.style.display = flagged ? "" : "none";
-    updateDeal(openDealId, Object.assign({icFlagged: flagged}, flagged ? {icFlaggedBy: whoName()||"", icFlaggedAt: new Date().toISOString()} : {}));
-  });
-  flagNote.addEventListener("change", e=> updateDeal(openDealId, {icFlagNote: e.target.value}));
 }
 
 /* Additional deposits — an unlimited, add/remove-as-needed list layered on top of the fixed
@@ -10189,17 +10053,7 @@ function confirmStageChange(d, newStage, apply, cancel){
       return;
     }
   }
-  const GATE_STAGES = new Set(["ic1","onboarded"]);
-  if(GATE_STAGES.has(newStage) && (d.icDecision||"")!=="go"){
-    const cur = IC_DECISION_META[d.icDecision||""] || IC_DECISION_META[""];
-    const stageTitle = (DEAL_STAGES.find(s=>s.key===newStage)||{}).title || newStage;
-    openConfirm(
-      `This deal doesn't have a recorded <strong>Go</strong> decision (currently: ${escapeHtml(cur.label)}). Move to <strong>${escapeHtml(stageTitle)}</strong> anyway?`,
-      apply, `Move to ${escapeHtml(stageTitle)} anyway`, cancel
-    );
-  } else {
-    apply();
-  }
+  apply();
 }
 
 /* =================== password gate ===================
