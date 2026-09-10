@@ -1089,6 +1089,10 @@
   .legend-toggle input{ width:14px; height:14px; accent-color:var(--accent); flex:none; cursor:pointer; }
   .legend-bubble{ border-radius:50%; background:var(--accent-soft); border:1.5px solid var(--accent); display:inline-block; flex:none; }
   .map-note{ margin-top:8px; font-size:11px; color:var(--ink-faint); }
+  .map-datalayers{ display:flex; gap:12px; margin-top:8px; padding-top:8px; border-top:1px solid var(--border); font-size:11px; color:var(--ink-faint); flex-wrap:wrap; align-items:center; }
+  .map-datalayers-label{ font-weight:600; color:var(--ink-soft); }
+  .legend-toggle.disabled{ opacity:.45; }
+  .legend-toggle.disabled input{ cursor:default; }
   /* Shared "you've moved to a new part of this tab" divider — used across every tab wherever
      several distinct sections stack vertically, so scanning a long tab doesn't read as one
      undifferentiated column of same-looking cards. .page-divider carries a short caps label
@@ -5317,6 +5321,11 @@ function renderDashboard(){
   const leads = [...new Set(all.map(d=>d.lead).filter(Boolean))].sort();
   const filtersActive = anyDashboardFilterActive();
   const {overdue, upcoming, stalled} = getUrgentAlerts(deals);
+  // Opportunity Zones / brownfields / income are bbox-scoped queries — fine at "By market" or
+  // "By address" zoom, but a whole-country "By state" view would mean thousands of features (or,
+  // for income, dozens of separate Census API calls) for one toggle flip. Keep those three
+  // disabled there rather than let them silently time out or return partial data.
+  const vectorLayersDisabled = pipelineMapMode === "state";
 
   wrap.innerHTML = `
     ${heroKpiCardHtml(closedCapitalPeriod, closedInPeriod.length, funnelStages)}
@@ -5369,6 +5378,29 @@ function renderDashboard(){
           ${showConcoursAreas ? `
           <span class="legend-item"><span class="legend-swatch" style="background:#B3121B;opacity:.55;"></span> Wealth pocket</span>
           <span class="legend-item"><span class="legend-swatch" style="background:#2A8A2A;opacity:.55;"></span> Land corridor</span>` : ""}
+        </div>
+        <div class="map-datalayers">
+          <span class="map-datalayers-label">Data layers:</span>
+          <label class="legend-item legend-toggle" style="cursor:pointer;">
+            <input type="checkbox" id="dlFloodToggle" ${activeDataLayers.flood?"checked":""}> FEMA flood zones
+          </label>
+          <label class="legend-item legend-toggle" style="cursor:pointer;">
+            <input type="checkbox" id="dlWetlandsToggle" ${activeDataLayers.wetlands?"checked":""}> USFWS wetlands
+          </label>
+          <label class="legend-item legend-toggle${vectorLayersDisabled?" disabled":""}" style="cursor:${vectorLayersDisabled?"default":"pointer"};"${vectorLayersDisabled?' title="Switch to \'By market\' or \'By address\' to use this layer"':""}>
+            <input type="checkbox" id="dlOzToggle" ${activeDataLayers.oz?"checked":""} ${vectorLayersDisabled?"disabled":""}> Opportunity Zones
+          </label>
+          <label class="legend-item legend-toggle${vectorLayersDisabled?" disabled":""}" style="cursor:${vectorLayersDisabled?"default":"pointer"};"${vectorLayersDisabled?' title="Switch to \'By market\' or \'By address\' to use this layer"':""}>
+            <input type="checkbox" id="dlBrownfieldsToggle" ${activeDataLayers.brownfields?"checked":""} ${vectorLayersDisabled?"disabled":""}> EPA brownfields
+          </label>
+          <label class="legend-item legend-toggle${vectorLayersDisabled?" disabled":""}" style="cursor:${vectorLayersDisabled?"default":"pointer"};"${vectorLayersDisabled?' title="Switch to \'By market\' or \'By address\' to use this layer"':""}>
+            <input type="checkbox" id="dlDemographicsToggle" ${activeDataLayers.demographics?"checked":""} ${vectorLayersDisabled?"disabled":""}> Median household income
+          </label>
+          <label class="legend-item legend-toggle${vectorLayersDisabled?" disabled":""}" style="cursor:${vectorLayersDisabled?"default":"pointer"};"${vectorLayersDisabled?' title="Switch to \'By market\' or \'By address\' to use this layer"':""}>
+            <input type="checkbox" id="dlWildfireToggle" ${activeDataLayers.wildfire?"checked":""} ${vectorLayersDisabled?"disabled":""}> Wildfire hazard
+          </label>
+          ${(activeDataLayers.demographics && !censusApiKey()) ? `<span class="map-note" style="margin:0;">Income layer needs a free Census API key — <button type="button" class="btn-icon" id="dlCensusKeyBtn" style="padding:1px 6px;">Add key</button></span>` : ""}
+          ${vectorLayersDisabled ? `<span class="map-note" style="margin:0;">Opportunity Zones, brownfields, income, and wildfire need "By market" or "By address" view.</span>` : ""}
         </div>
         ${pipelineMapMode==="market"
           ? (unmappedMarket.length ? `<div class="map-note">${unmappedMarket.length} deal${unmappedMarket.length>1?"s":""} without a recognizable "City, ST" in the address — add one to place it on the market map.</div>` : "")
@@ -5468,6 +5500,26 @@ function renderDashboard(){
     showConcoursAreas = concoursAreasToggle.checked;
     renderDashboard();
   });
+  const dlFloodToggle = document.getElementById("dlFloodToggle");
+  if(dlFloodToggle) dlFloodToggle.addEventListener("change", ()=>{ activeDataLayers.flood = dlFloodToggle.checked; renderDashboard(); });
+  const dlWetlandsToggle = document.getElementById("dlWetlandsToggle");
+  if(dlWetlandsToggle) dlWetlandsToggle.addEventListener("change", ()=>{ activeDataLayers.wetlands = dlWetlandsToggle.checked; renderDashboard(); });
+  const dlOzToggle = document.getElementById("dlOzToggle");
+  if(dlOzToggle) dlOzToggle.addEventListener("change", ()=>{ activeDataLayers.oz = dlOzToggle.checked; renderDashboard(); });
+  const dlBrownfieldsToggle = document.getElementById("dlBrownfieldsToggle");
+  if(dlBrownfieldsToggle) dlBrownfieldsToggle.addEventListener("change", ()=>{ activeDataLayers.brownfields = dlBrownfieldsToggle.checked; renderDashboard(); });
+  const dlDemographicsToggle = document.getElementById("dlDemographicsToggle");
+  if(dlDemographicsToggle) dlDemographicsToggle.addEventListener("change", ()=>{
+    activeDataLayers.demographics = dlDemographicsToggle.checked;
+    if(activeDataLayers.demographics && !censusApiKey()){
+      if(!promptCensusApiKey()) activeDataLayers.demographics = false;
+    }
+    renderDashboard();
+  });
+  const dlCensusKeyBtn = document.getElementById("dlCensusKeyBtn");
+  if(dlCensusKeyBtn) dlCensusKeyBtn.addEventListener("click", ()=>{ promptCensusApiKey(); renderDashboard(); });
+  const dlWildfireToggle = document.getElementById("dlWildfireToggle");
+  if(dlWildfireToggle) dlWildfireToggle.addEventListener("change", ()=>{ activeDataLayers.wildfire = dlWildfireToggle.checked; renderDashboard(); });
   renderGanttChart(dashboardDealsFiltered);
   renderDatesPanel();
   document.getElementById("calRange12Btn").addEventListener("click", ()=> setCalendarRange(12));
@@ -5971,23 +6023,61 @@ function closedTrajectoryCardHtml(dealMap){
    roughly one request/second; a small in-memory cache keeps this app well under that even if
    several memos get opened back to back). */
 const _geocodeCache = new Map();
-async function geocodeAddress(address){
-  const key = (address||"").trim().toLowerCase();
-  if(!key) return null;
-  if(_geocodeCache.has(key)) return _geocodeCache.get(key);
+/* countrycodes=us biases Nominatim's free-text search to the US — every deal in this pipeline is a
+   US property, and without this restriction an ambiguous or partial address can resolve to a
+   same-named place in another country entirely (a real failure mode of unscoped free-text
+   geocoding, not a hypothetical one). addressdetails=1 gets back a structured state code
+   (ISO3166-2-lvl4, e.g. "US-FL") so callers can sanity-check the hit against the deal's own state
+   — see the mismatch flagging in renderPipelineMapByAddress — rather than trusting every hit
+   blindly. */
+async function nominatimGeocode(address){
   try{
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address)}`, {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&countrycodes=us&q=${encodeURIComponent(address)}`, {
       headers: { "Accept": "application/json" },
     });
     if(!res.ok) throw new Error("geocode request failed");
     const data = await res.json();
-    const hit = (data && data[0]) ? { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) } : null;
-    _geocodeCache.set(key, hit);
-    return hit;
+    const top = data && data[0];
+    if(!top) return null;
+    const iso = top.address && top.address["ISO3166-2-lvl4"];
+    const stateCode = (iso && iso.slice(0,3)==="US-") ? iso.slice(3).toUpperCase() : null;
+    return { lat: parseFloat(top.lat), lon: parseFloat(top.lon), stateCode, source: "nominatim" };
   }catch(e){
-    _geocodeCache.set(key, null);
     return null;
   }
+}
+/* Second attempt when Nominatim comes up empty, routed through this site's own /api/geocode-census
+   serverless function (see api/geocode-census.js for why it's proxied server-side rather than
+   fetched directly). Nominatim is volunteer-mapped OSM data, and reliably has gaps for rural
+   highway/route addresses, unincorporated areas, and newer parcels — a real, common failure mode,
+   confirmed on an actual pipeline address ("70265 Hwy 111, Rancho Mirage, CA" — no Nominatim hit,
+   Census places it precisely on State Route 111's address range). The Census Geocoder is built from
+   the Census Bureau's own TIGER/Line address ranges instead, so it resolves a meaningfully different
+   set of addresses than Nominatim rather than just re-trying the same gap. Only when BOTH of these
+   miss does a deal fall back to an approximate market-center pin — see the call sites below. */
+async function censusGeocode(address){
+  try{
+    const res = await fetch("/api/geocode-census", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address }),
+    });
+    if(!res.ok) return null;
+    const data = await res.json();
+    if(!data || !data.hit) return null;
+    return { lat: data.hit.lat, lon: data.hit.lon, stateCode: data.hit.stateCode||null, source: "census" };
+  }catch(e){
+    return null;
+  }
+}
+async function geocodeAddress(address){
+  const key = (address||"").trim().toLowerCase();
+  if(!key) return null;
+  if(_geocodeCache.has(key)) return _geocodeCache.get(key);
+  let hit = await nominatimGeocode(address);
+  if(!hit) hit = await censusGeocode(address);
+  _geocodeCache.set(key, hit);
+  return hit;
 }
 /* Live location map near the top of a deal's detail panel — deliberately separate from (and
    simpler than) the printable IC memo's map: it renders once when the panel opens and again
@@ -6004,19 +6094,42 @@ async function renderDealLocationMap(dealId, addr){
   const hit = await geocodeAddress(addr);
   const slot = document.getElementById("dealLocationMapSlot");
   if(!slot || openDealId!==dealId) return; // panel closed, or switched to a different deal while geocoding
-  if(!hit || typeof L === "undefined"){
+  /* Nominatim (free, volunteer-mapped OSM data) can come up empty for a real address — rural
+     highway addresses especially (state routes, unincorporated strips) tend to have sparse OSM
+     address-point coverage. Rather than showing nothing, fall back to the "City, ST" market
+     centroid the app already resolves reliably (same MARKET_COORDS lookup the pipeline map's
+     "by market" view uses) so there's still a map to look at, clearly labeled as approximate. */
+  let coords = hit, approx = false;
+  if(!coords){
+    const d = deals.get(dealId);
+    const marketKey = d ? dealMarketKey(d) : null;
+    const mc = marketKey ? marketCoords(marketKey) : null;
+    if(mc){ coords = mc; approx = true; }
+  }
+  if(!coords || typeof L === "undefined"){
     slot.textContent = "Map unavailable for this address — check it looks right, or use the Google Maps link under Links.";
     return;
   }
   slot.className = "deal-location-map";
   slot.textContent = "";
-  const map = L.map(slot, { scrollWheelZoom:false, dragging:true }).setView([hit.lat, hit.lon], 15);
+  const map = L.map(slot, { scrollWheelZoom:false, dragging:true }).setView([coords.lat, coords.lon], approx ? 11 : 15);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
   }).addTo(map);
-  L.marker([hit.lat, hit.lon]).addTo(map);
+  L.marker([coords.lat, coords.lon]).addTo(map);
   attachCtrlScrollZoom(map, slot);
+  if(approx){
+    const note = document.createElement("div");
+    note.className = "map-note";
+    note.textContent = "Couldn't pinpoint this exact street address — showing the market center instead.";
+    wrap.appendChild(note);
+  } else if(hit && hit.source==="census"){
+    const note = document.createElement("div");
+    note.className = "map-note";
+    note.textContent = "Located via the U.S. Census geocoder — OpenStreetMap had no match for this exact address.";
+    wrap.appendChild(note);
+  }
 }
 function cssVar(name, fallback){
   try{
@@ -6101,6 +6214,274 @@ let showConcoursAreas = false; // pipeline-map overlay toggle — off by default
 let pipelineMapRenderGen = 0; // bumped on every renderPipelineMap call so a stale in-flight
                                // "by address" geocode loop (see below) can tell it's been
                                // superseded and stop touching a map that's already gone
+/* The pipeline map's container is torn down and a brand-new Leaflet instance created on every
+   renderDashboard() — which fires on basically any realtime change anywhere in the app (any deal
+   edit writes an activity-log entry, and the activity/deals collection listeners both re-render the
+   whole dashboard when it's the open view). Without this, a teammate editing an unrelated deal while
+   Brendan is zoomed into the map snaps it straight back to the default fit-to-markers view mid-
+   interaction. So the last pan/zoom the user landed on is remembered here (per mode, since state/
+   market/address have very different marker layouts) and restored on rebuild instead of re-fitting —
+   fitBounds only runs the first time a mode has no remembered view yet. */
+let pipelineMapViewState = {};
+
+/* Optional free/public GIS overlays for the pipeline map — a deal-screening aid, not a survey
+   instrument. Each is toggled independently and off by default. Two access patterns:
+     - WMS tile layers (flood, wetlands): Leaflet requests these exactly like the base OSM tiles —
+       they cover whatever's on screen automatically as the user pans/zooms, no extra fetch logic.
+     - Vector layers (Opportunity Zones, EPA brownfields, Census income, FEMA wildfire hazard): these
+       services only expose a query endpoint, not a renderable tile service, so they're fetched for
+       the map's current bounds and redrawn on pan/zoom (debounced) — see refreshVectorDataLayers. To
+       keep a handful of API calls from turning into thousands of nationwide features, they're only
+       offered in "By market" and "By address" mode, not the whole-country "By state" view.
+   Census median household income additionally needs a free Census API key (api.census.gov now
+   requires one on every request) — see censusApiKey()/promptCensusApiKey() below. */
+let activeDataLayers = { flood: false, wetlands: false, oz: false, brownfields: false, demographics: false, wildfire: false };
+const DATA_LAYER_SOURCES = {
+  flood: {
+    label: "FEMA flood zones",
+    attribution: 'FEMA <a href="https://www.fema.gov/flood-maps/national-flood-hazard-layer" target="_blank" rel="noopener">National Flood Hazard Layer</a>',
+    wms: "https://hazards.fema.gov/arcgis/services/public/NFHLWMS/MapServer/WMSServer",
+    layers: "28", // "Flood Hazard Zones"
+  },
+  wetlands: {
+    label: "USFWS wetlands",
+    attribution: 'USFWS <a href="https://www.fws.gov/program/national-wetlands-inventory" target="_blank" rel="noopener">National Wetlands Inventory</a>',
+    wms: "https://fwspublicservices.wim.usgs.gov/wetlandsmapservice/services/Wetlands/MapServer/WMSServer",
+    layers: "0", // "Wetlands"
+  },
+  oz: {
+    label: "Opportunity Zones",
+    attribution: "U.S. Treasury / CDFI Fund",
+    query: "https://services.arcgis.com/VTyQ9soqVukalItT/arcgis/rest/services/Opportunity_Zones/FeatureServer/13/query",
+  },
+  brownfields: {
+    label: "EPA brownfields / cleanup sites",
+    attribution: 'EPA <a href="https://www.epa.gov/cleanups/cleanups-my-community" target="_blank" rel="noopener">Cleanups in My Community</a>',
+    query: "https://services.arcgis.com/cJ9YHowT8TU7DUyn/arcgis/rest/services/Cleanups_in_my_Community_Sites/FeatureServer/0/query",
+  },
+  demographics: {
+    label: "Median household income",
+    attribution: "U.S. Census Bureau, ACS 5-Year Estimates",
+    tractsQuery: "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/tigerWMS_Current/MapServer/8/query",
+    acsBase: "https://api.census.gov/data/2023/acs/acs5",
+  },
+  wildfire: {
+    label: "Wildfire hazard (annualized frequency)",
+    attribution: "FEMA National Risk Index",
+    // County-level (not tract), WFIR_AFREQ = "Wildfire - Annualized Frequency" — no API key needed.
+    query: "https://services.arcgis.com/XG15cJAlne2vxtgt/arcgis/rest/services/National_Risk_Index_Annualized_Frequency_Wildfire/FeatureServer/0/query",
+  },
+};
+
+function censusApiKey(){
+  try{ return localStorage.getItem("dealdesk_census_api_key") || ""; }catch(e){ return ""; }
+}
+function promptCensusApiKey(){
+  const current = censusApiKey();
+  const next = window.prompt("The median household income layer needs a free Census API key (instant sign-up, no cost — census.gov/data/developers). Paste your key:", current);
+  if(next===null) return false;
+  try{ localStorage.setItem("dealdesk_census_api_key", next.trim()); }catch(e){}
+  return !!next.trim();
+}
+
+/* WMS tile overlays — no bbox logic needed, Leaflet requests tiles for whatever's on screen. Safe
+   to add at any zoom/mode since the request cost per tile is fixed regardless of how much area the
+   layer actually covers. */
+function attachStaticDataLayers(map){
+  if(activeDataLayers.flood && typeof L.tileLayer.wms==="function"){
+    L.tileLayer.wms(DATA_LAYER_SOURCES.flood.wms, {
+      layers: DATA_LAYER_SOURCES.flood.layers, format: "image/png", transparent: true,
+      version: "1.3.0", opacity: .55, attribution: DATA_LAYER_SOURCES.flood.attribution,
+    }).addTo(map);
+  }
+  if(activeDataLayers.wetlands && typeof L.tileLayer.wms==="function"){
+    L.tileLayer.wms(DATA_LAYER_SOURCES.wetlands.wms, {
+      layers: DATA_LAYER_SOURCES.wetlands.layers, format: "image/png", transparent: true,
+      version: "1.3.0", opacity: .55, attribution: DATA_LAYER_SOURCES.wetlands.attribution,
+    }).addTo(map);
+  }
+}
+
+function anyVectorDataLayerActive(){
+  return activeDataLayers.oz || activeDataLayers.brownfields || activeDataLayers.demographics || activeDataLayers.wildfire;
+}
+
+/* Builds an ArcGIS REST "query" URL scoped to a Leaflet bounds rectangle, returned as GeoJSON. */
+function arcgisEnvelopeQueryUrl(baseUrl, bounds, extraParams){
+  const params = Object.assign({
+    f: "geojson",
+    geometry: `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`,
+    geometryType: "esriGeometryEnvelope",
+    inSR: "4326",
+    outSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
+    returnGeometry: "true",
+  }, extraParams||{});
+  return `${baseUrl}?${new URLSearchParams(params).toString()}`;
+}
+async function fetchArcGISGeoJSON(baseUrl, bounds, extraParams){
+  try{
+    const res = await fetch(arcgisEnvelopeQueryUrl(baseUrl, bounds, extraParams));
+    if(!res.ok) return null;
+    const data = await res.json();
+    return (data && data.type==="FeatureCollection") ? data : null;
+  }catch(e){ return null; }
+}
+
+/* Opportunity Zones: designated census-tract polygons, shaded green. */
+async function renderOpportunityZonesLayer(map, bounds, myGen){
+  const gj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.oz.query, bounds, { outFields: "GEOID10", resultRecordCount: 500 });
+  if(myGen!==pipelineMapRenderGen || !map) return;
+  if(gj && typeof L.geoJSON==="function" && gj.features.length){
+    L.geoJSON(gj, { style: { color:"#2A8A2A", weight:1.5, fillColor:"#2A8A2A", fillOpacity:.14 } })
+      .bindTooltip("Qualified Opportunity Zone", { sticky:true })
+      .addTo(map);
+  }
+}
+
+/* EPA brownfields / contaminated-site cleanups: point features. Styled distinctly from deal pins
+   (brown/amber marker) so the two never get confused at a glance. */
+async function renderBrownfieldsLayer(map, bounds, myGen){
+  const gj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.brownfields.query, bounds, {
+    outFields: "PRIMARY_NAME,SF_SITE_NAME,BF_PROPERTY_NAME,LOCATION_ADDRESS,CITY_NAME,STATE_CODE",
+    resultRecordCount: 200,
+  });
+  if(myGen!==pipelineMapRenderGen || !map || !gj) return;
+  gj.features.forEach(f=>{
+    const coords = f.geometry && f.geometry.coordinates;
+    if(!coords) return;
+    const props = f.properties || {};
+    const name = props.PRIMARY_NAME || props.SF_SITE_NAME || props.BF_PROPERTY_NAME || "Brownfield / cleanup site";
+    const addrBits = [props.LOCATION_ADDRESS, props.CITY_NAME, props.STATE_CODE].filter(Boolean).join(", ");
+    L.circleMarker([coords[1], coords[0]], { radius:6, color:"#8B5A2B", weight:1.5, fillColor:"#C08A4E", fillOpacity:.75 })
+      .bindPopup(`<div class="pipeline-popup"><div class="pipeline-popup-head">${escapeHtml(name)}</div>${addrBits?`<div class="pipeline-popup-sub">${escapeHtml(addrBits)}</div>`:""}</div>`, {maxWidth:240, minWidth:180})
+      .bindTooltip("EPA cleanup / brownfield site", {direction:"top"})
+      .addTo(map);
+  });
+}
+
+/* Median household income choropleth: fetches Census tract boundaries for the current view from
+   TIGERweb, groups them by county (income is fetched per-county from the ACS API — one call covers
+   every tract in that county, cheaper than one call per tract), joins on GEOID, and colors each
+   tract on a light-to-dark blue ramp by income quintile of whatever's currently on screen. */
+async function renderDemographicsLayer(map, bounds, myGen){
+  const key = censusApiKey();
+  if(!key) return; // the toggle's own change-handler prompts for a key — this just no-ops otherwise
+  const tractsGj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.demographics.tractsQuery, bounds, {
+    outFields: "GEOID,STATE,COUNTY,TRACT",
+  });
+  if(myGen!==pipelineMapRenderGen || !map || !tractsGj || !tractsGj.features.length) return;
+
+  const byCounty = new Map(); // "STATE:COUNTY" -> true (just need the distinct set)
+  tractsGj.features.forEach(f=>{
+    const p = f.properties||{};
+    if(!p.STATE || !p.COUNTY) return;
+    byCounty.set(`${p.STATE}:${p.COUNTY}`, true);
+  });
+
+  const incomeByGeoid = new Map();
+  for(const ck of byCounty.keys()){
+    if(myGen!==pipelineMapRenderGen) return;
+    const [state, county] = ck.split(":");
+    try{
+      const url = `${DATA_LAYER_SOURCES.demographics.acsBase}?get=B19013_001E&for=tract:*&in=state:${state}+county:${county}&key=${encodeURIComponent(key)}`;
+      const res = await fetch(url);
+      if(!res.ok) continue;
+      const rows = await res.json();
+      // rows[0] is the header; each subsequent row is [B19013_001E, state, county, tract]
+      for(let i=1;i<rows.length;i++){
+        const [income, st, co, tract] = rows[i];
+        const val = Number(income);
+        if(income!=null && val>=0) incomeByGeoid.set(`${st}${co}${tract}`, val);
+      }
+    }catch(e){ /* one bad county shouldn't blank out the rest of the layer */ }
+  }
+  if(myGen!==pipelineMapRenderGen || !map) return;
+
+  const values = tractsGj.features.map(f=>incomeByGeoid.get(f.properties.GEOID)).filter(v=>v!=null);
+  if(!values.length) return;
+  const sorted = [...values].sort((a,b)=>a-b);
+  const qAt = (p)=> sorted[Math.min(sorted.length-1, Math.floor(p*sorted.length))];
+  const breaks = [qAt(.2), qAt(.4), qAt(.6), qAt(.8)];
+  const ramp = ["#DCE8F5","#AECBE8","#7FA9D6","#4E7FB8","#2A5A93"]; // light -> dark blue
+  const colorFor = (v)=>{
+    if(v==null) return "#E4E4E0";
+    let i = 0; while(i<breaks.length && v>breaks[i]) i++;
+    return ramp[i];
+  };
+
+  L.geoJSON(tractsGj, {
+    style: (f)=>{
+      const v = incomeByGeoid.get(f.properties.GEOID);
+      return { color:"#8892A0", weight:.5, fillColor: colorFor(v), fillOpacity: v==null?.05:.45 };
+    },
+    onEachFeature: (f, layer)=>{
+      const v = incomeByGeoid.get(f.properties.GEOID);
+      layer.bindTooltip(v!=null ? `Median household income: ${fmtMoneyShort(v)}` : "No income data for this tract", {sticky:true});
+    },
+  }).addTo(map);
+}
+
+/* Wildfire hazard: FEMA's National Risk Index, county-level annualized wildfire frequency
+   (WFIR_AFREQ). Same quintile-choropleth treatment as the income layer above, just simpler — no API
+   key needed, and one fetch instead of a tract+ACS join, since the risk value already lives on the
+   county polygon itself. County-level rather than tract-level is coarser, but it's the finest grain
+   FEMA publishes this particular field at, and it's still the right scale for a first screening
+   pass ("is this county wildfire-prone") rather than a substitute for a site-specific study. */
+async function renderWildfireLayer(map, bounds, myGen){
+  const gj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.wildfire.query, bounds, {
+    outFields: "STATE,COUNTY,WFIR_AFREQ",
+  });
+  if(myGen!==pipelineMapRenderGen || !map || !gj || !gj.features.length) return;
+
+  const values = gj.features.map(f=>Number(f.properties && f.properties.WFIR_AFREQ)).filter(v=>!isNaN(v) && v>=0);
+  if(!values.length) return;
+  const sorted = [...values].sort((a,b)=>a-b);
+  const qAt = (p)=> sorted[Math.min(sorted.length-1, Math.floor(p*sorted.length))];
+  const breaks = [qAt(.2), qAt(.4), qAt(.6), qAt(.8)];
+  const ramp = ["#FFF3B0","#FFD37F","#F5A34A","#E06B2A","#B83A1E"]; // pale yellow -> dark red-orange
+  const colorFor = (v)=>{
+    if(v==null || isNaN(v)) return "#E4E4E0";
+    let i = 0; while(i<breaks.length && v>breaks[i]) i++;
+    return ramp[i];
+  };
+
+  L.geoJSON(gj, {
+    style: (f)=>{
+      const v = Number(f.properties && f.properties.WFIR_AFREQ);
+      return { color:"#8892A0", weight:.5, fillColor: colorFor(v), fillOpacity: isNaN(v)?.05:.4 };
+    },
+    onEachFeature: (f, layer)=>{
+      const v = Number(f.properties && f.properties.WFIR_AFREQ);
+      const county = f.properties && f.properties.COUNTY;
+      layer.bindTooltip(!isNaN(v) ? `Wildfire annualized frequency${county?` — ${county}`:""}: ${v.toFixed(3)}/yr` : "No wildfire risk data for this county", {sticky:true});
+    },
+  }).addTo(map);
+}
+
+async function refreshVectorDataLayers(map, mode, myGen){
+  if(!map || typeof map.getBounds!=="function" || mode==="state") return;
+  if(!anyVectorDataLayerActive()) return;
+  const bounds = map.getBounds();
+  if(activeDataLayers.oz) await renderOpportunityZonesLayer(map, bounds, myGen);
+  if(myGen!==pipelineMapRenderGen) return;
+  if(activeDataLayers.brownfields) await renderBrownfieldsLayer(map, bounds, myGen);
+  if(myGen!==pipelineMapRenderGen) return;
+  if(activeDataLayers.wildfire) await renderWildfireLayer(map, bounds, myGen);
+  if(myGen!==pipelineMapRenderGen) return;
+  if(activeDataLayers.demographics) await renderDemographicsLayer(map, bounds, myGen);
+}
+
+// Debounced re-fetch of the vector data layers when the user pans/zooms — otherwise panning away
+// from the view they were fetched for would silently leave stale/missing data on screen.
+let _dataLayersRefetchTimer = null;
+function scheduleDataLayersRefetch(map, mode, myGen){
+  if(_dataLayersRefetchTimer) clearTimeout(_dataLayersRefetchTimer);
+  _dataLayersRefetchTimer = setTimeout(()=>{
+    if(myGen===pipelineMapRenderGen) refreshVectorDataLayers(map, mode, myGen);
+  }, 700);
+}
+
 function renderPipelineMap(byState, byMarket, activeEntries){
   const el = document.getElementById("pipelineMap");
   if(!el || typeof L === "undefined") return;
@@ -6131,12 +6512,23 @@ function renderPipelineMap(byState, byMarket, activeEntries){
   el.innerHTML = ""; // fresh container each render — Leaflet attaches to a clean element
   const accent = cssVar("--accent", "#183139");
   const brass = cssVar("--brass", "#2C7E97");
-  const map = L.map(el, { scrollWheelZoom:false, worldCopyJump:true }).setView([39.5, -98.35], 4);
+  const savedView = pipelineMapViewState[mode];
+  const map = L.map(el, { scrollWheelZoom:false, worldCopyJump:true })
+    .setView(savedView ? savedView.center : [39.5, -98.35], savedView ? savedView.zoom : 4);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
   }).addTo(map);
   attachCtrlScrollZoom(map, el);
+  attachStaticDataLayers(map);
+  // Remember wherever the user pans/zooms to, so the next rebuild (triggered by an unrelated
+  // realtime update elsewhere in the app — see pipelineMapViewState above) restores it instead of
+  // snapping back to the default fit-to-markers view. Also re-fetches any active bbox-scoped data
+  // layer (Opportunity Zones / brownfields / income) for wherever the user just panned to.
+  map.on("moveend zoomend", ()=>{
+    pipelineMapViewState[mode] = { center: map.getCenter(), zoom: map.getZoom() };
+    scheduleDataLayersRefetch(map, mode, myGen);
+  });
 
   // One delegated listener handles every popup this map ever opens (each dot's popup content is
   // freshly rendered by Leaflet on open, so listeners can't be attached until then).
@@ -6179,12 +6571,16 @@ function renderPipelineMap(byState, byMarket, activeEntries){
   }
 
   if(showConcoursAreas) renderConcoursAreasOverlay(map);
+  refreshVectorDataLayers(map, mode, myGen);
 
-  if(markers.length){
-    try{ map.fitBounds(L.featureGroup(markers).getBounds().pad(0.25), {maxZoom:6}); }catch(e){}
-  } else if(showConcoursAreas){
-    try{ map.setView([39.5,-98.35], 4); }catch(e){}
+  if(!savedView){
+    if(markers.length){
+      try{ map.fitBounds(L.featureGroup(markers).getBounds().pad(0.25), {maxZoom:6}); }catch(e){}
+    } else if(showConcoursAreas){
+      try{ map.setView([39.5,-98.35], 4); }catch(e){}
+    }
   }
+  pipelineMapViewState[mode] = { center: map.getCenter(), zoom: map.getZoom() };
 }
 function pipelineMapSleep(ms){ return new Promise(resolve=> setTimeout(resolve, ms)); }
 /* "By address" pipeline map mode: instead of bubbling deals up to a state/market dot, pins each
@@ -6210,12 +6606,23 @@ async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote)
 
   el.innerHTML = "";
   const warn = cssVar("--warn", "#B4790F");
-  const map = L.map(el, { scrollWheelZoom:false, worldCopyJump:true }).setView([39.5, -98.35], 4);
+  const bad = cssVar("--bad", "#B7382F");
+  const savedView = pipelineMapViewState.address;
+  const map = L.map(el, { scrollWheelZoom:false, worldCopyJump:true })
+    .setView(savedView ? savedView.center : [39.5, -98.35], savedView ? savedView.zoom : 4);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
   }).addTo(map);
   attachCtrlScrollZoom(map, el);
+  attachStaticDataLayers(map);
+  // See pipelineMapViewState above — remembers pan/zoom across rebuilds triggered by unrelated
+  // realtime updates elsewhere in the app. Also re-fetches any active bbox-scoped data layer for
+  // wherever the user just panned to.
+  map.on("moveend zoomend", ()=>{
+    pipelineMapViewState.address = { center: map.getCenter(), zoom: map.getZoom() };
+    scheduleDataLayersRefetch(map, "address", myGen);
+  });
   map.on("popupopen", e=>{
     const popupEl = e.popup.getElement();
     if(!popupEl) return;
@@ -6231,13 +6638,36 @@ async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote)
   });
 
   if(showConcoursAreas) renderConcoursAreasOverlay(map);
+  refreshVectorDataLayers(map, "address", myGen);
 
   const markers = [];
   const notLocated = [];
+  /* Free-text geocoding can return a confident-looking hit in the wrong place entirely — a same-
+     named city in another state, a vague/partial address matched to a poor candidate, etc. When the
+     deal's OWN state (typed explicitly, or parsed from its address text — dealStateCode) disagrees
+     with the state Nominatim actually geocoded the address to, that pin is flagged red rather than
+     trusted silently: it's exactly the "showing up but not accurately" case, so a wrong pin should
+     look visibly wrong instead of blending in with the good ones. */
+  const mismatched = [];
+  /* The other direction of the same problem: Nominatim (free, volunteer-mapped OSM data) often has
+     no address point at all for a rural/highway address (a state route through an unincorporated
+     area, a large parcel with no street-level listing) — a real, common gap, not an edge case.
+     geocodeAddress already tries a second, independent source (the Census Bureau's own TIGER/Line
+     address ranges, via censusGeocode) before giving up — that resolves a meaningfully different set
+     of addresses than Nominatim, so most of what used to land here now gets a real, precise pin
+     instead (see the "Located via the U.S. Census geocoder" tooltip below). Only when BOTH sources
+     come up empty does a deal fall back to the "City, ST" market centroid the app already resolves
+     reliably (same MARKET_COORDS lookup "by market" mode uses), drawn as a distinct hollow/dashed
+     marker so it still reads as approximate rather than a precise pin. */
+  const approximated = [];
   const updateNote = ()=>{
     if(!addressNote) return;
-    if(!notLocated.length){ addressNote.style.display = "none"; addressNote.textContent = ""; return; }
-    addressNote.textContent = `${notLocated.length} address${notLocated.length>1?"es":""} couldn't be located — double-check ${notLocated.length>1?"they look":"it looks"} like a mailable street address.`;
+    const parts = [];
+    if(notLocated.length) parts.push(`${notLocated.length} address${notLocated.length>1?"es":""} couldn't be located at all — double-check ${notLocated.length>1?"they look":"it looks"} like a mailable street address`);
+    if(approximated.length) parts.push(`${approximated.length} deal${approximated.length>1?"s":""} shown as a hollow pin at the market center — the exact street address couldn't be pinpointed`);
+    if(mismatched.length) parts.push(`${mismatched.length} pin${mismatched.length>1?"s":""} shown in red geocoded to a different state than the deal's own — double-check ${mismatched.length>1?"those addresses":"that address"}`);
+    if(!parts.length){ addressNote.style.display = "none"; addressNote.textContent = ""; return; }
+    addressNote.textContent = parts.join(". ") + ".";
     addressNote.style.display = "";
   };
   for(let i=0;i<withAddr.length;i++){
@@ -6247,7 +6677,11 @@ async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote)
     const wasCached = _geocodeCache.has(addr.trim().toLowerCase());
     const hit = await geocodeAddress(addr);
     if(myGen!==pipelineMapRenderGen) return;
-    if(hit){
+    const marketKey = !hit ? dealMarketKey(d) : null;
+    const approxCoords = marketKey ? marketCoords(marketKey) : null;
+    if(hit || approxCoords){
+      const isApprox = !hit;
+      const pinCoords = hit || approxCoords;
       const cap = calcCapitalStack(d);
       const stageMeta = DEAL_STAGES.find(s=>s.key===(d.stage||"just_landed")) || DEAL_STAGES[0];
       const s = {
@@ -6260,10 +6694,20 @@ async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote)
           lead: d.lead || "Unassigned",
         }],
       };
-      const m = L.circleMarker([hit.lat, hit.lon], { radius:8, color:warn, weight:1.5, fillColor:warn, fillOpacity:.55 }).addTo(map);
+      const expectedState = dealStateCode(d);
+      const isMismatch = !isApprox && !!(expectedState && hit.stateCode && expectedState!==hit.stateCode);
+      const color = isMismatch ? bad : warn;
+      const m = L.circleMarker([pinCoords.lat, pinCoords.lon], isApprox
+        ? { radius:7, color, weight:1.5, dashArray:"3,3", fillColor:color, fillOpacity:.15 }
+        : { radius:8, color, weight:1.5, fillColor:color, fillOpacity:.55 }).addTo(map);
       m.bindPopup(pipelinePopupHtml(d.name||d.address||"Untitled deal", s, dealStateCode(d)||""), {maxWidth:240, minWidth:200});
+      if(isApprox) m.bindTooltip(`📍 Approximate — couldn't pinpoint this street address, showing the ${marketKey} market center instead`, {direction:"top"});
+      else if(isMismatch) m.bindTooltip(`⚠ Geocoded to ${STATE_META[hit.stateCode]?STATE_META[hit.stateCode].name:hit.stateCode}, but this deal's state is ${STATE_META[expectedState]?STATE_META[expectedState].name:expectedState} — double-check this address`, {direction:"top"});
+      else if(hit.source==="census") m.bindTooltip(`📍 Located via the U.S. Census geocoder — OpenStreetMap had no match for this exact address`, {direction:"top"});
       markers.push(m);
-      if(markers.length===1 || markers.length%4===0){
+      if(isApprox) approximated.push(d);
+      else if(isMismatch) mismatched.push(d);
+      if(!savedView && (markers.length===1 || markers.length%4===0)){
         try{ map.fitBounds(L.featureGroup(markers).getBounds().pad(0.3), {maxZoom:12}); }catch(e){}
       }
     } else {
@@ -6275,11 +6719,14 @@ async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote)
     if(!wasCached && i<withAddr.length-1) await pipelineMapSleep(1100);
   }
   if(myGen!==pipelineMapRenderGen) return;
-  if(markers.length){
-    try{ map.fitBounds(L.featureGroup(markers).getBounds().pad(0.3), {maxZoom:12}); }catch(e){}
-  } else if(showConcoursAreas){
-    try{ map.setView([39.5,-98.35], 4); }catch(e){}
+  if(!savedView){
+    if(markers.length){
+      try{ map.fitBounds(L.featureGroup(markers).getBounds().pad(0.3), {maxZoom:12}); }catch(e){}
+    } else if(showConcoursAreas){
+      try{ map.setView([39.5,-98.35], 4); }catch(e){}
+    }
   }
+  pipelineMapViewState.address = { center: map.getCenter(), zoom: map.getZoom() };
 }
 /* Draws the CONCOURS top-30 search-area overlay (see CONCOURS_SEARCH_AREAS above) onto an
    already-created pipeline map: a red "wealth pocket" ring and a green "land corridor" ring per
