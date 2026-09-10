@@ -81,7 +81,11 @@
   h1,h2,h3,h4,.disp{ font-family:var(--font-display); font-weight:700; color:var(--brass); text-wrap:balance; }
   button{ font-family:inherit; }
   .mono{ font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
-  ::selection{ background:var(--accent-soft); }
+  /* The old --accent-soft selection tint (#E2ECEE) was barely a shade off white — hard to tell
+     text was even selected. Bumped to a clearly visible, still on-brand teal (derived from the
+     existing --brass token) so a highlighted run of text reads unmistakably as "selected" while
+     dark ink text stays legible on top of it. */
+  ::selection{ background:color-mix(in srgb, var(--brass) 55%, white); color:var(--ink); }
   a{ color:var(--accent); }
 
   /* ---------- shell ---------- */
@@ -966,22 +970,6 @@
   .stage-bar-count{ width:20px; text-align:right; color:var(--ink-faint); flex:none; }
   .stage-bar-meta{ font-size:10.5px; color:var(--ink-faint); margin:-3px 0 2px 128px; }
   .needs-attn-card{}
-  .quality-card{}
-  .quality-sub{ font-size:11.5px; color:var(--ink-faint); margin:-2px 0 12px; }
-  .quality-group{ margin-bottom:14px; }
-  .quality-group:last-child{ margin-bottom:0; }
-  .quality-group-title{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); margin-bottom:7px; }
-  .quality-group-note{ text-transform:none; font-weight:500; letter-spacing:0; color:var(--ink-faint); }
-  .quality-row{ display:flex; align-items:center; gap:10px; font-size:12px; padding:5px 0; }
-  .quality-row-label{ width:150px; flex:none; color:var(--ink-soft); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .quality-row-track{ flex:1; height:6px; border-radius:4px; background:var(--neutral-soft); overflow:hidden; }
-  .quality-row-fill{ display:block; height:100%; border-radius:4px; background:var(--accent); }
-  .quality-row-stat{ width:88px; flex:none; text-align:right; font-family:var(--font-mono); font-size:11px; color:var(--ink); font-weight:600; }
-  .quality-row-meta{ flex:none; font-size:10.5px; color:var(--ink-faint); white-space:nowrap; }
-  @media (max-width:760px){
-    .quality-row{ flex-wrap:wrap; }
-    .quality-row-meta{ width:100%; }
-  }
   .attn-list{ display:flex; flex-direction:column; gap:8px; margin-top:8px; }
   .attn-list-secondary{ opacity:.94; }
   .attn-subhead{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); margin:14px 0 2px; }
@@ -1171,6 +1159,15 @@
   .gantt-marker-accent{ background:var(--accent); }
   .gantt-marker-brass{ background:var(--brass); }
   .gantt-marker-bad{ background:var(--bad); }
+  /* Scheduled closing date — deliberately NOT another dot: a bright gold star so the single most
+     important date on a deal's timeline (when it's actually expected to close) reads at a glance,
+     distinct from the $ due-date markers above. */
+  .gantt-marker-star{
+    width:16px; height:16px; border-radius:0; background:none; border:none;
+    display:flex; align-items:center; justify-content:center; font-size:15px; line-height:1;
+    color:#F2B90C; text-shadow:0 1px 1px rgba(24,49,57,.35); -webkit-text-stroke:.5px rgba(24,49,57,.35);
+  }
+  .legend-star{ display:inline-block; width:8px; text-align:center; font-size:11px; line-height:8px; color:#F2B90C; -webkit-text-stroke:.4px rgba(24,49,57,.35); }
   .gantt-row-pill{ width:120px; flex:none; margin-left:10px; text-align:center; font-size:10.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .cal-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:10px; flex-wrap:wrap; }
   .cal-head .section-label{ margin:0; }
@@ -2120,7 +2117,7 @@ const TASK_COLUMNS = [
    checkpoint feature) was removed entirely as its own follow-up simplification — it wasn't earning
    its keep day to day. "Screened" folds into "Just landed"; "LOI authorization"/"LOI submitted"/
    "LOI signed"/"IC1" all fold into "LOI"; "PSA signed"/"Due diligence"/"IC2" all fold into "PSA". */
-/* Stage colors: "pipe1".."pipe9" are one hue (teal), monotonically darkening from Just landed to
+/* Stage colors: "pipe1".."pipe11" are one hue (teal), monotonically darkening from Just landed to
    Closing — a proper ordinal ramp (see the --pipeN custom properties above) so color itself shows
    progress through the pipeline instead of a handful of categorical colors repeating out of order.
    Onboarded and Dead/Passed deliberately stay off that ramp, on the app's existing status colors
@@ -2133,7 +2130,14 @@ const DEAL_STAGES = [
   {key:"underwriting", title:"Underwriting",  color:"pipe3"},
   {key:"loi",          title:"LOI",           color:"pipe5"},
   {key:"psa",          title:"PSA - inspection period", color:"pipe7"},
-  {key:"closing",      title:"Closing",       color:"pipe9"},
+  /* "closing" jumps from pipe9 to pipe11 (the ramp's darkest, previously-unused stop) rather than
+     the next step up — PSA and Closing are now the ONLY two stages the Project timeline Gantt
+     draws (see GANTT_TIMELINE_STAGES below), and pipe7 vs. pipe9 read as near-identical dark
+     blues in a thin bar. pipe7 vs. pipe11 (medium-dark teal vs. near-black navy) is unmistakably
+     two different colors while staying on the same validated, monotonic ramp used everywhere else
+     (Kanban board, filters, CSV export) — so "Closing" is simply darker still, not a different
+     color system. */
+  {key:"closing",      title:"Closing",       color:"pipe11"},
   {key:"onboarded",    title:"Onboarded",     color:"good"},
   {key:"dead",         title:"Dead / Passed", color:"bad"},
 ];
@@ -2178,13 +2182,16 @@ const LEGACY_STAGE_TITLES = { "Signed PSA/DD": "psa", "Prospecting": "just_lande
    wherever forward-looking capital/price totals should count "in contract, pre-close" deals (see
    the comment above IN_CONTRACT_STAGES below for why Onboarded is excluded). */
 const CONTRACT_STAGES = new Set(["psa","closing"]);
-/* Stages the "Project timeline — stage progress & dollars due" Gantt chart draws a row for. A deal
-   at Just landed/Underwriting has no dollars-due dates worth timelining yet, and Onboarded/Dead are
-   done — so the timeline only earns its keep for a deal actively moving toward (LOI) or through
-   (PSA - inspection period, Closing) a signed contract. */
-const GANTT_TIMELINE_STAGES = new Set(["loi","psa","closing"]);
-/* Stages that count as a real outcome rather than "still pending" for conversion-rate math
-   (dealOutcomeBucket, the Passed deals & hit rate card) — anything from a signed PSA onward. */
+/* Stages the "Project timeline — stage progress & dollars due" Gantt chart draws a row for.
+   Narrowed from {loi, psa, closing} to just {psa, closing} per Brendan's request — Just
+   landed/Underwriting never had dollars-due dates worth timelining, Onboarded/Dead are done, and
+   LOI turned out not to carry real dates either (an LOI-stage deal usually doesn't have a firm
+   inspection/closing date yet) — so it was cluttering the chart and legend without adding
+   information. The timeline now only shows deals under a signed contract, where there's an actual
+   date the bar can run to (see buildDealGanttRow below). */
+const GANTT_TIMELINE_STAGES = new Set(["psa","closing"]);
+/* Stages that count as a real outcome rather than "still pending" for conversion-rate math (the
+   Passed deals & hit rate card) — anything from a signed PSA onward. */
 const CONVERTED_STAGES = new Set(["psa","closing","onboarded"]);
 function migrateDealStages(){
   deals.forEach((d,id)=>{
@@ -5085,10 +5092,12 @@ function openGoalEditModal(){
   });
 }
 
-/* =================== dashboard: prospects for review =================== */
+/* =================== dashboard: prospects in underwriting =================== */
 /* Fresh prospects the team hasn't moved past the top of the funnel yet — the list an IC meeting
    works through week to week, separate from "Needs your attention" (which is about things already
-   in motion running late) and the basics table (which only covers deals under contract). */
+   in motion running late) and the basics table (which only covers deals under contract). Titled
+   "Prospects in underwriting" per Brendan — that's what these deals actually are to him, not
+   generic "for review". */
 function prospectsForReviewCardHtml(dealEntries){
   const rows = dealEntries.slice().sort((a,b)=>{
     const pr = dealPriorityCompare(a[1], b[1]);
@@ -5096,7 +5105,7 @@ function prospectsForReviewCardHtml(dealEntries){
   });
   if(!rows.length){
     return `<div class="dash-card prospects-card" style="margin-bottom:16px;">
-      <h4 class="section-label">Prospects for review</h4>
+      <h4 class="section-label">Prospects in underwriting</h4>
       <div class="empty-hint">No new prospects waiting on a screening decision.</div>
     </div>`;
   }
@@ -5111,7 +5120,7 @@ function prospectsForReviewCardHtml(dealEntries){
     </button>`;
   };
   return `<div class="dash-card prospects-card" style="margin-bottom:16px;">
-    <h4 class="section-label">Prospects for review <span class="count-badge count-badge-neutral">${rows.length}</span></h4>
+    <h4 class="section-label">Prospects in underwriting <span class="count-badge count-badge-neutral">${rows.length}</span></h4>
     <div class="attn-list">${rows.map(rowHtml).join("")}</div>
   </div>`;
 }
@@ -5413,6 +5422,10 @@ function renderDashboard(){
     ${pageDividerHtml("This week")}
     ${basicsTableCardHtml(inContractEntries)}
     ${needsAttentionCardHtml(overdue, decisionEntries, upcoming, stalled)}
+    <div class="dash-card" style="margin-top:16px;margin-bottom:16px;">
+      <h4 class="section-label">Project timeline — stage progress &amp; dollars due</h4>
+      <div class="gantt-scroll"><div id="ganttGrid"></div></div>
+    </div>
     ${prospectsForReviewCardHtml(prospectingEntries)}
     ${financingGapsCardHtml(inContractEntries)}
     ${pageDividerHtml("Pipeline overview")}
@@ -5427,7 +5440,6 @@ function renderDashboard(){
     </div>
     ${closedTrajectoryCardHtml(dashboardDealsFiltered)}
     ${capitalNeedCardHtml(capNeedBuckets)}
-    ${dealQualityCardHtml(dashboardDealsFiltered)}
     ${pageDividerHtml("Trends")}
     <div class="dash-grid">
       <div class="dash-card">
@@ -5465,10 +5477,6 @@ function renderDashboard(){
       </div>
     </div>
     ${pageDividerHtml("Timeline & dates")}
-    <div class="dash-card" style="margin-top:16px;">
-      <h4 class="section-label">Project timeline — stage progress &amp; dollars due</h4>
-      <div class="gantt-scroll"><div id="ganttGrid"></div></div>
-    </div>
     <div class="dash-card" style="margin-top:16px;">
       <div class="cal-head">
         <h4 class="section-label">Maturity &amp; payment timeline</h4>
@@ -7056,64 +7064,12 @@ function capitalNeedCardHtml(buckets){
   </div>`;
 }
 
-/* =================== dashboard: deal-quality / screening-accuracy rollup =================== */
-/* Are our screening calls actually predicting which deals go on to close? Buckets each dimension's
-   *decided* deals (reached PSA or later = "converted", or Dead/Passed = "dead") into a
-   conversion rate — deals still active with no outcome yet are shown as context but excluded from
-   the rate itself, since their outcome isn't known. */
-function dealOutcomeBucket(d){
-  const stage = d.stage || "just_landed";
-  if(stage==="dead") return "dead";
-  if(CONVERTED_STAGES.has(stage)) return "converted";
-  return "pending";
-}
-function outcomeBreakdown(dealList, groupFn, order){
-  const groups = new Map();
-  dealList.forEach(d=>{
-    const key = groupFn(d);
-    if(key===null || key===undefined) return;
-    if(!groups.has(key)) groups.set(key, {converted:0, dead:0, pending:0});
-    groups.get(key)[dealOutcomeBucket(d)]++;
-  });
-  return order.filter(k=>groups.has(k)).map(k=>{
-    const g = groups.get(k);
-    const decided = g.converted+g.dead;
-    return {key:k, ...g, decided, rate: decided ? Math.round(g.converted/decided*100) : null};
-  });
-}
-function qualityRowHtml(label, g){
-  const total = g.converted+g.dead+g.pending;
-  return `<div class="quality-row">
-    <span class="quality-row-label">${escapeHtml(label)}</span>
-    <span class="quality-row-track">${g.decided ? `<span class="quality-row-fill" style="width:${g.rate}%"></span>` : ""}</span>
-    <span class="quality-row-stat">${g.rate!==null ? `${g.rate}% converted` : "—"}</span>
-    <span class="quality-row-meta">${g.converted} signed/closed · ${g.dead} dead · ${g.pending} still pending (${total} total)</span>
-  </div>`;
-}
-function dealQualityCardHtml(dealMap){
-  const list = [...dealMap.values()];
-  const targetRows = outcomeBreakdown(list, d=>d.meetsTargetCriteria ? "yes" : "no", ["yes","no"]);
-  if(!targetRows.length){
-    return `<div class="dash-card quality-card" style="margin-top:16px;">
-      <h4 class="section-label">Deal quality — is screening predicting outcomes?</h4>
-      <div class="empty-hint">Once deals have a target-criteria flag and have moved to signed or dead, this shows whether those calls are actually panning out.</div>
-    </div>`;
-  }
-  return `<div class="dash-card quality-card" style="margin-top:16px;">
-    <h4 class="section-label">Deal quality — is screening predicting outcomes?</h4>
-    <p class="quality-sub">Of decided deals (signed or dead — pending deals aren't counted in the rate yet), how often each call turned out right.</p>
-    ${targetRows.length ? `<div class="quality-group">
-      <div class="quality-group-title">By meets-target-criteria</div>
-      ${targetRows.map(g=>qualityRowHtml(g.key==="yes"?"Meets target criteria":"Doesn't meet target criteria", g)).join("")}
-    </div>` : ""}
-  </div>`;
-}
-
 /* =================== dashboard: passed deals & hit rate =================== */
 /* How many deals have been marked Dead/Passed, when, and what share of *decided* deals (passed +
-   actually signed/closed) that represents — the same converted-vs-dead split dealQualityCardHtml
-   already computes above, just as one overall number plus the actual list of passed deals, since
-   "how many and when" was the ask, not another breakdown by decision/recommendation. Pass dates
+   actually signed/closed) that represents, as one overall number plus the actual list of passed
+   deals, since "how many and when" was the ask, not a breakdown by decision/recommendation (the
+   "Deal quality — is screening predicting outcomes?" card used to do that; removed per Brendan —
+   it wasn't earning its keep). Pass dates
    come from the stage-change activity log (see logDealActivity) — the same source
    buildDealGanttRow already relies on for its per-deal timeline — falling back to the deal's
    last-updated timestamp for a deal that predates activity logging, and to its created date if
@@ -7322,12 +7278,17 @@ function openOnePagerModal(){
 }
 
 /* =================== dashboard: project timeline (Gantt) =================== */
-/* Per-deal horizontal timeline — colored segments show time actually spent in each pipeline
-   stage (reconstructed from the "stage" changes already recorded in the activity log, see
-   logDealActivity), with dollar-due markers (deposits, closing balance) overlaid at their date.
-   Answers "where is this deal in the process, and when does money move" in one glance, instead
-   of needing the stage column and the payment calendar separately. Deals older than the activity
-   log (or that haven't changed stage since) fall back to a single segment from their created date. */
+/* Per-deal horizontal timeline — one bar shows time spent in the deal's CURRENT stage (from when
+   it entered that stage, per the activity log's "stage" changes — see logDealActivity — falling
+   back to the deal's created date), with dollar-due markers (deposits, closing balance) overlaid
+   at their date. Answers "where is this deal in the process, and when does money move" in one
+   glance, instead of needing the stage column and the payment calendar separately.
+   Earlier versions drew a deal's FULL stage history as separate segments (Just landed ->
+   Underwriting -> LOI -> ...); per Brendan's request that's gone — a deal now shown here (PSA or
+   Closing, see GANTT_TIMELINE_STAGES) draws a single bar for the stage it's in NOW, running until
+   whatever date would end that stage: the inspection-period deadline for a PSA deal (Closing picks
+   up post-inspection), or the expected/actual close date for a Closing deal — falling back to an
+   open-ended "ongoing, out to today" dashed bar only when that date isn't set yet. */
 function buildDealGanttRow(id, d){
   const name = d.name || d.address || "Untitled deal";
   const stage = d.stage || "just_landed";
@@ -7339,24 +7300,28 @@ function buildDealGanttRow(id, d){
     .filter(e=>e.at)
     .sort((a,b)=> a.at<b.at?-1:1);
 
-  const segments = [];
-  let curStage = stageEvents.length ? (keyByTitle(stageEvents[0].from) || stage) : stage;
-  let curStart = d.createdAt || (stageEvents[0] && stageEvents[0].at) || null;
-  if(curStart){
-    stageEvents.forEach(ev=>{
-      const toKey = keyByTitle(ev.to);
-      if(!toKey) return;
-      segments.push({stage:curStage, start:curStart, end:ev.at});
-      curStage = toKey;
-      curStart = ev.at;
-    });
-    const endRef = stage==="onboarded" ? (d.actualCloseDate ? d.actualCloseDate+"T00:00:00" : new Date().toISOString())
-      : stage==="dead" ? (d.updatedAt || curStart)
-      : null; // still active — draw out to "today"
-    segments.push({stage:curStage, start:curStart, end:endRef, ongoing: endRef===null});
-  }
+  // Most recent activity-log entry that landed the deal ON its current stage — that's when "now"
+  // started for this bar. A deal that's never logged a stage change (or predates activity
+  // logging) falls back to its created date.
+  const enteredEvent = [...stageEvents].reverse().find(ev=> keyByTitle(ev.to)===stage);
+  const start = (enteredEvent && enteredEvent.at) || d.createdAt || (stageEvents[0] && stageEvents[0].at) || null;
+
+  // The date this stage is expected to end, if one is on file — used to draw the bar all the way
+  // out to that date instead of stopping at "today". None of this applies to just_landed/
+  // underwriting/loi/onboarded/dead since GANTT_TIMELINE_STAGES only ever shows psa/closing rows.
+  const knownEnd = stage==="closing" ? (d.actualCloseDate || d.closingDate || null)
+    : stage==="psa" ? (d.inspectionEndDate || null)
+    : null;
+  const segments = start ? [{
+    stage, start,
+    end: knownEnd ? knownEnd+"T00:00:00" : null,
+    ongoing: !knownEnd,
+  }] : [];
   const markers = getCapitalNeedItems(new Map([[id,d]]));
-  return {id, name, stage, stageMeta, segments, markers};
+  // The deal's own expected/actual closing date, marked separately (a bright star, not a $ marker)
+  // regardless of whether a dollar amount is tied to it — see renderGanttChart.
+  const closeDate = d.actualCloseDate || d.closingDate || null;
+  return {id, name, stage, stageMeta, segments, markers, closeDate};
 }
 function renderGanttChart(dealMap){
   const el = document.getElementById("ganttGrid");
@@ -7367,7 +7332,7 @@ function renderGanttChart(dealMap){
     .filter(r=> r.segments.length);
 
   if(!rows.length){
-    el.innerHTML = `<div class="empty-hint">No deals at LOI, PSA, or Closing yet.</div>`;
+    el.innerHTML = `<div class="empty-hint">No deals at PSA or Closing yet.</div>`;
     return;
   }
 
@@ -7386,6 +7351,10 @@ function renderGanttChart(dealMap){
       const t = new Date(m.date+"T00:00:00").getTime();
       if(!isNaN(t)){ min = Math.min(min, Math.max(t, MIN_LOOKBACK)); max = Math.max(max, Math.min(t, MAX_LOOKAHEAD)); }
     });
+    if(r.closeDate){
+      const t = new Date(r.closeDate+"T00:00:00").getTime();
+      if(!isNaN(t)){ min = Math.min(min, Math.max(t, MIN_LOOKBACK)); max = Math.max(max, Math.min(t, MAX_LOOKAHEAD)); }
+    }
   });
   const span = Math.max(max-min, 86400000);
   const pctOf = t => Math.min(100, Math.max(0, ((t-min)/span)*100));
@@ -7431,11 +7400,18 @@ function renderGanttChart(dealMap){
       const cls = (days!==null && days<0) ? "gantt-marker-bad" : m.category==="closing" ? "gantt-marker-brass" : "gantt-marker-accent";
       return `<button type="button" class="gantt-marker ${cls}" style="left:${pct}%" data-deal="${escapeAttr(r.id)}" title="${escapeAttr(r.name+" — "+m.label+" · "+fmtDate(m.date)+" · "+fmtMoneyShort(m.amount))}"></button>`;
     }).join("");
+    const closeMarkHtml = (()=>{
+      if(!r.closeDate) return "";
+      const t = new Date(r.closeDate+"T00:00:00").getTime();
+      if(isNaN(t)) return "";
+      const pct = pctOf(t);
+      return `<button type="button" class="gantt-marker gantt-marker-star" style="left:${pct}%" data-deal="${escapeAttr(r.id)}" title="${escapeAttr(r.name+" — Scheduled closing date · "+fmtDate(r.closeDate))}">★</button>`;
+    })();
     return `<div class="gantt-row">
       <button type="button" class="gantt-row-name" data-deal="${escapeAttr(r.id)}">${escapeHtml(r.name)}</button>
       <div class="gantt-row-track">
         <span class="gantt-today-line" style="left:${todayPct}%"></span>
-        ${segHtml}${markHtml}
+        ${segHtml}${markHtml}${closeMarkHtml}
       </div>
       <span class="pill pill-${r.stageMeta.color} gantt-row-pill">${escapeHtml(r.stageMeta.title)}</span>
     </div>`;
@@ -7451,15 +7427,15 @@ function renderGanttChart(dealMap){
       <div class="gantt-body">${rowsHtml}</div>
     </div>
     <div class="map-legend" style="margin-top:10px;">
-      ${/* Rows are limited to deals currently at LOI/PSA/Closing (GANTT_TIMELINE_STAGES), but each
-           row's segments still reconstruct that deal's FULL history — a PSA-stage deal's row still
-           draws its earlier Just landed/Underwriting/LOI segments — so the legend keeps every
-           stage but Dead (which a shown deal is never currently in) rather than only the 3
-           eligible-to-show stages. */ ""}
-      ${DEAL_STAGES.filter(s=>s.key!=="dead").map(s=>`<span class="legend-item"><span class="legend-swatch" style="background:var(--${s.color});"></span>${s.title}</span>`).join("")}
+      ${/* Legend now derives straight from GANTT_TIMELINE_STAGES (just PSA + Closing) instead of
+           hardcoding every DEAL_STAGES color — each row draws only its current stage's segment now
+           (see buildDealGanttRow), so Just landed/Underwriting/LOI/Onboarded never appear here and
+           don't need a swatch. */ ""}
+      ${DEAL_STAGES.filter(s=>GANTT_TIMELINE_STAGES.has(s.key)).map(s=>`<span class="legend-item"><span class="legend-swatch" style="background:var(--${s.color});"></span>${s.title}</span>`).join("")}
       <span class="legend-item"><span class="legend-swatch" style="background:var(--accent);border-radius:50%;"></span>Deposit due</span>
       <span class="legend-item"><span class="legend-swatch" style="background:var(--brass);border-radius:50%;"></span>Closing balance due</span>
       <span class="legend-item"><span class="legend-swatch" style="background:var(--bad);border-radius:50%;"></span>Overdue</span>
+      <span class="legend-item"><span class="legend-star" aria-hidden="true">★</span>Scheduled closing date</span>
     </div>`;
 
   el.querySelectorAll(".gantt-row-name, .gantt-marker").forEach(btn=>{
