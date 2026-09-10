@@ -62,6 +62,22 @@
     --pipe9:#01304B; --pipe9-soft:#DDEAF4; --pipe9-ink:#FFFFFF;
     --pipe10:#012033; --pipe10-soft:#E0E9F1; --pipe10-ink:#FFFFFF;
     --pipe11:#01111E; --pipe11-soft:#E2E9EE; --pipe11-ink:#FFFFFF;
+    /* Project timeline (Gantt) only — NOT part of the ordinal ramp above. That ramp is correct for
+       "how far along" a deal is across the full 11-stop pipeline (Kanban, stage pills, deal list),
+       but the Gantt now only ever draws two stages (PSA, Closing) side by side as bars a user must
+       tell apart at a glance — per the dataviz skill, a 2-item set being told apart *as categories*
+       calls for genuinely different hues, not two more steps of the same single-hue ramp. Brendan
+       flagged exactly this after the first fix (moving Closing from pipe9 to pipe11): "the dark
+       blue of PSA inspection period is very similar to the black closing color" — pipe7 and pipe11
+       ARE numerically far apart in lightness, but both are dark, low-chroma blue, so a thin bar in
+       either reads as "some dark blue" at a glance. Closing's bar (only) now uses this separate
+       plum — a hue far from PSA's blue (pipe7), and also far from every reserved status hue used by
+       the $-due markers below (green/amber/red) so a marker sitting on either bar stays legible.
+       PSA's bar keeps using pipe7 unchanged — Brendan didn't flag PSA's own color, only that it
+       reads too close to Closing's. The row's stage-name pill is untouched by any of this: it's a
+       padded label with white text, not a thin bar, so pipe7/pipe11 stay perfectly legible there and
+       still give the pipeline-wide consistency originally asked for. */
+    --gantt-closing:#5B3468; --gantt-closing-soft:#ECE1EF; --gantt-closing-ink:#FFFFFF;
     --shadow:0 1px 2px rgba(24,49,57,.07), 0 10px 28px -14px rgba(24,49,57,.26);
     --font-display:'Source Serif 4',Georgia,'Times New Roman',serif;
     --font-body:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;
@@ -952,6 +968,10 @@
   .capneed-breakdown-funding{ margin-top:-3px; }
   .capneed-bd-row{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--ink-soft); }
   .capneed-bd-row .capneed-bd-amt{ margin-left:auto; font-family:var(--font-mono); color:var(--ink); }
+  .capneed-bd-committed{ padding-left:16px; font-size:10.5px; color:var(--ink-faint); }
+  .capneed-bd-committed .capneed-bd-amt{ color:var(--good); }
+  .capneed-bd-sub-label{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .capneed-note{ font-size:11px; color:var(--ink-faint); margin:-2px 0 4px; }
   .capneed-items{ display:flex; flex-direction:column; gap:5px; max-height:180px; overflow-y:auto; }
   .capneed-item{
     display:flex; align-items:center; gap:7px; padding:6px 8px; border-radius:7px; border:1px solid var(--border);
@@ -1156,7 +1176,10 @@
     position:absolute; top:50%; width:10px; height:10px; border-radius:50%; transform:translate(-50%,-50%);
     border:2px solid var(--surface); cursor:pointer; padding:0; z-index:2;
   }
-  .gantt-marker-accent{ background:var(--accent); }
+  /* Was --accent (near-black) — Brendan: "the deposit due black dot will just blend in" against the
+     also-dark bar colors. Green reads clearly against both the PSA (blue) and Closing (plum) bars,
+     and against the amber/red/gold already used by the other markers and the closing-date star. */
+  .gantt-marker-deposit{ background:var(--good); }
   .gantt-marker-brass{ background:var(--brass); }
   .gantt-marker-bad{ background:var(--bad); }
   /* Scheduled closing date — deliberately NOT another dot: a bright gold star so the single most
@@ -5378,7 +5401,8 @@ function renderDashboard(){
         <div id="pipelineMapAddressNote" class="map-note" style="display:none;"></div>
         <div class="map-legend">
           ${pipelineMapMode==="address"
-            ? `<span class="legend-item"><span class="legend-bubble" style="width:14px;height:14px;background:var(--warn);opacity:.6;border-radius:50%;"></span> Individual deal (exact address)</span>`
+            ? DEAL_STAGES.filter(s=>s.key!=="dead").map(s=>`<span class="legend-item"><span class="legend-bubble" style="width:14px;height:14px;background:var(--${s.color});opacity:.6;border-radius:50%;"></span> ${s.title}</span>`).join("")
+              + `<span class="legend-item"><span class="legend-bubble" style="width:14px;height:14px;background:var(--bad);opacity:.6;border-radius:50%;"></span> Address mismatch (flagged)</span>`
             : `<span class="legend-item"><span class="legend-swatch" style="background:color-mix(in srgb, var(--accent) 22%, var(--surface-2));"></span> Has pipeline</span>
           <span class="legend-item"><span class="legend-bubble" style="width:10px;height:10px;"></span> Fewer $</span>
           <span class="legend-item"><span class="legend-bubble" style="width:20px;height:20px;"></span> More capital</span>`}
@@ -5426,8 +5450,9 @@ function renderDashboard(){
       <h4 class="section-label">Project timeline — stage progress &amp; dollars due</h4>
       <div class="gantt-scroll"><div id="ganttGrid"></div></div>
     </div>
-    ${prospectsForReviewCardHtml(prospectingEntries)}
     ${financingGapsCardHtml(inContractEntries)}
+    ${capitalNeedCardHtml(capNeedBuckets)}
+    ${prospectsForReviewCardHtml(prospectingEntries)}
     ${pageDividerHtml("Pipeline overview")}
     <div class="kpi-grid">
       <div class="kpi-tile"><span class="kpi-label">Active deals</span><span class="kpi-value">${active.length}</span><span class="kpi-sub">${filtered.length-active.length} dead / passed</span></div>
@@ -5439,7 +5464,6 @@ function renderDashboard(){
       <div class="kpi-tile"><span class="kpi-label">Avg days to close</span><span class="kpi-value">${avgDaysToClose!==null?avgDaysToClose:"—"}</span><span class="kpi-sub">${closeDurations.length} closed deal${closeDurations.length===1?"":"s"}</span></div>
     </div>
     ${closedTrajectoryCardHtml(dashboardDealsFiltered)}
-    ${capitalNeedCardHtml(capNeedBuckets)}
     ${pageDividerHtml("Trends")}
     <div class="dash-grid">
       <div class="dash-card">
@@ -6752,6 +6776,16 @@ async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote)
   el.innerHTML = "";
   const warn = cssVar("--warn", "#B4790F");
   const bad = cssVar("--bad", "#B7382F");
+  // Brendan: "i don't like the color of the actual project in the dashboard map. we should use
+  // different colors based on the status of the project in the pipeline" — every pin now takes the
+  // color of its OWN deal's stage (the same DEAL_STAGES ramp used everywhere else — Kanban, stage
+  // pills, the Gantt row pill), resolved once per stage up front rather than per-marker. The red
+  // "mismatch" flag still overrides stage color entirely (see isMismatch below) — a geocoding
+  // problem needs to look wrong regardless of stage, and "dead" deals never reach this map (filtered
+  // out above the loop) so red stays exclusively reserved for that flag, never confusable with a
+  // stage's own color.
+  const stageColorHex = {};
+  DEAL_STAGES.forEach(s=>{ stageColorHex[s.key] = cssVar("--"+s.color, warn); });
   const savedView = pipelineMapViewState.address;
   const map = L.map(el, { scrollWheelZoom:false, worldCopyJump:true })
     .setView(savedView ? savedView.center : [39.5, -98.35], savedView ? savedView.zoom : 4);
@@ -6842,7 +6876,7 @@ async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote)
       };
       const expectedState = dealStateCode(d);
       const isMismatch = !isApprox && !!(expectedState && hit.stateCode && expectedState!==hit.stateCode);
-      const color = isMismatch ? bad : warn;
+      const color = isMismatch ? bad : (stageColorHex[d.stage||"just_landed"] || warn);
       const m = L.circleMarker([pinCoords.lat, pinCoords.lon], isApprox
         ? { radius:7, color, weight:1.5, dashArray:"3,3", fillColor:color, fillOpacity:.15 }
         : { radius:8, color, weight:1.5, fillColor:color, fillOpacity:.55 }).addTo(map);
@@ -7027,6 +7061,25 @@ const CAPNEED_WINDOWS = [
   {key:"d90", label:"61–90 days"},
 ];
 function capNeedSum(list, field){ return list.reduce((s,i)=> s+(Number(field?i[field]:i.amount)||0), 0); }
+/* How much of a bucket's modeled Debt/Equity need is already lined up — reuses debtDealTotals/
+   equityDealTotals, the SAME "committed" figures Financing gaps (and the Capital tab) already show,
+   so this card can't disagree with those. Committed capital funds a deal's whole stack, not one
+   specific deposit or closing-balance line, so it's summed once per UNIQUE deal appearing in this
+   bucket rather than once per item (a deal with two due dates in the same window shouldn't double-
+   count its lender's commitment). It's deliberately NOT clamped to the bucket's own $ total — a
+   deal can easily have more committed than is due in any one 30/60/90-day slice — so this reads as
+   "already lined up for these deals" rather than a literal remainder of the bucket figure above it. */
+function capNeedCommitted(list){
+  const uniqueDealIds = [...new Set(list.map(i=>i.dealId))];
+  let debtCommitted = 0, equityCommitted = 0;
+  uniqueDealIds.forEach(id=>{
+    const d = deals.get(id);
+    if(!d) return;
+    debtCommitted += debtDealTotals(d).committed;
+    equityCommitted += equityDealTotals(d).committed;
+  });
+  return {debtCommitted, equityCommitted};
+}
 function capitalNeedCardHtml(buckets){
   const colsHtml = CAPNEED_WINDOWS.map(w=>{
     const list = buckets[w.key].slice().sort((a,b)=> a.date<b.date?-1:1);
@@ -7035,6 +7088,7 @@ function capitalNeedCardHtml(buckets){
     const closingTotal = capNeedSum(list.filter(i=>i.category==="closing"));
     const debtTotal = capNeedSum(list, "debtAmount");
     const equityTotal = capNeedSum(list, "equityAmount");
+    const {debtCommitted, equityCommitted} = capNeedCommitted(list);
     const itemsHtml = list.length ? list.map(item=>{
       return `<button type="button" class="capneed-item" data-deal="${escapeAttr(item.dealId)}" title="${escapeAttr(item.name+" — "+item.label+" · "+fmtDate(item.date)+" · "+fmtMoneyShort(item.debtAmount)+" debt / "+fmtMoneyShort(item.equityAmount)+" equity")}">
         <span class="capneed-item-name">${escapeHtml(item.name)}</span>
@@ -7052,14 +7106,17 @@ function capitalNeedCardHtml(buckets){
         <div class="capneed-bd-row"><span class="dot dot-brass"></span>Closing<span class="capneed-bd-amt">${fmtMoneyShort(closingTotal)}</span></div>
       </div>
       <div class="capneed-breakdown capneed-breakdown-funding">
-        <div class="capneed-bd-row"><span class="dot dot-neutral"></span>Debt<span class="capneed-bd-amt">${fmtMoneyShort(debtTotal)}</span></div>
-        <div class="capneed-bd-row"><span class="dot dot-good"></span>Equity<span class="capneed-bd-amt">${fmtMoneyShort(equityTotal)}</span></div>
+        <div class="capneed-bd-row"><span class="dot dot-neutral"></span>Debt needed<span class="capneed-bd-amt">${fmtMoneyShort(debtTotal)}</span></div>
+        <div class="capneed-bd-row capneed-bd-committed"><span class="capneed-bd-sub-label">↳ already committed</span><span class="capneed-bd-amt">${fmtMoneyShort(debtCommitted)}</span></div>
+        <div class="capneed-bd-row"><span class="dot dot-good"></span>Equity needed<span class="capneed-bd-amt">${fmtMoneyShort(equityTotal)}</span></div>
+        <div class="capneed-bd-row capneed-bd-committed"><span class="capneed-bd-sub-label">↳ already committed</span><span class="capneed-bd-amt">${fmtMoneyShort(equityCommitted)}</span></div>
       </div>
       <div class="capneed-items">${itemsHtml}</div>
     </div>`;
   }).join("");
   return `<div class="dash-card" id="capitalNeedCard" style="margin-bottom:16px;">
     <h4 class="section-label">Capital needed — next 90 days</h4>
+    <p class="capneed-note">"Already committed" is each deal's full debt/equity lined up so far (same figures as Financing gaps above), not only the slice tied to this window — a deal can have more committed than is due in any single 30/60/90-day column.</p>
     <div class="capneed-grid">${colsHtml}</div>
   </div>`;
 }
@@ -7389,15 +7446,18 @@ function renderGanttChart(dealMap){
       const left = pctOf(s);
       const width = Math.max(pctOf(e)-left, 1.2);
       const meta = DEAL_STAGES.find(x=>x.key===seg.stage) || DEAL_STAGES[0];
+      // Closing's bar deliberately breaks from the pipeline ramp here — see the --gantt-closing
+      // comment up in :root for why. PSA keeps its normal pipeline color (pipe7) unchanged.
+      const barVar = seg.stage==="closing" ? "gantt-closing" : meta.color;
       const label = `${meta.title} — ${fmtDate((seg.start||"").slice(0,10))} to ${seg.ongoing?"ongoing":fmtDate((seg.end||"").slice(0,10))}`;
-      return `<span class="gantt-seg${seg.ongoing?" gantt-seg-ongoing":""}" style="left:${left}%;width:${width}%;background:var(--${meta.color})" title="${escapeAttr(r.name+" — "+label)}"></span>`;
+      return `<span class="gantt-seg${seg.ongoing?" gantt-seg-ongoing":""}" style="left:${left}%;width:${width}%;background:var(--${barVar})" title="${escapeAttr(r.name+" — "+label)}"></span>`;
     }).join("");
     const markHtml = r.markers.map(m=>{
       const t = new Date(m.date+"T00:00:00").getTime();
       if(isNaN(t)) return "";
       const pct = pctOf(t);
       const days = daysUntil(m.date);
-      const cls = (days!==null && days<0) ? "gantt-marker-bad" : m.category==="closing" ? "gantt-marker-brass" : "gantt-marker-accent";
+      const cls = (days!==null && days<0) ? "gantt-marker-bad" : m.category==="closing" ? "gantt-marker-brass" : "gantt-marker-deposit";
       return `<button type="button" class="gantt-marker ${cls}" style="left:${pct}%" data-deal="${escapeAttr(r.id)}" title="${escapeAttr(r.name+" — "+m.label+" · "+fmtDate(m.date)+" · "+fmtMoneyShort(m.amount))}"></button>`;
     }).join("");
     const closeMarkHtml = (()=>{
@@ -7431,8 +7491,13 @@ function renderGanttChart(dealMap){
            hardcoding every DEAL_STAGES color — each row draws only its current stage's segment now
            (see buildDealGanttRow), so Just landed/Underwriting/LOI/Onboarded never appear here and
            don't need a swatch. */ ""}
-      ${DEAL_STAGES.filter(s=>GANTT_TIMELINE_STAGES.has(s.key)).map(s=>`<span class="legend-item"><span class="legend-swatch" style="background:var(--${s.color});"></span>${s.title}</span>`).join("")}
-      <span class="legend-item"><span class="legend-swatch" style="background:var(--accent);border-radius:50%;"></span>Deposit due</span>
+      ${DEAL_STAGES.filter(s=>GANTT_TIMELINE_STAGES.has(s.key)).map(s=>{
+        // Mirror the same closing-only override used for the bars themselves so the legend swatch
+        // always matches what's actually drawn (see the --gantt-closing comment in :root).
+        const swatchVar = s.key==="closing" ? "gantt-closing" : s.color;
+        return `<span class="legend-item"><span class="legend-swatch" style="background:var(--${swatchVar});"></span>${s.title}</span>`;
+      }).join("")}
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--good);border-radius:50%;"></span>Deposit due</span>
       <span class="legend-item"><span class="legend-swatch" style="background:var(--brass);border-radius:50%;"></span>Closing balance due</span>
       <span class="legend-item"><span class="legend-swatch" style="background:var(--bad);border-radius:50%;"></span>Overdue</span>
       <span class="legend-item"><span class="legend-star" aria-hidden="true">★</span>Scheduled closing date</span>
@@ -7540,8 +7605,14 @@ function renderUpcomingList(events){
   const el = document.getElementById("upcomingList");
   if(!el) return;
   const todayIso = new Date().toISOString().slice(0,10);
-  const upcoming = events.filter(ev=> ev.date >= todayIso).slice(0,20);
-  const overdue = events.filter(ev=> ev.date < todayIso);
+  // A "closed" event is a record of something that already happened, not a pending obligation —
+  // its date is always in the past by construction, so it doesn't belong under a heading that
+  // says "Upcoming dates" even styled as good news, no matter how recent. renderCalendarGrid
+  // already excludes "closed" for the same reason (see its own `relevant` filter); mirror that
+  // here instead of letting a finished closing surface in a list of things still ahead.
+  const relevant = events.filter(ev=> ev.type!=="closed");
+  const upcoming = relevant.filter(ev=> ev.date >= todayIso).slice(0,20);
+  const overdue = relevant.filter(ev=> ev.date < todayIso);
   const rows = [...overdue.slice(-3), ...upcoming];
 
   if(rows.length===0){
@@ -7550,14 +7621,8 @@ function renderUpcomingList(events){
   }
   el.innerHTML = rows.map(ev=>{
     const meta = EVENT_TYPE_META[ev.type]||{label:ev.type,color:"neutral"};
-    // A "closed" event is a record of something that already happened, not a pending obligation —
-    // its date is always in the past by construction, so running it through urgencyClass/
-    // urgencySuffix (built for pending deadlines) mislabels it "overdue". renderCalendarGrid
-    // already excludes "closed" from its own past-due bucket for the same reason; mirror that here
-    // instead of pill-bad-and-"· overdue" on a deal that's done.
-    const isClosed = ev.type==="closed";
-    const pillCls = isClosed ? "pill-good" : urgencyClass(ev.date);
-    const suffix = isClosed ? "" : urgencySuffix(ev.date);
+    const pillCls = urgencyClass(ev.date);
+    const suffix = urgencySuffix(ev.date);
     return `<div class="upcoming-row" data-deal="${escapeAttr(ev.dealId)}">
       <span class="pill pill-solid ${pillCls} mono upcoming-date">${fmtDate(ev.date)}${suffix}</span>
       <span class="upcoming-name">${escapeHtml(ev.name)}</span>
