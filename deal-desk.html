@@ -5380,7 +5380,7 @@ function renderDashboard(){
           <span class="legend-item"><span class="legend-swatch" style="background:#2A8A2A;opacity:.55;"></span> Land corridor</span>` : ""}
         </div>
         <div class="map-datalayers">
-          <span class="map-datalayers-label">Data layers:</span>
+          <span class="map-datalayers-label" id="mapDataLayersLabel">Data layers:</span>
           <label class="legend-item legend-toggle" style="cursor:pointer;">
             <input type="checkbox" id="dlWetlandsToggle" ${activeDataLayers.wetlands?"checked":""}> USFWS wetlands
           </label>
@@ -6142,13 +6142,13 @@ async function renderDealLocationMap(dealId, addr){
   }
 
   attachStaticDataLayers(map);
-  if(anyVectorDataLayerActive() && typeof map.getBounds==="function") refreshVectorDataLayers(map, map.getBounds(), isCurrent);
-  if(typeof map.on==="function") map.on("moveend zoomend", ()=> scheduleDataLayersRefetch(map, isCurrent));
+  if(anyVectorDataLayerActive() && typeof map.getBounds==="function") refreshVectorDataLayers(map, map.getBounds(), isCurrent, "dealMapDataLayersLabel");
+  if(typeof map.on==="function") map.on("moveend zoomend", ()=> scheduleDataLayersRefetch(map, isCurrent, "dealMapDataLayersLabel"));
 
   const legend = document.createElement("div");
   legend.className = "map-datalayers";
   legend.innerHTML = `
-    <span class="map-datalayers-label">Data layers:</span>
+    <span class="map-datalayers-label" id="dealMapDataLayersLabel">Data layers:</span>
     <label class="legend-item legend-toggle" style="cursor:pointer;">
       <input type="checkbox" id="dealDlFloodToggle" ${activeDataLayers.flood?"checked":""}> FEMA flood zones
     </label>
@@ -6555,27 +6555,40 @@ async function renderWildfireLayer(map, bounds, isCurrent){
    map re-rendered, or the deal panel closed / switched deals, while a request was in the air) can
    notice it's no longer relevant and stop touching the old map — the pipeline map and the deal card
    map each have their own notion of "current" (a render generation counter for one, open-deal-id for
-   the other), which is exactly why this takes a predicate rather than comparing a single global. */
-async function refreshVectorDataLayers(map, bounds, isCurrent){
+   the other), which is exactly why this takes a predicate rather than comparing a single global.
+   `labelElId` (optional) names the "Data layers:" label element in whichever legend is calling this,
+   so it can be flipped to "Data layers (loading…):" for the duration — these are all live queries
+   against real public GIS services (some, like the flood-zone polygons, carrying real geometry
+   detail rather than a pre-rendered image tile), so a few seconds' wait — longer over a wide "By
+   market" view spanning a lot of ground, or if a particular government service is just having a slow
+   moment — is expected, and the point of the label is so that reads as "working" rather than
+   "stuck". */
+async function refreshVectorDataLayers(map, bounds, isCurrent, labelElId){
   if(!map || !anyVectorDataLayerActive()) return;
-  if(activeDataLayers.flood) await renderFloodZoneLayer(map, bounds, isCurrent);
-  if(!isCurrent()) return;
-  if(activeDataLayers.oz) await renderOpportunityZonesLayer(map, bounds, isCurrent);
-  if(!isCurrent()) return;
-  if(activeDataLayers.brownfields) await renderBrownfieldsLayer(map, bounds, isCurrent);
-  if(!isCurrent()) return;
-  if(activeDataLayers.wildfire) await renderWildfireLayer(map, bounds, isCurrent);
-  if(!isCurrent()) return;
-  if(activeDataLayers.demographics) await renderDemographicsLayer(map, bounds, isCurrent);
+  const labelEl = labelElId && document.getElementById(labelElId);
+  if(labelEl) labelEl.textContent = "Data layers (loading…):";
+  try{
+    if(activeDataLayers.flood) await renderFloodZoneLayer(map, bounds, isCurrent);
+    if(!isCurrent()) return;
+    if(activeDataLayers.oz) await renderOpportunityZonesLayer(map, bounds, isCurrent);
+    if(!isCurrent()) return;
+    if(activeDataLayers.brownfields) await renderBrownfieldsLayer(map, bounds, isCurrent);
+    if(!isCurrent()) return;
+    if(activeDataLayers.wildfire) await renderWildfireLayer(map, bounds, isCurrent);
+    if(!isCurrent()) return;
+    if(activeDataLayers.demographics) await renderDemographicsLayer(map, bounds, isCurrent);
+  } finally {
+    if(labelEl && isCurrent()) labelEl.textContent = "Data layers:";
+  }
 }
 
 // Debounced re-fetch of the vector data layers when the user pans/zooms — otherwise panning away
 // from the view they were fetched for would silently leave stale/missing data on screen.
 let _dataLayersRefetchTimer = null;
-function scheduleDataLayersRefetch(map, isCurrent){
+function scheduleDataLayersRefetch(map, isCurrent, labelElId){
   if(_dataLayersRefetchTimer) clearTimeout(_dataLayersRefetchTimer);
   _dataLayersRefetchTimer = setTimeout(()=>{
-    if(isCurrent() && typeof map.getBounds==="function") refreshVectorDataLayers(map, map.getBounds(), isCurrent);
+    if(isCurrent() && typeof map.getBounds==="function") refreshVectorDataLayers(map, map.getBounds(), isCurrent, labelElId);
   }, 700);
 }
 
@@ -6624,7 +6637,7 @@ function renderPipelineMap(byState, byMarket, activeEntries){
   // layer (Opportunity Zones / brownfields / income) for wherever the user just panned to.
   map.on("moveend zoomend", ()=>{
     pipelineMapViewState[mode] = { center: map.getCenter(), zoom: map.getZoom() };
-    if(mode!=="state") scheduleDataLayersRefetch(map, ()=> myGen===pipelineMapRenderGen);
+    if(mode!=="state") scheduleDataLayersRefetch(map, ()=> myGen===pipelineMapRenderGen, "mapDataLayersLabel");
   });
 
   // One delegated listener handles every popup this map ever opens (each dot's popup content is
@@ -6668,7 +6681,7 @@ function renderPipelineMap(byState, byMarket, activeEntries){
   }
 
   if(showConcoursAreas) renderConcoursAreasOverlay(map);
-  if(mode!=="state" && typeof map.getBounds==="function") refreshVectorDataLayers(map, map.getBounds(), ()=> myGen===pipelineMapRenderGen);
+  if(mode!=="state" && typeof map.getBounds==="function") refreshVectorDataLayers(map, map.getBounds(), ()=> myGen===pipelineMapRenderGen, "mapDataLayersLabel");
 
   if(!savedView){
     if(markers.length){
@@ -6718,7 +6731,7 @@ async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote)
   // wherever the user just panned to.
   map.on("moveend zoomend", ()=>{
     pipelineMapViewState.address = { center: map.getCenter(), zoom: map.getZoom() };
-    scheduleDataLayersRefetch(map, ()=> myGen===pipelineMapRenderGen);
+    scheduleDataLayersRefetch(map, ()=> myGen===pipelineMapRenderGen, "mapDataLayersLabel");
   });
   map.on("popupopen", e=>{
     const popupEl = e.popup.getElement();
@@ -6735,7 +6748,7 @@ async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote)
   });
 
   if(showConcoursAreas) renderConcoursAreasOverlay(map);
-  if(typeof map.getBounds==="function") refreshVectorDataLayers(map, map.getBounds(), ()=> myGen===pipelineMapRenderGen);
+  if(typeof map.getBounds==="function") refreshVectorDataLayers(map, map.getBounds(), ()=> myGen===pipelineMapRenderGen, "mapDataLayersLabel");
 
   const markers = [];
   const notLocated = [];
