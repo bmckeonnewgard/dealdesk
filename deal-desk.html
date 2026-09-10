@@ -20,7 +20,15 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
-    --bg:#F6F9F9; --surface:#FFFFFF; --surface-2:#E9F1F2;
+    /* Brendan: "overall i think the website is too bright white... can we add a greyish color
+       background to help my eyes?" — the page background steps down from a near-white #F6F9F9 to
+       an actually-grey #E9EDEC, and cards go from pure #FFFFFF to a barely-off-white #FAFBFB so they
+       still read as "the clean surface on top of the grey page" rather than vanishing into it — the
+       existing shadow/border on every card still does the job of separating it from the page, the
+       same way it always did at the old near-1:1 page/card contrast. Ink-on-background contrast is
+       unaffected (both new tones are still light enough for dark body text to sit comfortably above
+       11:1). */
+    --bg:#E9EDEC; --surface:#FAFBFB; --surface-2:#E3E9E8;
     --ink:#183139; --ink-soft:#526468; --ink-faint:#8A9CA0;
     --border:#CDDBDD; --border-strong:#AFC2C5;
     --accent:#183139; --accent-soft:#E2ECEE; --accent-strong:#0E2027; --accent-ink:#FFFFFF;
@@ -31,53 +39,39 @@
     --neutral:#7C8B92; --neutral-soft:#EBEBEB; --neutral-ink:#FFFFFF;
     --priority-high:#17803D; --priority-high-soft:#DFF3E6; --priority-high-ink:#FFFFFF;
     --priority-medium:#9E8300; --priority-medium-soft:#FBF3D0; --priority-medium-ink:#2A2100;
-    /* Pipeline-stage ordinal ramp — one hue (the brand's teal), monotonically darkening from
-       Just landed to Closing — see DEAL_STAGES below, which now uses 5 of these 11 stops (the
-       pipeline collapsed from 11 working stages down to 5 plus Onboarded/Dead; the unused stops
-       are simply idle, kept rather than renumbered so this ramp's own history below stays
-       accurate), so color itself reads as "how far along" a deal is, the way the
-       dataviz skill's ordinal-ramp method prescribes (one hue, monotone lightness) rather than
-       cycling a handful of unrelated categorical colors or hue-rotating through a rainbow.
-       Onboarded and Dead/Passed intentionally stay on the existing --good/--bad status colors
-       below, not this ramp — they're outcomes (succeeded / didn't happen), not "further along,"
-       so they keep their own fixed, reserved meaning instead of just being the darkest ramp step.
-       Re-stepped for the new 11th stop (previously 10) with the dataviz skill's ordinal checks
-       (monotone L, adjacent ΔL >= 0.06, single hue) — see scripts/validate_palette.js in that
-       skill for the method; the ramp's dark end now runs one step past the old pipe10 to make
-       room for the extra stop without compressing any existing gap below the 0.06 floor. Pipe1
-       is unchanged from the original 10-step ramp and, as before, still lands under the ideal
-       2:1 light-end contrast floor at this size — accepted then and now because it's rendered
-       small (a status dot / pill), never as body text. Ink flips from dark to white at pipe5,
-       wherever it gives the better of the two contrast ratios for that step's fill (a couple of
-       middle steps land a little under the ideal 4.5:1 either way — an inherent squeeze for a
-       mid-lightness fill, same tradeoff the original 7-step ramp already made at pipe3). */
-    --pipe1:#93C8D5; --pipe1-soft:#DCEBEF; --pipe1-ink:#183139;
-    --pipe2:#6FB6C9; --pipe2-soft:#D9ECF1; --pipe2-ink:#183139;
-    --pipe3:#4AA4BE; --pipe3-soft:#D6ECF4; --pipe3-ink:#183139;
-    --pipe4:#2691B1; --pipe4-soft:#D4EDF6; --pipe4-ink:#183139;
-    --pipe5:#007CA1; --pipe5-soft:#D4ECF8; --pipe5-ink:#FFFFFF;
-    --pipe6:#00688E; --pipe6-soft:#D6ECF8; --pipe6-ink:#FFFFFF;
-    --pipe7:#005479; --pipe7-soft:#D9EBF7; --pipe7-ink:#FFFFFF;
-    --pipe8:#004262; --pipe8-soft:#DBEAF5; --pipe8-ink:#FFFFFF;
-    --pipe9:#01304B; --pipe9-soft:#DDEAF4; --pipe9-ink:#FFFFFF;
-    --pipe10:#012033; --pipe10-soft:#E0E9F1; --pipe10-ink:#FFFFFF;
-    --pipe11:#01111E; --pipe11-soft:#E2E9EE; --pipe11-ink:#FFFFFF;
-    /* Project timeline (Gantt) only — NOT part of the ordinal ramp above. That ramp is correct for
-       "how far along" a deal is across the full 11-stop pipeline (Kanban, stage pills, deal list),
-       but the Gantt now only ever draws two stages (PSA, Closing) side by side as bars a user must
-       tell apart at a glance — per the dataviz skill, a 2-item set being told apart *as categories*
-       calls for genuinely different hues, not two more steps of the same single-hue ramp. Brendan
-       flagged exactly this after the first fix (moving Closing from pipe9 to pipe11): "the dark
-       blue of PSA inspection period is very similar to the black closing color" — pipe7 and pipe11
-       ARE numerically far apart in lightness, but both are dark, low-chroma blue, so a thin bar in
-       either reads as "some dark blue" at a glance. Closing's bar (only) now uses this separate
-       plum — a hue far from PSA's blue (pipe7), and also far from every reserved status hue used by
-       the $-due markers below (green/amber/red) so a marker sitting on either bar stays legible.
-       PSA's bar keeps using pipe7 unchanged — Brendan didn't flag PSA's own color, only that it
-       reads too close to Closing's. The row's stage-name pill is untouched by any of this: it's a
-       padded label with white text, not a thin bar, so pipe7/pipe11 stay perfectly legible there and
-       still give the pipeline-wide consistency originally asked for. */
-    --gantt-closing:#5B3468; --gantt-closing-soft:#ECE1EF; --gantt-closing-ink:#FFFFFF;
+    /* Pipeline-stage ramp — ONE color per stage, used everywhere that stage is shown (Kanban, deal
+       list, dashboard funnel, Gantt bars/pills, map pins) so "Closing" is always the same color no
+       matter which screen you're looking at. Brendan: "the colors should be consistent - closing
+       means 'x color', LOI means 'y color' throughout" — that ruled out two things this ramp used
+       to do: (1) a couple of screens (the dashboard funnel card, previously) had their own unrelated
+       ad hoc colors for the same stages instead of reading from DEAL_STAGES below — fixed by making
+       every stage-color site pull from this one ramp, no exceptions; (2) the Project timeline
+       (Gantt) briefly had a one-off different color for Closing's bar only, to fix a legibility
+       complaint about PSA vs Closing looking too similar — that's reverted now in favor of fixing it
+       at the root instead (see below), since a chart-only exception is itself an inconsistency.
+       Redesigned from the previous single-hue teal ramp (pipe1..pipe11, monotonically darkening)
+       to a multi-hue ramp that still gets monotonically darker stage to stage (same "further along
+       = darker" logic, and still satisfies the existing monotonic-luminance check) but shifts hue
+       at every step — teal -> blue -> indigo -> wine — specifically because a single hue wasn't
+       enough separation for Brendan to tell PSA (was pipe7, a dark blue) from Closing (was pipe11,
+       a near-black blue) apart in a thin Gantt bar. Verified with the dataviz skill's
+       scripts/validate_palette.js: every adjacent pair (including PSA-vs-Closing, the original
+       complaint) now clears ΔE >= 15 for both normal and color-vision-deficient viewers, not just
+       the 6-8 "needs a label to back it up" floor. Var names (pipe1/pipe3/pipe5/pipe7/pipe11) and
+       the unused idle stops (pipe2/4/6/8/9/10) are kept as-is — only the 5 stops DEAL_STAGES
+       actually uses changed — so every existing .pill-pipeN/.dot-pipeN/.pill-solid.pill-pipeN CSS
+       rule and every "pipeN" string in the code below still works unchanged. */
+    --pipe1:#D9E6DC; --pipe1-soft:#FAFCFB; --pipe1-ink:#183139;   /* just landed — pale sage */
+    --pipe2:#6FB6C9; --pipe2-soft:#D9ECF1; --pipe2-ink:#183139;   /* idle */
+    --pipe3:#2E9C90; --pipe3-soft:#E6F3F2; --pipe3-ink:#183139;   /* underwriting — teal */
+    --pipe4:#2691B1; --pipe4-soft:#D4EDF6; --pipe4-ink:#183139;   /* idle */
+    --pipe5:#0F6BA0; --pipe5-soft:#E2EDF4; --pipe5-ink:#FFFFFF;   /* LOI — blue */
+    --pipe6:#00688E; --pipe6-soft:#D6ECF8; --pipe6-ink:#FFFFFF;   /* idle */
+    --pipe7:#241F8E; --pipe7-soft:#E5E4F1; --pipe7-ink:#FFFFFF;   /* PSA - inspection period — indigo */
+    --pipe8:#004262; --pipe8-soft:#DBEAF5; --pipe8-ink:#FFFFFF;   /* idle */
+    --pipe9:#01304B; --pipe9-soft:#DDEAF4; --pipe9-ink:#FFFFFF;   /* idle */
+    --pipe10:#012033; --pipe10-soft:#E0E9F1; --pipe10-ink:#FFFFFF; /* idle */
+    --pipe11:#3A0A1E; --pipe11-soft:#E7E2E4; --pipe11-ink:#FFFFFF; /* Closing — deep wine */
     --shadow:0 1px 2px rgba(24,49,57,.07), 0 10px 28px -14px rgba(24,49,57,.26);
     --font-display:'Source Serif 4',Georgia,'Times New Roman',serif;
     --font-body:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;
@@ -902,20 +896,15 @@
   }
   .funnel-fill-main{ font-weight:800; font-size:12.5px; }
   .funnel-fill-sub{ font-weight:600; font-size:10.5px; opacity:.8; }
-  /* A tonal ramp instead of four unrelated stage colors — early funnel stages are soft, translucent
-     tints of the card's own ink color (so they read as "part of the card" rather than clashing
-     swatches), the pre-close stage steps up to brass, and Closed lands on the app's established
-     success green with a little lift so the payoff bar visibly stands out from the rest. */
-  .funnel-fill-stage1{
-    background:color-mix(in srgb, currentColor 13%, transparent);
-    border:1px solid color-mix(in srgb, currentColor 28%, transparent);
-  }
-  .funnel-fill-stage2{
-    background:color-mix(in srgb, currentColor 24%, transparent);
-    border:1px solid color-mix(in srgb, currentColor 36%, transparent);
-  }
-  .funnel-fill-stage3{ background:var(--brass); color:var(--brass-ink); }
-  .funnel-fill-closed{
+  /* Same DEAL_STAGES colors as everywhere else a stage appears (Kanban, deal list, Gantt, map pins)
+     — this card used to have its own unrelated tonal scheme (a translucent ink tint for the early
+     stages, brass for pre-close, green for closed), which is exactly the "LOI is one color here and
+     a different color there" inconsistency Brendan flagged. Closed keeps its little box-shadow lift
+     so the payoff bar still visibly stands out from the rest. */
+  .funnel-fill-pipe1{ background:var(--pipe1); color:var(--pipe1-ink); }
+  .funnel-fill-pipe5{ background:var(--pipe5); color:var(--pipe5-ink); }
+  .funnel-fill-pipe7{ background:var(--pipe7); color:var(--pipe7-ink); }
+  .funnel-fill-good{
     background:var(--good); color:var(--good-ink);
     box-shadow:0 3px 10px -2px rgba(0,0,0,.4);
   }
@@ -1634,7 +1623,7 @@
 </head>
 <body>
 
-<div id="pwGateOverlay" style="position:fixed;inset:0;z-index:99999;background:var(--bg,#F6F9F9);display:flex;align-items:center;justify-content:center;font-family:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;">
+<div id="pwGateOverlay" style="position:fixed;inset:0;z-index:99999;background:var(--bg,#E9EDEC);display:flex;align-items:center;justify-content:center;font-family:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;">
   <form id="pwGateForm" style="max-width:360px;width:calc(100% - 40px);padding:32px;background:var(--surface,#fff);border:1px solid var(--border,#CDDBDD);border-radius:var(--radius,10px);box-shadow:var(--shadow,0 10px 28px -14px rgba(24,49,57,.26));">
     <div style="font-family:'Source Serif 4',Georgia,serif;font-size:22px;font-weight:600;color:var(--ink,#183139);margin-bottom:4px;">Deal Desk</div>
     <div style="font-size:13px;color:var(--ink-soft,#526468);margin-bottom:20px;">Enter the password to continue.</div>
@@ -5257,10 +5246,17 @@ function renderDashboard(){
   const funnelProspecting = active.filter(d=> FUNNEL_PROSPECT_STAGES.has(d.stage||"just_landed"));
   const funnelLoi = active.filter(d=> FUNNEL_LOI_STAGES.has(d.stage||"just_landed"));
   const funnelStages = [
-    {key:"prospects", label:"New prospects", color:"stage1", count:funnelProspecting.length, capital: funnelProspecting.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
-    {key:"loi", label:"LOI", color:"stage2", count:funnelLoi.length, capital: funnelLoi.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
-    {key:"psa", label:"Under Contract", color:"stage3", count:inContractDeals.length, capital: inContractDeals.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
-    {key:"closed", label:"Closed", color:"closed", count:closedInPeriod.length, capital: closedCapitalPeriod, periodOnly:true},
+    // Colors now read straight off the same DEAL_STAGES tokens used everywhere else a stage shows
+    // up (Kanban, deal list, Gantt, map pins) — Brendan: "closing means 'x color', LOI means 'y
+    // color' throughout." "New prospects" and "Under Contract" are each two DEAL_STAGES lumped into
+    // one funnel bucket (see FUNNEL_PROSPECT_STAGES/CONTRACT_STAGES above), so there's no single
+    // exact match for those two — they take the color of the bucket's more common/representative
+    // stage (just_landed, psa) rather than inventing a separate color. LOI and Closed map 1:1 onto
+    // a real stage each, so those two are exact, not representative.
+    {key:"prospects", label:"New prospects", color:"pipe1", count:funnelProspecting.length, capital: funnelProspecting.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
+    {key:"loi", label:"LOI", color:"pipe5", count:funnelLoi.length, capital: funnelLoi.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
+    {key:"psa", label:"Under Contract", color:"pipe7", count:inContractDeals.length, capital: inContractDeals.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
+    {key:"closed", label:"Closed", color:"good", count:closedInPeriod.length, capital: closedCapitalPeriod, periodOnly:true},
   ];
   const prospectingEntries = activeEntries.filter(([id,d])=> (d.stage||"just_landed")==="just_landed");
   const targetCount = active.filter(d=>d.meetsTargetCriteria).length;
@@ -7446,11 +7442,8 @@ function renderGanttChart(dealMap){
       const left = pctOf(s);
       const width = Math.max(pctOf(e)-left, 1.2);
       const meta = DEAL_STAGES.find(x=>x.key===seg.stage) || DEAL_STAGES[0];
-      // Closing's bar deliberately breaks from the pipeline ramp here — see the --gantt-closing
-      // comment up in :root for why. PSA keeps its normal pipeline color (pipe7) unchanged.
-      const barVar = seg.stage==="closing" ? "gantt-closing" : meta.color;
       const label = `${meta.title} — ${fmtDate((seg.start||"").slice(0,10))} to ${seg.ongoing?"ongoing":fmtDate((seg.end||"").slice(0,10))}`;
-      return `<span class="gantt-seg${seg.ongoing?" gantt-seg-ongoing":""}" style="left:${left}%;width:${width}%;background:var(--${barVar})" title="${escapeAttr(r.name+" — "+label)}"></span>`;
+      return `<span class="gantt-seg${seg.ongoing?" gantt-seg-ongoing":""}" style="left:${left}%;width:${width}%;background:var(--${meta.color})" title="${escapeAttr(r.name+" — "+label)}"></span>`;
     }).join("");
     const markHtml = r.markers.map(m=>{
       const t = new Date(m.date+"T00:00:00").getTime();
@@ -7491,12 +7484,7 @@ function renderGanttChart(dealMap){
            hardcoding every DEAL_STAGES color — each row draws only its current stage's segment now
            (see buildDealGanttRow), so Just landed/Underwriting/LOI/Onboarded never appear here and
            don't need a swatch. */ ""}
-      ${DEAL_STAGES.filter(s=>GANTT_TIMELINE_STAGES.has(s.key)).map(s=>{
-        // Mirror the same closing-only override used for the bars themselves so the legend swatch
-        // always matches what's actually drawn (see the --gantt-closing comment in :root).
-        const swatchVar = s.key==="closing" ? "gantt-closing" : s.color;
-        return `<span class="legend-item"><span class="legend-swatch" style="background:var(--${swatchVar});"></span>${s.title}</span>`;
-      }).join("")}
+      ${DEAL_STAGES.filter(s=>GANTT_TIMELINE_STAGES.has(s.key)).map(s=>`<span class="legend-item"><span class="legend-swatch" style="background:var(--${s.color});"></span>${s.title}</span>`).join("")}
       <span class="legend-item"><span class="legend-swatch" style="background:var(--good);border-radius:50%;"></span>Deposit due</span>
       <span class="legend-item"><span class="legend-swatch" style="background:var(--brass);border-radius:50%;"></span>Closing balance due</span>
       <span class="legend-item"><span class="legend-swatch" style="background:var(--bad);border-radius:50%;"></span>Overdue</span>
