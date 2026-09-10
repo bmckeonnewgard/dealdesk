@@ -5382,10 +5382,10 @@ function renderDashboard(){
         <div class="map-datalayers">
           <span class="map-datalayers-label">Data layers:</span>
           <label class="legend-item legend-toggle" style="cursor:pointer;">
-            <input type="checkbox" id="dlFloodToggle" ${activeDataLayers.flood?"checked":""}> FEMA flood zones
-          </label>
-          <label class="legend-item legend-toggle" style="cursor:pointer;">
             <input type="checkbox" id="dlWetlandsToggle" ${activeDataLayers.wetlands?"checked":""}> USFWS wetlands
+          </label>
+          <label class="legend-item legend-toggle${vectorLayersDisabled?" disabled":""}" style="cursor:${vectorLayersDisabled?"default":"pointer"};"${vectorLayersDisabled?' title="Switch to \'By market\' or \'By address\' to use this layer"':""}>
+            <input type="checkbox" id="dlFloodToggle" ${activeDataLayers.flood?"checked":""} ${vectorLayersDisabled?"disabled":""}> FEMA flood zones
           </label>
           <label class="legend-item legend-toggle${vectorLayersDisabled?" disabled":""}" style="cursor:${vectorLayersDisabled?"default":"pointer"};"${vectorLayersDisabled?' title="Switch to \'By market\' or \'By address\' to use this layer"':""}>
             <input type="checkbox" id="dlOzToggle" ${activeDataLayers.oz?"checked":""} ${vectorLayersDisabled?"disabled":""}> Opportunity Zones
@@ -5400,7 +5400,7 @@ function renderDashboard(){
             <input type="checkbox" id="dlWildfireToggle" ${activeDataLayers.wildfire?"checked":""} ${vectorLayersDisabled?"disabled":""}> Wildfire hazard
           </label>
           ${(activeDataLayers.demographics && !censusApiKey()) ? `<span class="map-note" style="margin:0;">Income layer needs a free Census API key — <button type="button" class="btn-icon" id="dlCensusKeyBtn" style="padding:1px 6px;">Add key</button></span>` : ""}
-          ${vectorLayersDisabled ? `<span class="map-note" style="margin:0;">Opportunity Zones, brownfields, income, and wildfire need "By market" or "By address" view.</span>` : ""}
+          ${vectorLayersDisabled ? `<span class="map-note" style="margin:0;">FEMA flood zones, Opportunity Zones, brownfields, income, and wildfire need "By market" or "By address" view.</span>` : ""}
         </div>
         ${pipelineMapMode==="market"
           ? (unmappedMarket.length ? `<div class="map-note">${unmappedMarket.length} deal${unmappedMarket.length>1?"s":""} without a recognizable "City, ST" in the address — add one to place it on the market map.</div>` : "")
@@ -6084,16 +6084,26 @@ async function geocodeAddress(address){
    whenever the analyst changes the address or the map-address override, rather than on every
    realtime update, since re-creating a live Leaflet instance on every remote edit elsewhere in
    the deal would be wasted work and a distracting flicker for no benefit. geocodeAddress's own
-   in-memory cache keeps repeat opens of the same deal free. */
+   in-memory cache keeps repeat opens of the same deal free.
+   Also carries the same optional GIS data layers as the pipeline map (flood zones, wetlands,
+   Opportunity Zones, brownfields, income, wildfire) — shares activeDataLayers with it, so toggling
+   a layer here or on the dashboard map shows up in both. Unlike the pipeline map, this map is always
+   a single point, so there's no "By state" mode to gate the vector layers behind — they're always
+   available. dealMapRenderGen guards every step after an await (a toggle change, or a panel
+   close/deal switch, re-invokes this whole function — see isCurrent below) so a stale in-flight
+   fetch can't draw onto a map that's no longer the one on screen. */
+let dealMapRenderGen = 0;
 async function renderDealLocationMap(dealId, addr){
   const wrap = document.getElementById("dealLocationMapWrap");
   if(!wrap) return;
+  const myGen = ++dealMapRenderGen;
   addr = (addr||"").trim();
   if(!addr){ wrap.innerHTML = ""; return; }
   wrap.innerHTML = `<div class="deal-location-map-loading" id="dealLocationMapSlot">Loading map…</div>`;
   const hit = await geocodeAddress(addr);
   const slot = document.getElementById("dealLocationMapSlot");
-  if(!slot || openDealId!==dealId) return; // panel closed, or switched to a different deal while geocoding
+  const isCurrent = ()=> myGen===dealMapRenderGen && openDealId===dealId;
+  if(!slot || !isCurrent()) return; // panel closed, or switched to a different deal while geocoding
   /* Nominatim (free, volunteer-mapped OSM data) can come up empty for a real address — rural
      highway addresses especially (state routes, unincorporated strips) tend to have sparse OSM
      address-point coverage. Rather than showing nothing, fall back to the "City, ST" market
@@ -6130,6 +6140,55 @@ async function renderDealLocationMap(dealId, addr){
     note.textContent = "Located via the U.S. Census geocoder — OpenStreetMap had no match for this exact address.";
     wrap.appendChild(note);
   }
+
+  attachStaticDataLayers(map);
+  if(anyVectorDataLayerActive() && typeof map.getBounds==="function") refreshVectorDataLayers(map, map.getBounds(), isCurrent);
+  if(typeof map.on==="function") map.on("moveend zoomend", ()=> scheduleDataLayersRefetch(map, isCurrent));
+
+  const legend = document.createElement("div");
+  legend.className = "map-datalayers";
+  legend.innerHTML = `
+    <span class="map-datalayers-label">Data layers:</span>
+    <label class="legend-item legend-toggle" style="cursor:pointer;">
+      <input type="checkbox" id="dealDlFloodToggle" ${activeDataLayers.flood?"checked":""}> FEMA flood zones
+    </label>
+    <label class="legend-item legend-toggle" style="cursor:pointer;">
+      <input type="checkbox" id="dealDlWetlandsToggle" ${activeDataLayers.wetlands?"checked":""}> USFWS wetlands
+    </label>
+    <label class="legend-item legend-toggle" style="cursor:pointer;">
+      <input type="checkbox" id="dealDlOzToggle" ${activeDataLayers.oz?"checked":""}> Opportunity Zones
+    </label>
+    <label class="legend-item legend-toggle" style="cursor:pointer;">
+      <input type="checkbox" id="dealDlBrownfieldsToggle" ${activeDataLayers.brownfields?"checked":""}> EPA brownfields
+    </label>
+    <label class="legend-item legend-toggle" style="cursor:pointer;">
+      <input type="checkbox" id="dealDlDemographicsToggle" ${activeDataLayers.demographics?"checked":""}> Median household income
+    </label>
+    <label class="legend-item legend-toggle" style="cursor:pointer;">
+      <input type="checkbox" id="dealDlWildfireToggle" ${activeDataLayers.wildfire?"checked":""}> Wildfire hazard
+    </label>
+    ${(activeDataLayers.demographics && !censusApiKey()) ? `<span class="map-note" style="margin:0;">Income layer needs a free Census API key — <button type="button" class="btn-icon" id="dealDlCensusKeyBtn" style="padding:1px 6px;">Add key</button></span>` : ""}
+  `;
+  wrap.appendChild(legend);
+  const bindDealDataLayerToggle = (elId, key)=>{
+    const el = document.getElementById(elId);
+    if(el) el.addEventListener("change", ()=>{ activeDataLayers[key] = el.checked; renderDealLocationMap(dealId, addr); });
+  };
+  bindDealDataLayerToggle("dealDlFloodToggle", "flood");
+  bindDealDataLayerToggle("dealDlWetlandsToggle", "wetlands");
+  bindDealDataLayerToggle("dealDlOzToggle", "oz");
+  bindDealDataLayerToggle("dealDlBrownfieldsToggle", "brownfields");
+  bindDealDataLayerToggle("dealDlWildfireToggle", "wildfire");
+  const dealDlDemographicsToggle = document.getElementById("dealDlDemographicsToggle");
+  if(dealDlDemographicsToggle) dealDlDemographicsToggle.addEventListener("change", ()=>{
+    activeDataLayers.demographics = dealDlDemographicsToggle.checked;
+    if(activeDataLayers.demographics && !censusApiKey()){
+      if(!promptCensusApiKey()) activeDataLayers.demographics = false;
+    }
+    renderDealLocationMap(dealId, addr);
+  });
+  const dealDlCensusKeyBtn = document.getElementById("dealDlCensusKeyBtn");
+  if(dealDlCensusKeyBtn) dealDlCensusKeyBtn.addEventListener("click", ()=>{ promptCensusApiKey(); renderDealLocationMap(dealId, addr); });
 }
 function cssVar(name, fallback){
   try{
@@ -6224,24 +6283,32 @@ let pipelineMapRenderGen = 0; // bumped on every renderPipelineMap call so a sta
    fitBounds only runs the first time a mode has no remembered view yet. */
 let pipelineMapViewState = {};
 
-/* Optional free/public GIS overlays for the pipeline map — a deal-screening aid, not a survey
-   instrument. Each is toggled independently and off by default. Two access patterns:
-     - WMS tile layers (flood, wetlands): Leaflet requests these exactly like the base OSM tiles —
+/* Optional free/public GIS overlays for the pipeline map (and the deal-detail location map — see
+   renderDealLocationMap) — a deal-screening aid, not a survey instrument. Each is toggled
+   independently and off by default. Two access patterns:
+     - WMS tile layers (wetlands only): Leaflet requests these exactly like the base OSM tiles —
        they cover whatever's on screen automatically as the user pans/zooms, no extra fetch logic.
-     - Vector layers (Opportunity Zones, EPA brownfields, Census income, FEMA wildfire hazard): these
-       services only expose a query endpoint, not a renderable tile service, so they're fetched for
-       the map's current bounds and redrawn on pan/zoom (debounced) — see refreshVectorDataLayers. To
-       keep a handful of API calls from turning into thousands of nationwide features, they're only
-       offered in "By market" and "By address" mode, not the whole-country "By state" view.
+     - Vector layers (FEMA flood zones, Opportunity Zones, EPA brownfields, Census income, FEMA
+       wildfire hazard): these services only expose a query endpoint, not a renderable tile service,
+       so they're fetched for the map's current bounds and redrawn on pan/zoom (debounced) — see
+       refreshVectorDataLayers. On the pipeline map, to keep a handful of API calls from turning into
+       thousands of nationwide features, they're only offered in "By market" and "By address" mode,
+       not the whole-country "By state" view.
+   FEMA flood zones used to be a WMS tile layer against hazards.fema.gov's own NFHLWMS service, but
+   in production that service rendered only LOMA/LOMR case-point labels at this app's usual zoom
+   levels — no actual flood-zone shading — rather than the flood hazard polygons themselves. It's now
+   a vector layer instead, queried from DHS/FEMA's HIFLD Open mirror of the same National Flood
+   Hazard Layer dataset (a straightforward FeatureServer, same fetch-and-render pattern as the other
+   vector layers below) so the app renders the zone polygons itself rather than trusting a third
+   party's WMS tile output.
    Census median household income additionally needs a free Census API key (api.census.gov now
    requires one on every request) — see censusApiKey()/promptCensusApiKey() below. */
 let activeDataLayers = { flood: false, wetlands: false, oz: false, brownfields: false, demographics: false, wildfire: false };
 const DATA_LAYER_SOURCES = {
   flood: {
     label: "FEMA flood zones",
-    attribution: 'FEMA <a href="https://www.fema.gov/flood-maps/national-flood-hazard-layer" target="_blank" rel="noopener">National Flood Hazard Layer</a>',
-    wms: "https://hazards.fema.gov/arcgis/services/public/NFHLWMS/MapServer/WMSServer",
-    layers: "28", // "Flood Hazard Zones"
+    attribution: 'FEMA National Flood Hazard Layer, via <a href="https://gis-fema.hub.arcgis.com/" target="_blank" rel="noopener">DHS HIFLD Open</a>',
+    query: "https://maps.nccs.nasa.gov/mapping/rest/services/hifld_open/national_flood_hazard/MapServer/5/query",
   },
   wetlands: {
     label: "USFWS wetlands",
@@ -6286,14 +6353,9 @@ function promptCensusApiKey(){
 
 /* WMS tile overlays — no bbox logic needed, Leaflet requests tiles for whatever's on screen. Safe
    to add at any zoom/mode since the request cost per tile is fixed regardless of how much area the
-   layer actually covers. */
+   layer actually covers. (FEMA flood zones used to live here too — see the vector layers below for
+   why it moved.) */
 function attachStaticDataLayers(map){
-  if(activeDataLayers.flood && typeof L.tileLayer.wms==="function"){
-    L.tileLayer.wms(DATA_LAYER_SOURCES.flood.wms, {
-      layers: DATA_LAYER_SOURCES.flood.layers, format: "image/png", transparent: true,
-      version: "1.3.0", opacity: .55, attribution: DATA_LAYER_SOURCES.flood.attribution,
-    }).addTo(map);
-  }
   if(activeDataLayers.wetlands && typeof L.tileLayer.wms==="function"){
     L.tileLayer.wms(DATA_LAYER_SOURCES.wetlands.wms, {
       layers: DATA_LAYER_SOURCES.wetlands.layers, format: "image/png", transparent: true,
@@ -6303,7 +6365,7 @@ function attachStaticDataLayers(map){
 }
 
 function anyVectorDataLayerActive(){
-  return activeDataLayers.oz || activeDataLayers.brownfields || activeDataLayers.demographics || activeDataLayers.wildfire;
+  return activeDataLayers.flood || activeDataLayers.oz || activeDataLayers.brownfields || activeDataLayers.demographics || activeDataLayers.wildfire;
 }
 
 /* Builds an ArcGIS REST "query" URL scoped to a Leaflet bounds rectangle, returned as GeoJSON. */
@@ -6328,10 +6390,38 @@ async function fetchArcGISGeoJSON(baseUrl, bounds, extraParams){
   }catch(e){ return null; }
 }
 
+/* FEMA flood hazard zones: Special Flood Hazard Area (SFHA) polygons, color-coded by zone type.
+   Sourced from DHS/FEMA's HIFLD Open mirror of the National Flood Hazard Layer rather than FEMA's
+   own hazards.fema.gov WMS service — that WMS endpoint rendered only LOMA/LOMR case-point labels at
+   this app's usual zoom levels, not the flood zone polygons (confirmed against a real deal address
+   on the live map), so this fetches and renders the zone polygons itself instead of depending on a
+   third party's WMS tile output, the same way the other vector layers on this map already work. The
+   query filters server-side to sfha_tf='T' (an actual flood designation) — "unshaded Zone X" (the
+   90%+ of most maps that's outside the mapped floodplain) is deliberately left untinted, matching
+   FEMA's own FIRM cartographic convention of only shading zones that carry a real designation. */
+async function renderFloodZoneLayer(map, bounds, isCurrent){
+  const gj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.flood.query, bounds, {
+    outFields: "fld_zone,zone_subty,sfha_tf", where: "sfha_tf='T'", resultRecordCount: 500,
+  });
+  if(!isCurrent() || !map || !gj || !gj.features.length) return;
+  gj.features.forEach(f=>{
+    const p = f.properties||{};
+    const zone = (p.fld_zone||"").toUpperCase();
+    const isCoastal = zone==="VE" || zone==="V";
+    const style = isCoastal
+      ? { color:"#7A2E8C", weight:1, fillColor:"#7A2E8C", fillOpacity:.38 }
+      : { color:"#2E6DA4", weight:1, fillColor:"#2E6DA4", fillOpacity:.32 };
+    const desc = isCoastal ? "Coastal high-hazard area (wave action) — 1% annual chance" : "Special Flood Hazard Area — 1% annual chance";
+    L.geoJSON(f, { style: ()=>style })
+      .bindTooltip(`Zone ${escapeHtml(p.fld_zone||"?")}${p.zone_subty?` (${escapeHtml(p.zone_subty)})`:""} — ${desc}`, { sticky:true })
+      .addTo(map);
+  });
+}
+
 /* Opportunity Zones: designated census-tract polygons, shaded green. */
-async function renderOpportunityZonesLayer(map, bounds, myGen){
+async function renderOpportunityZonesLayer(map, bounds, isCurrent){
   const gj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.oz.query, bounds, { outFields: "GEOID10", resultRecordCount: 500 });
-  if(myGen!==pipelineMapRenderGen || !map) return;
+  if(!isCurrent() || !map) return;
   if(gj && typeof L.geoJSON==="function" && gj.features.length){
     L.geoJSON(gj, { style: { color:"#2A8A2A", weight:1.5, fillColor:"#2A8A2A", fillOpacity:.14 } })
       .bindTooltip("Qualified Opportunity Zone", { sticky:true })
@@ -6341,12 +6431,12 @@ async function renderOpportunityZonesLayer(map, bounds, myGen){
 
 /* EPA brownfields / contaminated-site cleanups: point features. Styled distinctly from deal pins
    (brown/amber marker) so the two never get confused at a glance. */
-async function renderBrownfieldsLayer(map, bounds, myGen){
+async function renderBrownfieldsLayer(map, bounds, isCurrent){
   const gj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.brownfields.query, bounds, {
     outFields: "PRIMARY_NAME,SF_SITE_NAME,BF_PROPERTY_NAME,LOCATION_ADDRESS,CITY_NAME,STATE_CODE",
     resultRecordCount: 200,
   });
-  if(myGen!==pipelineMapRenderGen || !map || !gj) return;
+  if(!isCurrent() || !map || !gj) return;
   gj.features.forEach(f=>{
     const coords = f.geometry && f.geometry.coordinates;
     if(!coords) return;
@@ -6364,13 +6454,13 @@ async function renderBrownfieldsLayer(map, bounds, myGen){
    TIGERweb, groups them by county (income is fetched per-county from the ACS API — one call covers
    every tract in that county, cheaper than one call per tract), joins on GEOID, and colors each
    tract on a light-to-dark blue ramp by income quintile of whatever's currently on screen. */
-async function renderDemographicsLayer(map, bounds, myGen){
+async function renderDemographicsLayer(map, bounds, isCurrent){
   const key = censusApiKey();
   if(!key) return; // the toggle's own change-handler prompts for a key — this just no-ops otherwise
   const tractsGj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.demographics.tractsQuery, bounds, {
     outFields: "GEOID,STATE,COUNTY,TRACT",
   });
-  if(myGen!==pipelineMapRenderGen || !map || !tractsGj || !tractsGj.features.length) return;
+  if(!isCurrent() || !map || !tractsGj || !tractsGj.features.length) return;
 
   const byCounty = new Map(); // "STATE:COUNTY" -> true (just need the distinct set)
   tractsGj.features.forEach(f=>{
@@ -6381,7 +6471,7 @@ async function renderDemographicsLayer(map, bounds, myGen){
 
   const incomeByGeoid = new Map();
   for(const ck of byCounty.keys()){
-    if(myGen!==pipelineMapRenderGen) return;
+    if(!isCurrent()) return;
     const [state, county] = ck.split(":");
     try{
       const url = `${DATA_LAYER_SOURCES.demographics.acsBase}?get=B19013_001E&for=tract:*&in=state:${state}+county:${county}&key=${encodeURIComponent(key)}`;
@@ -6396,7 +6486,7 @@ async function renderDemographicsLayer(map, bounds, myGen){
       }
     }catch(e){ /* one bad county shouldn't blank out the rest of the layer */ }
   }
-  if(myGen!==pipelineMapRenderGen || !map) return;
+  if(!isCurrent() || !map) return;
 
   const values = tractsGj.features.map(f=>incomeByGeoid.get(f.properties.GEOID)).filter(v=>v!=null);
   if(!values.length) return;
@@ -6428,11 +6518,11 @@ async function renderDemographicsLayer(map, bounds, myGen){
    county polygon itself. County-level rather than tract-level is coarser, but it's the finest grain
    FEMA publishes this particular field at, and it's still the right scale for a first screening
    pass ("is this county wildfire-prone") rather than a substitute for a site-specific study. */
-async function renderWildfireLayer(map, bounds, myGen){
+async function renderWildfireLayer(map, bounds, isCurrent){
   const gj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.wildfire.query, bounds, {
     outFields: "STATE,COUNTY,WFIR_AFREQ",
   });
-  if(myGen!==pipelineMapRenderGen || !map || !gj || !gj.features.length) return;
+  if(!isCurrent() || !map || !gj || !gj.features.length) return;
 
   const values = gj.features.map(f=>Number(f.properties && f.properties.WFIR_AFREQ)).filter(v=>!isNaN(v) && v>=0);
   if(!values.length) return;
@@ -6459,26 +6549,33 @@ async function renderWildfireLayer(map, bounds, myGen){
   }).addTo(map);
 }
 
-async function refreshVectorDataLayers(map, mode, myGen){
-  if(!map || typeof map.getBounds!=="function" || mode==="state") return;
-  if(!anyVectorDataLayerActive()) return;
-  const bounds = map.getBounds();
-  if(activeDataLayers.oz) await renderOpportunityZonesLayer(map, bounds, myGen);
-  if(myGen!==pipelineMapRenderGen) return;
-  if(activeDataLayers.brownfields) await renderBrownfieldsLayer(map, bounds, myGen);
-  if(myGen!==pipelineMapRenderGen) return;
-  if(activeDataLayers.wildfire) await renderWildfireLayer(map, bounds, myGen);
-  if(myGen!==pipelineMapRenderGen) return;
-  if(activeDataLayers.demographics) await renderDemographicsLayer(map, bounds, myGen);
+/* Shared by the pipeline map and the deal-detail location map (see renderDealLocationMap) — fetches
+   and draws whichever vector data layers are toggled on, for whatever bounding box the caller hands
+   it. `isCurrent` is a zero-arg function the caller supplies so a stale in-flight fetch (the pipeline
+   map re-rendered, or the deal panel closed / switched deals, while a request was in the air) can
+   notice it's no longer relevant and stop touching the old map — the pipeline map and the deal card
+   map each have their own notion of "current" (a render generation counter for one, open-deal-id for
+   the other), which is exactly why this takes a predicate rather than comparing a single global. */
+async function refreshVectorDataLayers(map, bounds, isCurrent){
+  if(!map || !anyVectorDataLayerActive()) return;
+  if(activeDataLayers.flood) await renderFloodZoneLayer(map, bounds, isCurrent);
+  if(!isCurrent()) return;
+  if(activeDataLayers.oz) await renderOpportunityZonesLayer(map, bounds, isCurrent);
+  if(!isCurrent()) return;
+  if(activeDataLayers.brownfields) await renderBrownfieldsLayer(map, bounds, isCurrent);
+  if(!isCurrent()) return;
+  if(activeDataLayers.wildfire) await renderWildfireLayer(map, bounds, isCurrent);
+  if(!isCurrent()) return;
+  if(activeDataLayers.demographics) await renderDemographicsLayer(map, bounds, isCurrent);
 }
 
 // Debounced re-fetch of the vector data layers when the user pans/zooms — otherwise panning away
 // from the view they were fetched for would silently leave stale/missing data on screen.
 let _dataLayersRefetchTimer = null;
-function scheduleDataLayersRefetch(map, mode, myGen){
+function scheduleDataLayersRefetch(map, isCurrent){
   if(_dataLayersRefetchTimer) clearTimeout(_dataLayersRefetchTimer);
   _dataLayersRefetchTimer = setTimeout(()=>{
-    if(myGen===pipelineMapRenderGen) refreshVectorDataLayers(map, mode, myGen);
+    if(isCurrent() && typeof map.getBounds==="function") refreshVectorDataLayers(map, map.getBounds(), isCurrent);
   }, 700);
 }
 
@@ -6527,7 +6624,7 @@ function renderPipelineMap(byState, byMarket, activeEntries){
   // layer (Opportunity Zones / brownfields / income) for wherever the user just panned to.
   map.on("moveend zoomend", ()=>{
     pipelineMapViewState[mode] = { center: map.getCenter(), zoom: map.getZoom() };
-    scheduleDataLayersRefetch(map, mode, myGen);
+    if(mode!=="state") scheduleDataLayersRefetch(map, ()=> myGen===pipelineMapRenderGen);
   });
 
   // One delegated listener handles every popup this map ever opens (each dot's popup content is
@@ -6571,7 +6668,7 @@ function renderPipelineMap(byState, byMarket, activeEntries){
   }
 
   if(showConcoursAreas) renderConcoursAreasOverlay(map);
-  refreshVectorDataLayers(map, mode, myGen);
+  if(mode!=="state" && typeof map.getBounds==="function") refreshVectorDataLayers(map, map.getBounds(), ()=> myGen===pipelineMapRenderGen);
 
   if(!savedView){
     if(markers.length){
@@ -6621,7 +6718,7 @@ async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote)
   // wherever the user just panned to.
   map.on("moveend zoomend", ()=>{
     pipelineMapViewState.address = { center: map.getCenter(), zoom: map.getZoom() };
-    scheduleDataLayersRefetch(map, "address", myGen);
+    scheduleDataLayersRefetch(map, ()=> myGen===pipelineMapRenderGen);
   });
   map.on("popupopen", e=>{
     const popupEl = e.popup.getElement();
@@ -6638,7 +6735,7 @@ async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote)
   });
 
   if(showConcoursAreas) renderConcoursAreasOverlay(map);
-  refreshVectorDataLayers(map, "address", myGen);
+  if(typeof map.getBounds==="function") refreshVectorDataLayers(map, map.getBounds(), ()=> myGen===pipelineMapRenderGen);
 
   const markers = [];
   const notLocated = [];
