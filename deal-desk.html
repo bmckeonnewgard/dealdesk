@@ -2542,6 +2542,11 @@ const MARKET_TIER_META = {
   "2": {label:"Tier 2", cls:"pill-brass"},
   "3": {label:"Tier 3", cls:"pill-neutral"},
 };
+/* Not a real tier — just the "unset" fallback for coloring the market-tier select in the deal
+   header (see openDealDetail). Deliberately NOT added to MARKET_TIER_META itself: tierPillHtml()
+   uses that map's truthiness to decide whether to show a tier badge at all, and untiered deals are
+   meant to show no badge (same convention as PRIORITY_META/"low" priority). */
+const MARKET_TIER_UNSET_META = {label:"Not tiered", cls:"pill-neutral"};
 
 /* Product line color coding — a stable color per distinct product line (e.g. "Porsche Design Clubhouse"
    vs "Highlands Ranch"), recomputed whenever the deals collection changes so it stays consistent across
@@ -8341,6 +8346,7 @@ function openDealDetail(id){
           <input class="slide-title-input" id="slideTitle" type="text" value="${escapeAttr(d.name||"")}" placeholder="Project name">
           <button class="star-btn${d.meetsTargetCriteria?" active":""}" id="slideStar" title="Meets target criteria" style="font-size:20px;">★</button>
           <select class="priority-select" id="slidePriority" title="Priority"></select>
+          <select class="priority-select" id="slideMarketTier" title="Market tier"><option value="">Not tiered</option><option value="1">Tier 1 — immediate focus</option><option value="2">Tier 2 — active monitoring</option><option value="3">Tier 3 — longer-term</option></select>
           <button type="button" class="star-btn ic-flag-btn${d.icFlagged?" active":""}" id="slideIcFlagBtn" title="Flag for discussion at Investment Committee (Harvey / Jay)" style="font-size:20px;">🚩</button>
           <button type="button" class="btn-icon" id="slideCardPrintBtn" title="Print project card">🖨 Print</button>
           <button class="btn btn-ghost" id="slideClose" aria-label="Close">✕</button>
@@ -8379,6 +8385,7 @@ function openDealDetail(id){
             <label class="model-file-label">📎 Upload screening PDF<input type="file" id="screeningPdfInput" accept=".pdf"></label>
             <span class="model-file-status" id="screeningPdfStatus"></span>
           </div>
+          <div id="icScoreCardWrap" style="margin-top:10px;"></div>
         </div>
 
         <div>
@@ -8495,11 +8502,6 @@ function openDealDetail(id){
         <div>
           <h4 class="section-label">Weekly pipeline report</h4>
           <div class="deal-fields">
-            <div class="field-row">
-              <div class="field"><label for="slideMarketTier">Market tier</label>
-                <select id="slideMarketTier"><option value="">Not tiered</option><option value="1">Tier 1 — immediate focus</option><option value="2">Tier 2 — active monitoring</option><option value="3">Tier 3 — longer-term</option></select>
-              </div>
-            </div>
             <div class="field"><label for="slideNextStep">Next step</label><input id="slideNextStep" type="text" placeholder="e.g. Submit revised LOI by Friday"></div>
             <div class="field"><label for="slideDecisionRequired">Decision required</label><input id="slideDecisionRequired" type="text" placeholder="e.g. Approve $2.1M offer price"></div>
           </div>
@@ -8521,11 +8523,6 @@ function openDealDetail(id){
         <button class="btn btn-danger" id="slideDelete" style="align-self:flex-start">Delete deal</button>
 
         <div>
-          <h4 class="section-label">Investment criteria</h4>
-          <div id="icScoreCardWrap"></div>
-        </div>
-
-        <div>
           <h4 class="section-label">Due diligence checklist</h4>
           <div id="ddChecklistSection"></div>
         </div>
@@ -8541,7 +8538,8 @@ function openDealDetail(id){
   document.getElementById("slideLead").value = d.lead||"";
   document.getElementById("slideState").value = d.state||"";
   document.getElementById("slideTarget").checked = !!d.meetsTargetCriteria;
-  document.getElementById("slideMarketTier").value = d.marketTier||"";
+  const marketTierSel = document.getElementById("slideMarketTier");
+  marketTierSel.value = d.marketTier||"";
   document.getElementById("slideNextStep").value = d.nextStep||"";
   document.getElementById("slideDecisionRequired").value = d.decisionRequired||"";
   document.getElementById("slideLot").value = d.lotSizeAcres??"";
@@ -8614,6 +8612,7 @@ function openDealDetail(id){
     updateDeal(id, {priority: prioritySel.value});
     colorSelectByStatus(prioritySel, PRIORITY_META[prioritySel.value].cls);
   });
+  colorSelectByStatus(marketTierSel, (MARKET_TIER_META[marketTierSel.value]||MARKET_TIER_UNSET_META).cls);
   document.getElementById("slideIcFlagBtn").addEventListener("click", ()=>{
     const flagged = !d.icFlagged;
     d.icFlagged = flagged;
@@ -8649,7 +8648,11 @@ function openDealDetail(id){
   document.getElementById("slideLead").addEventListener("change", e=> save({lead: e.target.value.trim()}));
   document.getElementById("slideState").addEventListener("change", e=>{ save({state: e.target.value}); d.state = e.target.value; });
   document.getElementById("slideTarget").addEventListener("change", e=>{ d.meetsTargetCriteria = e.target.checked; document.getElementById("slideStar").classList.toggle("active", e.target.checked); save({meetsTargetCriteria: e.target.checked}); });
-  document.getElementById("slideMarketTier").addEventListener("change", e=>{ save({marketTier: e.target.value}); d.marketTier = e.target.value; });
+  marketTierSel.addEventListener("change", e=>{
+    save({marketTier: e.target.value});
+    d.marketTier = e.target.value;
+    colorSelectByStatus(marketTierSel, (MARKET_TIER_META[e.target.value]||MARKET_TIER_UNSET_META).cls);
+  });
   document.getElementById("slideNextStep").addEventListener("change", e=> save({nextStep: e.target.value.trim()}));
   document.getElementById("slideDecisionRequired").addEventListener("change", e=> save({decisionRequired: e.target.value.trim()}));
   document.getElementById("slideLot").addEventListener("change", e=>{ save({lotSizeAcres: e.target.value?Number(e.target.value):null}); d.lotSizeAcres = e.target.value?Number(e.target.value):null; updateCalcPerAcre(); });
