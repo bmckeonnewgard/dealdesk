@@ -590,6 +590,7 @@
   .modal-foot{ padding:16px 20px 20px; display:flex; gap:8px; flex:none; }
   .field{ display:flex; flex-direction:column; gap:5px; }
   .field label{ font-size:11.5px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em; }
+  .field-hint{ font-size:11px; color:var(--ink-faint); line-height:1.4; }
   .field input, .field select, .field textarea{
     border:1px solid var(--border); background:var(--surface-2); color:var(--ink); border-radius:8px;
     padding:8px 10px; font-size:13.5px; font-family:var(--font-body); width:100%;
@@ -6079,6 +6080,22 @@ async function geocodeAddress(address){
   _geocodeCache.set(key, hit);
   return hit;
 }
+/* Last-resort manual pin for the rare address neither free geocoder below can resolve (a brand-new
+   parcel, a rural route description, an odd formatting quirk) even though it's a perfectly real,
+   findable place in Google Maps or similar — geocoding services work off their own address indexes,
+   not a universal lookup, so gaps are expected occasionally. Rather than leave a deal stuck on the
+   approximate market-center pin forever, a coordinate pair pasted into the deal's "Map coordinates
+   override" field (see the Overview section of the deal detail panel) is used directly, no geocoding
+   involved — accepts "lat, lng" in the common copy-paste shape (comma or whitespace separated,
+   optional spaces), same format Google Maps shows when you right-click a location. */
+function parseLatLngOverride(str){
+  if(!str) return null;
+  const m = String(str).trim().match(/^(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)$/);
+  if(!m) return null;
+  const lat = parseFloat(m[1]), lon = parseFloat(m[2]);
+  if(isNaN(lat) || isNaN(lon) || lat<-90 || lat>90 || lon<-180 || lon>180) return null;
+  return { lat, lon, source: "manual" };
+}
 /* Live location map near the top of a deal's detail panel — deliberately separate from (and
    simpler than) the printable IC memo's map: it renders once when the panel opens and again
    whenever the analyst changes the address or the map-address override, rather than on every
@@ -6093,14 +6110,19 @@ async function geocodeAddress(address){
    close/deal switch, re-invokes this whole function — see isCurrent below) so a stale in-flight
    fetch can't draw onto a map that's no longer the one on screen. */
 let dealMapRenderGen = 0;
-async function renderDealLocationMap(dealId, addr){
+async function renderDealLocationMap(dealId, addr, overrideStr){
   const wrap = document.getElementById("dealLocationMapWrap");
   if(!wrap) return;
   const myGen = ++dealMapRenderGen;
   addr = (addr||"").trim();
-  if(!addr){ wrap.innerHTML = ""; return; }
+  // overrideStr is passed in by the caller (mirroring how addr is) rather than re-read here via
+  // deals.get(dealId) — the caller just set it moments ago and knows the true current value, so
+  // taking it as a parameter sidesteps any lag between a save() call and that write actually
+  // landing back on the local deals Map (e.g. via a realtime echo round-trip).
+  const override = parseLatLngOverride(overrideStr);
+  if(!addr && !override){ wrap.innerHTML = ""; return; }
   wrap.innerHTML = `<div class="deal-location-map-loading" id="dealLocationMapSlot">Loading map…</div>`;
-  const hit = await geocodeAddress(addr);
+  const hit = override || await geocodeAddress(addr);
   const slot = document.getElementById("dealLocationMapSlot");
   const isCurrent = ()=> myGen===dealMapRenderGen && openDealId===dealId;
   if(!slot || !isCurrent()) return; // panel closed, or switched to a different deal while geocoding
@@ -6139,6 +6161,11 @@ async function renderDealLocationMap(dealId, addr){
     note.className = "map-note";
     note.textContent = "Located via the U.S. Census geocoder — OpenStreetMap had no match for this exact address.";
     wrap.appendChild(note);
+  } else if(hit && hit.source==="manual"){
+    const note = document.createElement("div");
+    note.className = "map-note";
+    note.textContent = "Using the manually entered coordinates override.";
+    wrap.appendChild(note);
   }
 
   attachStaticDataLayers(map);
@@ -6172,7 +6199,7 @@ async function renderDealLocationMap(dealId, addr){
   wrap.appendChild(legend);
   const bindDealDataLayerToggle = (elId, key)=>{
     const el = document.getElementById(elId);
-    if(el) el.addEventListener("change", ()=>{ activeDataLayers[key] = el.checked; renderDealLocationMap(dealId, addr); });
+    if(el) el.addEventListener("change", ()=>{ activeDataLayers[key] = el.checked; renderDealLocationMap(dealId, addr, overrideStr); });
   };
   bindDealDataLayerToggle("dealDlFloodToggle", "flood");
   bindDealDataLayerToggle("dealDlWetlandsToggle", "wetlands");
@@ -6185,10 +6212,10 @@ async function renderDealLocationMap(dealId, addr){
     if(activeDataLayers.demographics && !censusApiKey()){
       if(!promptCensusApiKey()) activeDataLayers.demographics = false;
     }
-    renderDealLocationMap(dealId, addr);
+    renderDealLocationMap(dealId, addr, overrideStr);
   });
   const dealDlCensusKeyBtn = document.getElementById("dealDlCensusKeyBtn");
-  if(dealDlCensusKeyBtn) dealDlCensusKeyBtn.addEventListener("click", ()=>{ promptCensusApiKey(); renderDealLocationMap(dealId, addr); });
+  if(dealDlCensusKeyBtn) dealDlCensusKeyBtn.addEventListener("click", ()=>{ promptCensusApiKey(); renderDealLocationMap(dealId, addr, overrideStr); });
 }
 function cssVar(name, fallback){
   try{
@@ -6707,7 +6734,7 @@ function pipelineMapSleep(ms){ return new Promise(resolve=> setTimeout(resolve, 
    flips, etc.) while this is mid-flight, the stale loop notices its generation is no longer
    current and stops touching the old map/DOM instead of racing the new render. */
 async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote){
-  const withAddr = activeEntries.filter(([id,d])=> (d.address||"").trim());
+  const withAddr = activeEntries.filter(([id,d])=> (d.address||"").trim() || parseLatLngOverride(d.mapOverride));
   if(withAddr.length===0 && !showConcoursAreas){
     if(myGen!==pipelineMapRenderGen) return;
     el.innerHTML = `<div class="map-empty">No deals plotted yet — add a street address to a deal to pin it here.</div>`;
@@ -6784,8 +6811,9 @@ async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote)
     if(myGen!==pipelineMapRenderGen) return; // a newer render has taken over
     const [id, d] = withAddr[i];
     const addr = (d.address||"").trim();
-    const wasCached = _geocodeCache.has(addr.trim().toLowerCase());
-    const hit = await geocodeAddress(addr);
+    const override = parseLatLngOverride(d.mapOverride);
+    const wasCached = !!override || _geocodeCache.has(addr.trim().toLowerCase());
+    const hit = override || await geocodeAddress(addr);
     if(myGen!==pipelineMapRenderGen) return;
     const marketKey = !hit ? dealMarketKey(d) : null;
     const approxCoords = marketKey ? marketCoords(marketKey) : null;
@@ -6814,6 +6842,7 @@ async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote)
       if(isApprox) m.bindTooltip(`📍 Approximate — couldn't pinpoint this street address, showing the ${marketKey} market center instead`, {direction:"top"});
       else if(isMismatch) m.bindTooltip(`⚠ Geocoded to ${STATE_META[hit.stateCode]?STATE_META[hit.stateCode].name:hit.stateCode}, but this deal's state is ${STATE_META[expectedState]?STATE_META[expectedState].name:expectedState} — double-check this address`, {direction:"top"});
       else if(hit.source==="census") m.bindTooltip(`📍 Located via the U.S. Census geocoder — OpenStreetMap had no match for this exact address`, {direction:"top"});
+      else if(hit.source==="manual") m.bindTooltip(`📍 Using the manually entered coordinates override`, {direction:"top"});
       markers.push(m);
       if(isApprox) approximated.push(d);
       else if(isMismatch) mismatched.push(d);
@@ -8483,6 +8512,11 @@ function openDealDetail(id){
           <h4 class="section-label">Overview</h4>
           <div class="deal-fields">
             <div class="field"><label for="slideAddress">Address</label><input id="slideAddress" type="text"></div>
+            <div class="field">
+              <label for="slideMapOverride">Map coordinates override (optional)</label>
+              <input id="slideMapOverride" type="text" placeholder="e.g. 33.7595, -116.4386">
+              <div class="field-hint">If the address above won't pin correctly on the map, paste coordinates here instead — right-click the spot in Google Maps and copy the lat/lng shown at the top of the menu.</div>
+            </div>
             <div class="field-row">
               <div class="field"><label for="slideStage">Stage</label>
                 <select id="slideStage">${DEAL_STAGES.map(s=>`<option value="${s.key}">${s.title}</option>`).join("")}</select>
@@ -8542,6 +8576,7 @@ function openDealDetail(id){
 
   initSlideResizeHandle();
   document.getElementById("slideAddress").value = d.address||"";
+  document.getElementById("slideMapOverride").value = d.mapOverride||"";
   document.getElementById("slideStage").value = d.stage||"just_landed";
   document.getElementById("slidePsa").value = d.psaStatus||"Not Started";
   document.getElementById("slideLead").value = d.lead||"";
@@ -8582,7 +8617,7 @@ function openDealDetail(id){
   renderOverviewGrid(d);
   renderExtraDeposits();
   renderCapitalStackSection();
-  renderDealLocationMap(id, d.address || "");
+  renderDealLocationMap(id, d.address || "", d.mapOverride || "");
   renderScreeningPdfRow();
   document.getElementById("screeningPdfInput").addEventListener("change", (e)=>{
     const f = e.target.files[0];
@@ -8640,7 +8675,12 @@ function openDealDetail(id){
   document.getElementById("slideAddress").addEventListener("change", e=>{
     const v = e.target.value.trim();
     save({address: v}); d.address = v;
-    renderDealLocationMap(id, v);
+    renderDealLocationMap(id, v, d.mapOverride||"");
+  });
+  document.getElementById("slideMapOverride").addEventListener("change", e=>{
+    const v = e.target.value.trim();
+    save({mapOverride: v}); d.mapOverride = v;
+    renderDealLocationMap(id, d.address||"", v);
   });
   document.getElementById("slideStage").addEventListener("change", e=>{
     const newStage = e.target.value;
