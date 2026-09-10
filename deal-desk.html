@@ -21,14 +21,16 @@
 <style>
   :root{
     /* Brendan: "overall i think the website is too bright white... can we add a greyish color
-       background to help my eyes?" — the page background steps down from a near-white #F6F9F9 to
-       an actually-grey #E9EDEC, and cards go from pure #FFFFFF to a barely-off-white #FAFBFB so they
-       still read as "the clean surface on top of the grey page" rather than vanishing into it — the
-       existing shadow/border on every card still does the job of separating it from the page, the
-       same way it always did at the old near-1:1 page/card contrast. Ink-on-background contrast is
-       unaffected (both new tones are still light enough for dark body text to sit comfortably above
-       11:1). */
-    --bg:#E9EDEC; --surface:#FAFBFB; --surface-2:#E3E9E8;
+       background to help my eyes?" — then, after the first pass (#E9EDEC), "make the background a
+       darker grey... it's still overall too bright" — stepped down again to a clearly, unmistakably
+       grey #D2D7D6 (vs. the original near-white #F6F9F9). Cards stay a barely-off-white #FAFBFB,
+       which now gives noticeably MORE page/card separation than before (1.4:1 vs. the original
+       ~1:1) so cards still read as "the clean surface on top of the grey page" rather than blending
+       into it — on top of the shadow/border every card already carries. --surface-2 (secondary
+       surfaces inside cards — tracks, hover states) stepped down proportionally. Ink-on-background
+       contrast is unaffected (every tone here is still light enough for dark body text to clear
+       8:1, well above the 4.5:1 minimum). */
+    --bg:#D2D7D6; --surface:#FAFBFB; --surface-2:#DEE3E2;
     --ink:#183139; --ink-soft:#526468; --ink-faint:#8A9CA0;
     --border:#CDDBDD; --border-strong:#AFC2C5;
     --accent:#183139; --accent-soft:#E2ECEE; --accent-strong:#0E2027; --accent-ink:#FFFFFF;
@@ -825,19 +827,12 @@
   }
   .filter-note{ font-size:11px; color:var(--ink-faint); margin-left:2px; }
   .legend-swatch{ width:8px; height:8px; border-radius:2px; display:inline-block; flex:none; }
-  .trend-chart{ display:flex; align-items:flex-end; gap:8px; height:120px; padding-top:6px; }
-  .trend-col{ flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; height:100%; min-width:0; }
-  .trend-bars{ flex:1; display:flex; align-items:flex-end; gap:3px; width:100%; justify-content:center; }
-  .trend-bar{ width:9px; border-radius:3px 3px 0 0; min-height:2px; }
-  .trend-bar-new{ background:var(--accent); }
-  .trend-bar-closed{ background:var(--good); }
-  .trend-month{ font-size:10px; color:var(--ink-faint); font-weight:600; }
-  .traj-total{ display:flex; align-items:baseline; gap:8px; margin:6px 0 10px; }
-  .traj-total-value{ font-family:var(--font-display); font-weight:800; font-size:36px; letter-spacing:-.01em; color:var(--good); }
-  .traj-total-label{ font-size:12px; color:var(--ink-faint); font-weight:600; }
+  .traj-total{ display:flex; align-items:baseline; gap:8px; margin:4px 0 8px; }
+  .traj-total-value{ font-family:var(--font-display); font-weight:800; font-size:22px; letter-spacing:-.01em; color:var(--good); }
+  .traj-total-label{ font-size:11px; color:var(--ink-faint); font-weight:600; }
   .traj-svg{ width:100%; height:auto; display:block; }
   .traj-area{ fill:var(--good-soft); stroke:none; }
-  .traj-line{ fill:none; stroke:var(--good); stroke-width:2; }
+  .traj-line{ fill:none; stroke:var(--good); stroke-width:1.6; }
   .traj-dot{ fill:var(--good); cursor:pointer; }
   .traj-axis-label{ font-family:var(--font-mono); font-size:8px; fill:var(--ink-faint); }
   .kpi-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:18px; }
@@ -1623,7 +1618,7 @@
 </head>
 <body>
 
-<div id="pwGateOverlay" style="position:fixed;inset:0;z-index:99999;background:var(--bg,#E9EDEC);display:flex;align-items:center;justify-content:center;font-family:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;">
+<div id="pwGateOverlay" style="position:fixed;inset:0;z-index:99999;background:var(--bg,#D2D7D6);display:flex;align-items:center;justify-content:center;font-family:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;">
   <form id="pwGateForm" style="max-width:360px;width:calc(100% - 40px);padding:32px;background:var(--surface,#fff);border:1px solid var(--border,#CDDBDD);border-radius:var(--radius,10px);box-shadow:var(--shadow,0 10px 28px -14px rgba(24,49,57,.26));">
     <div style="font-family:'Source Serif 4',Georgia,serif;font-size:22px;font-weight:600;color:var(--ink,#183139);margin-bottom:4px;">Deal Desk</div>
     <div style="font-size:13px;color:var(--ink-soft,#526468);margin-bottom:20px;">Enter the password to continue.</div>
@@ -5325,26 +5320,7 @@ function renderDashboard(){
   });
   const unmappedAddress = active.filter(d=>!(d.address||"").trim());
 
-  const sourceColors = ["accent","brass","good","warn","neutral","bad","accent","brass"];
-  const sourceCounts = SOURCE_OPTIONS.map((s,i)=>({title:s, color:sourceColors[i%sourceColors.length], count: filtered.filter(d=>(d.source||"")===s).length}))
-    .concat([{title:"Not set", color:"neutral", count: filtered.filter(d=>!d.source).length}])
-    .filter(s=>s.count>0);
-  const sourceMax = filtered.length || 1;
-
   const capNeedBuckets = bucketCapitalNeed(getCapitalNeedItems(dashboardDealsFiltered));
-
-  const months = last6MonthKeys();
-  const newByMonth = {}, closedByMonth = {};
-  months.forEach(m=>{ newByMonth[m]=0; closedByMonth[m]=0; });
-  filtered.forEach(d=>{
-    const nk = (d.createdAt||"").slice(0,7);
-    if(nk && nk in newByMonth) newByMonth[nk]++;
-    const ck = (d.actualCloseDate||"").slice(0,7);
-    if(ck && ck in closedByMonth) closedByMonth[ck]++;
-  });
-  const trendMax = Math.max(1, ...months.map(m=>Math.max(newByMonth[m], closedByMonth[m])));
-  const totalNew6mo = months.reduce((s,m)=>s+newByMonth[m],0);
-  const totalClosed6mo = months.reduce((s,m)=>s+closedByMonth[m],0);
 
   const productLines = [...new Set(all.map(d=>d.productLine).filter(Boolean))].sort();
   const leads = [...new Set(all.map(d=>d.lead).filter(Boolean))].sort();
@@ -5460,54 +5436,7 @@ function renderDashboard(){
       <div class="kpi-tile"><span class="kpi-label">Avg days to close</span><span class="kpi-value">${avgDaysToClose!==null?avgDaysToClose:"—"}</span><span class="kpi-sub">${closeDurations.length} closed deal${closeDurations.length===1?"":"s"}</span></div>
     </div>
     ${closedTrajectoryCardHtml(dashboardDealsFiltered)}
-    ${pageDividerHtml("Trends")}
-    <div class="dash-grid">
-      <div class="dash-card">
-        <h4 class="section-label">By source</h4>
-        ${sourceCounts.length ? `<div class="stage-bars">
-          ${sourceCounts.map(s=>`
-            <div class="stage-bar-row">
-              <span class="dot dot-${s.color}"></span>
-              <span class="stage-bar-label">${escapeHtml(s.title)}</span>
-              <span class="stage-bar-track"><span class="stage-bar-fill" style="width:${Math.round(s.count/sourceMax*100)}%;background:var(--${s.color})"></span></span>
-              <span class="stage-bar-count mono">${s.count}</span>
-            </div>`).join("")}
-        </div>` : `<div class="empty-hint">No deals yet</div>`}
-      </div>
-      <div class="dash-card">
-        <h4 class="section-label">New vs. closed deals — last 6 months</h4>
-        <div class="trend-chart" id="trendChart">
-          ${months.map(m=>{
-            const [y,mm] = m.split("-");
-            const label = new Date(Number(y), Number(mm)-1, 1).toLocaleDateString(undefined,{month:"short"});
-            const n = newByMonth[m], c = closedByMonth[m];
-            return `<div class="trend-col">
-              <div class="trend-bars">
-                <span class="trend-bar trend-bar-new" style="height:${Math.max(n?4:0,Math.round(n/trendMax*100))}%" title="${n} new deal${n===1?"":"s"} in ${label}"></span>
-                <span class="trend-bar trend-bar-closed" style="height:${Math.max(c?4:0,Math.round(c/trendMax*100))}%" title="${c} closed deal${c===1?"":"s"} in ${label}"></span>
-              </div>
-              <span class="trend-month">${label}</span>
-            </div>`;
-          }).join("")}
-        </div>
-        <div class="map-legend" style="margin-top:6px;">
-          <span class="legend-item"><span class="legend-swatch" style="background:var(--accent);"></span> New (${totalNew6mo})</span>
-          <span class="legend-item"><span class="legend-swatch" style="background:var(--good);"></span> Closed (${totalClosed6mo})</span>
-        </div>
-      </div>
-    </div>
     ${pageDividerHtml("Timeline & dates")}
-    <div class="dash-card" style="margin-top:16px;">
-      <div class="cal-head">
-        <h4 class="section-label">Maturity &amp; payment timeline</h4>
-        <div class="cal-range-toggle">
-          <button type="button" class="btn-icon${calendarRangeMonths===12?" active":""}" id="calRange12Btn">12 mo</button>
-          <button type="button" class="btn-icon${calendarRangeMonths===24?" active":""}" id="calRange24Btn">24 mo</button>
-          <button type="button" class="btn-icon${calendarRangeMonths===36?" active":""}" id="calRange36Btn">36 mo</button>
-        </div>
-      </div>
-      <div class="cal-grid" id="calGrid"></div>
-    </div>
     <div class="dash-card" style="margin-top:16px;">
       <h4 class="section-label">Upcoming dates</h4>
       <div class="upcoming-list" id="upcomingList"></div>
@@ -5551,9 +5480,6 @@ function renderDashboard(){
   if(dlWildfireToggle) dlWildfireToggle.addEventListener("change", ()=>{ activeDataLayers.wildfire = dlWildfireToggle.checked; renderDashboard(); });
   renderGanttChart(dashboardDealsFiltered);
   renderDatesPanel();
-  document.getElementById("calRange12Btn").addEventListener("click", ()=> setCalendarRange(12));
-  document.getElementById("calRange24Btn").addEventListener("click", ()=> setCalendarRange(24));
-  document.getElementById("calRange36Btn").addEventListener("click", ()=> setCalendarRange(36));
 
   document.getElementById("filterStage").value = dashboardFilters.stage;
   document.getElementById("filterProductLine").value = dashboardFilters.productLine;
@@ -6005,7 +5931,11 @@ function closedTrajectoryCardHtml(dealMap){
     </div>`;
   }
   const n = months.length;
-  const W=720, H=160, padL=28, padR=12, padT=14, padB=22;
+  // Brendan: "make [closed deals - trajectory] smaller in scale" — this chart previously stretched
+  // to a tall 160/720 aspect ratio at full card width; shrunk to a shorter, more compact strip (plus
+  // the smaller total-number and dot/line sizing below) so it reads as a small supporting chart, not
+  // a second hero visual competing with the actual hero KPI card above it.
+  const W=720, H=90, padL=28, padR=12, padT=8, padB=18;
   const innerW=W-padL-padR, innerH=H-padT-padB;
   const maxY = Math.max(1, ...cumulative);
   const xFor = i => n>1 ? padL + (i/(n-1))*innerW : padL+innerW/2;
@@ -6013,7 +5943,7 @@ function closedTrajectoryCardHtml(dealMap){
   const points = cumulative.map((v,i)=> `${xFor(i).toFixed(1)},${yFor(v).toFixed(1)}`).join(" ");
   const areaPoints = `${xFor(0).toFixed(1)},${(padT+innerH).toFixed(1)} ${points} ${xFor(n-1).toFixed(1)},${(padT+innerH).toFixed(1)}`;
   const monthLabel = mk=>{ const [yy,mm]=mk.split("-"); return new Date(Number(yy),Number(mm)-1,1).toLocaleDateString(undefined,{month:"short",year:"2-digit"}); };
-  const dots = cumulative.map((v,i)=> `<circle cx="${xFor(i).toFixed(1)}" cy="${yFor(v).toFixed(1)}" r="2.6" class="traj-dot"><title>${monthLabel(months[i])}: ${v} closed in window (${counts[i]} that month)</title></circle>`).join("");
+  const dots = cumulative.map((v,i)=> `<circle cx="${xFor(i).toFixed(1)}" cy="${yFor(v).toFixed(1)}" r="2.1" class="traj-dot"><title>${monthLabel(months[i])}: ${v} closed in window (${counts[i]} that month)</title></circle>`).join("");
   const labelEvery = Math.max(1, Math.ceil(n/8));
   const xLabels = months.map((mk,i)=>{
     if(i%labelEvery!==0 && i!==n-1) return "";
