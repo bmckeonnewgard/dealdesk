@@ -1422,6 +1422,61 @@
   }
   .debt-add-source:hover{ border-color:var(--accent); color:var(--accent); }
 
+  /* ---------- capital stack (project-card embedded debt/equity components) ----------
+     Same debtSources[]/equitySources[] data + status metadata as the dashboard's Capital tab
+     (.debt-source-row et al.), but laid out as flex-wrap rows (like .deposit-extra-row above)
+     instead of a fixed-column grid, since the card is much narrower than the dashboard. */
+  .capstack-summary{
+    display:flex; flex-wrap:wrap; gap:8px 18px; margin-bottom:12px; padding:10px 12px;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:8px;
+  }
+  .capstack-stat{ font-size:11.5px; color:var(--ink-faint); font-weight:600; white-space:nowrap; }
+  .capstack-stat b{ color:var(--ink); font-weight:700; }
+  .capstack-stat-bad{ color:var(--bad); }
+  .capstack-stat-bad b{ color:var(--bad); }
+  /* Debt $/equity $ entry (the split % is derived from these, never entered directly — Brendan
+     typically knows the actual dollar amounts he's putting together for a deal, not a target ratio). */
+  .capstack-split-stat{ display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap; width:100%; }
+  .capstack-split-field{ display:flex; align-items:center; gap:6px; }
+  .capstack-split-label{ font-size:11.5px; color:var(--ink-faint); font-weight:600; }
+  .capstack-split-amount-wrap{ width:100px; }
+  .capstack-split-input{
+    font-size:12.5px; font-weight:700; border:1px solid var(--border); background:var(--surface); color:var(--ink);
+    border-radius:6px; padding:5px 7px; font-family:var(--font-body); width:100%; box-sizing:border-box;
+  }
+  .capstack-split-pct{ font-size:11px; color:var(--ink-faint); font-weight:600; white-space:nowrap; }
+  .capstack-price-note{ font-size:11.5px; color:var(--ink-faint); font-weight:600; white-space:nowrap; }
+  .capstack-group{ margin-top:14px; }
+  .capstack-group-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .capstack-group-title{ font-weight:700; font-size:12.5px; color:var(--ink); }
+  .capstack-list{ display:flex; flex-direction:column; gap:6px; }
+  .capstack-row{
+    display:flex; align-items:center; gap:6px; flex-wrap:wrap; background:var(--surface-2);
+    border:1px solid var(--border); border-radius:8px; padding:7px 9px;
+  }
+  .capstack-type{
+    flex:1 1 160px; min-width:130px; font-size:12.5px; border:1px solid var(--border); background:var(--surface);
+    color:var(--ink); border-radius:6px; padding:5px 7px; font-family:var(--font-body);
+  }
+  .capstack-lender{
+    flex:1 1 130px; min-width:100px; font-size:12.5px; border:1px solid var(--border); background:var(--surface);
+    color:var(--ink); border-radius:6px; padding:5px 7px; font-family:var(--font-body);
+  }
+  .capstack-amount{
+    font-size:12.5px; border:1px solid var(--border); background:var(--surface);
+    color:var(--ink); border-radius:6px; padding:5px 7px; font-family:var(--font-body); width:100%; box-sizing:border-box;
+  }
+  .capstack-amount-wrap{ flex:0 0 100px; width:100px; }
+  .capstack-date{
+    flex:0 0 130px; font-size:12px; border:1px solid var(--border); background:var(--surface); color:var(--ink);
+    border-radius:6px; padding:5px 7px; font-family:var(--font-body);
+  }
+  .capstack-status{
+    flex:0 0 130px; font-size:11px; font-weight:700; border-radius:6px; padding:5px 6px; border:1px solid var(--border);
+    background:var(--surface);
+  }
+  .capstack-remove{ flex:none; padding:4px 8px; }
+
   /* ---------- brokers (CRM) ---------- */
   .brokers-wrap{ padding:2px 0; }
   .screen-card{ max-width:820px; }
@@ -2072,7 +2127,7 @@ const DEAL_STAGES = [
   {key:"just_landed",  title:"Just landed",   color:"pipe1"},
   {key:"underwriting", title:"Underwriting",  color:"pipe3"},
   {key:"loi",          title:"LOI",           color:"pipe5"},
-  {key:"psa",          title:"PSA",           color:"pipe7"},
+  {key:"psa",          title:"PSA - inspection period", color:"pipe7"},
   {key:"closing",      title:"Closing",       color:"pipe9"},
   {key:"onboarded",    title:"Onboarded",     color:"good"},
   {key:"dead",         title:"Dead / Passed", color:"bad"},
@@ -2107,14 +2162,22 @@ const V2_STAGE_KEYS_LEGACY = ["just_landed","screened","underwriting","loi_autho
 const V2_STAGE_KEYS_LEGACY_SET = new Set(V2_STAGE_KEYS_LEGACY);
 /* Legacy stage TITLES as recorded verbatim in activity-log entries from before this stage was
    split, so buildDealGanttRow's history reconstruction (which looks up a stage by its logged
-   title) doesn't silently drop old segments once a title stops being a current one. */
-const LEGACY_STAGE_TITLES = { "Signed PSA/DD": "psa", "Prospecting": "just_landed" };
+   title) doesn't silently drop old segments once a title stops being a current one. "PSA" was the
+   "psa" stage's title before it was renamed to "PSA - inspection period" (per Brendan's request to
+   clarify that PSA execution through the end of due diligence is the inspection-period window,
+   with Closing picking up post-inspection) — old activity-log entries still say "PSA" verbatim. */
+const LEGACY_STAGE_TITLES = { "Signed PSA/DD": "psa", "Prospecting": "just_landed", "PSA": "psa" };
 /* Stages where a deal is under a signed purchase agreement but not yet closed — PSA through
    closing prep (the DD-expiration go-hard call happens inside this window too, now folded into
    "psa" along with everything else from PSA execution through the end of due diligence). Used
    wherever forward-looking capital/price totals should count "in contract, pre-close" deals (see
    the comment above IN_CONTRACT_STAGES below for why Onboarded is excluded). */
 const CONTRACT_STAGES = new Set(["psa","closing"]);
+/* Stages the "Project timeline — stage progress & dollars due" Gantt chart draws a row for. A deal
+   at Just landed/Underwriting has no dollars-due dates worth timelining yet, and Onboarded/Dead are
+   done — so the timeline only earns its keep for a deal actively moving toward (LOI) or through
+   (PSA - inspection period, Closing) a signed contract. */
+const GANTT_TIMELINE_STAGES = new Set(["loi","psa","closing"]);
 /* Stages that count as a real outcome rather than "still pending" for conversion-rate math
    (dealOutcomeBucket, the Passed deals & hit rate card) — anything from a signed PSA onward. */
 const CONVERTED_STAGES = new Set(["psa","closing","onboarded"]);
@@ -3117,21 +3180,37 @@ function calcUnderwriting(d){
   const spreadPerSf = (salePerSf && costPerSf!==null) ? salePerSf-costPerSf : null;
   return {buildCost,softCost,contingency,totalDevCost,grossRevenue,sellingCost,netProceeds,netProfit,marginRevenue,marginCost,costPerSf,spreadPerSf,sf,salePerSf};
 }
-/* capital needed to close/build a deal, split debt/equity by loan-to-cost %.
-   Uses full development cost when back-of-envelope underwriting is filled in;
-   otherwise falls back to purchase price alone so early-stage deals still show a number. */
+/* capital needed to close/build a deal, split between debt and equity.
+   Brendan typically knows the actual debt $ and equity $ he's putting together for a deal (entered
+   directly in the project card's Capital stack section, d.debtAmount/d.equityAmount) — when either
+   is on file, that pair wins outright and the split % is just derived from them, not the other way
+   around. This total can legitimately run higher than the purchase price alone (predev costs, etc.
+   get folded into the capital stack too), so it is NOT clamped to or reconciled against basis below.
+   Only when neither has been entered yet does this fall back to a modeled estimate: full
+   development cost when back-of-envelope underwriting is filled in, else purchase price alone,
+   split by dealDebtPct's assumed loan-to-cost % (default 65/35) — just so early-stage deals still
+   show a rough number before Brendan has worked out the real financing. */
 function dealDebtPct(d){
   const rawPct = (d.debtPct===null||d.debtPct===undefined) ? 65 : Number(d.debtPct);
   return Math.max(0, Math.min(100, isNaN(rawPct)?65:rawPct));
 }
 function calcCapitalStack(d){
+  if(d.debtAmount!=null || d.equityAmount!=null){
+    const debtAmount = Number(d.debtAmount)||0;
+    const equityAmount = Number(d.equityAmount)||0;
+    const basis = debtAmount+equityAmount;
+    if(!basis) return null;
+    const debtPct = Math.round((debtAmount/basis)*1000)/10;
+    const equityPct = Math.round((equityAmount/basis)*1000)/10;
+    return {basis, debtPct, equityPct, debtAmount, equityAmount, fromFullUw:false, fromExplicitStack:true};
+  }
   const uw = calcUnderwriting(d);
   const basis = (uw && uw.totalDevCost) ? uw.totalDevCost : (Number(d.purchasePrice)||0);
   if(!basis) return null;
   const debtPct = dealDebtPct(d);
   const debtAmount = basis*(debtPct/100);
   const equityAmount = basis - debtAmount;
-  return {basis, debtPct, debtAmount, equityAmount, fromFullUw: !!(uw && uw.totalDevCost)};
+  return {basis, debtPct, equityPct: 100-debtPct, debtAmount, equityAmount, fromFullUw: !!(uw && uw.totalDevCost)};
 }
 /* Margin sensitivity — reruns the exact same underwriting math above with a couple of stressed
    inputs (cost overrun, softer sale price) instead of the entered assumptions, so the IC memo can
@@ -3546,7 +3625,7 @@ async function boot(){
       renderBoard(); renderCounts();
       if(view==="brokers") renderBrokersView();
       if(openBrokerId) renderBrokerModalContent();
-      if(openDealId){ renderDDChecklistSection(); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderScreeningPdfRow(); }
+      if(openDealId){ renderDDChecklistSection(); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderCapitalStackSection(); renderScreeningPdfRow(); }
     }, ()=>{});
     db.doc("settings/categories").onSnapshot(snap=>{
       const data = snap.data();
@@ -3682,7 +3761,7 @@ async function createDeal(data){
 }
 async function updateDeal(id, data){
   if(db){ logDealActivity(id, deals.get(id), data); await db.doc("deals/"+id).update(data); }
-  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDChecklistSection(); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderScreeningPdfRow(); } }
+  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDChecklistSection(); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderCapitalStackSection(); renderScreeningPdfRow(); } }
 }
 async function deleteDeal(id){
   if(db){ await db.doc("deals/"+id).delete(); }
@@ -6697,12 +6776,12 @@ function renderGanttChart(dealMap){
   const el = document.getElementById("ganttGrid");
   if(!el) return;
   const rows = [...dealMap.entries()]
-    .filter(([id,d])=> (d.stage||"just_landed")!=="dead")
+    .filter(([id,d])=> GANTT_TIMELINE_STAGES.has(d.stage||"just_landed"))
     .map(([id,d])=> buildDealGanttRow(id,d))
     .filter(r=> r.segments.length);
 
   if(!rows.length){
-    el.innerHTML = `<div class="empty-hint">No active deals with dates yet.</div>`;
+    el.innerHTML = `<div class="empty-hint">No deals at LOI, PSA, or Closing yet.</div>`;
     return;
   }
 
@@ -6786,6 +6865,11 @@ function renderGanttChart(dealMap){
       <div class="gantt-body">${rowsHtml}</div>
     </div>
     <div class="map-legend" style="margin-top:10px;">
+      ${/* Rows are limited to deals currently at LOI/PSA/Closing (GANTT_TIMELINE_STAGES), but each
+           row's segments still reconstruct that deal's FULL history — a PSA-stage deal's row still
+           draws its earlier Just landed/Underwriting/LOI segments — so the legend keeps every
+           stage but Dead (which a shown deal is never currently in) rather than only the 3
+           eligible-to-show stages. */ ""}
       ${DEAL_STAGES.filter(s=>s.key!=="dead").map(s=>`<span class="legend-item"><span class="legend-swatch" style="background:var(--${s.color});"></span>${s.title}</span>`).join("")}
       <span class="legend-item"><span class="legend-swatch" style="background:var(--accent);border-radius:50%;"></span>Deposit due</span>
       <span class="legend-item"><span class="legend-swatch" style="background:var(--brass);border-radius:50%;"></span>Closing balance due</span>
@@ -7820,6 +7904,25 @@ function openDealDetail(id){
         </div>
 
         <div>
+          <h4 class="section-label">Capital stack</h4>
+          <div class="capstack-summary" id="capstackSummary"></div>
+          <div class="capstack-group">
+            <div class="capstack-group-head">
+              <span class="capstack-group-title">💳 Debt components</span>
+              <button type="button" class="btn-icon" id="capstackAddDebtBtn">+ Add debt component</button>
+            </div>
+            <div class="capstack-list" id="capstackDebtList"></div>
+          </div>
+          <div class="capstack-group">
+            <div class="capstack-group-head">
+              <span class="capstack-group-title">🤝 Equity components</span>
+              <button type="button" class="btn-icon" id="capstackAddEquityBtn">+ Add equity component</button>
+            </div>
+            <div class="capstack-list" id="capstackEquityList"></div>
+          </div>
+        </div>
+
+        <div>
           <h4 class="section-label">Overview</h4>
           <div class="deal-fields">
             <div class="field"><label for="slideAddress">Address</label><input id="slideAddress" type="text"></div>
@@ -7921,6 +8024,7 @@ function openDealDetail(id){
   renderSlideProgress(d);
   renderOverviewGrid(d);
   renderExtraDeposits();
+  renderCapitalStackSection();
   renderDealLocationMap(id, d.address || "");
   renderScreeningPdfRow();
   document.getElementById("screeningPdfInput").addEventListener("change", (e)=>{
@@ -7994,7 +8098,7 @@ function openDealDetail(id){
   document.getElementById("slideDecisionRequired").addEventListener("change", e=> save({decisionRequired: e.target.value.trim()}));
   document.getElementById("slideLot").addEventListener("change", e=>{ save({lotSizeAcres: e.target.value?Number(e.target.value):null}); d.lotSizeAcres = e.target.value?Number(e.target.value):null; updateCalcPerAcre(); });
   document.getElementById("slidePrice").addEventListener("input", ()=>{ updateCalcPerAcre(); keyMetricsLivePreview(); });
-  document.getElementById("slidePrice").addEventListener("change", e=>{ const n = parseMoneyStr(e.target.value); save({purchasePrice: n}); d.purchasePrice = n; updateCalcPerAcre(); renderKeyMetrics(d); });
+  document.getElementById("slidePrice").addEventListener("change", e=>{ const n = parseMoneyStr(e.target.value); save({purchasePrice: n}); d.purchasePrice = n; updateCalcPerAcre(); renderKeyMetrics(d); renderCapitalStackSummary(); });
   document.getElementById("slideUnits").addEventListener("input", ()=>{ updateCalcPerAcre(); keyMetricsLivePreview(); });
   document.getElementById("slideUnits").addEventListener("change", e=>{ save({targetUnits: e.target.value?Number(e.target.value):null}); d.targetUnits = e.target.value?Number(e.target.value):null; updateCalcPerAcre(); renderKeyMetrics(d); });
   document.getElementById("uwSf").addEventListener("input", ()=> keyMetricsLivePreview());
@@ -8089,6 +8193,7 @@ function openDealDetail(id){
     save({extraDeposits: next});
     renderExtraDeposits();
   });
+  wireCapitalStackAddButtons();
   document.getElementById("slideFolder").addEventListener("change", e=> save({folderUrl: e.target.value.trim()}));
   document.getElementById("slideProforma").addEventListener("change", e=> save({proformaUrl: e.target.value.trim()}));
   document.getElementById("slideNotes").addEventListener("change", e=> save({notes: e.target.value}));
@@ -8487,6 +8592,158 @@ function renderExtraDeposits(){
       renderExtraDeposits();
     });
     wrap.appendChild(row);
+  });
+}
+
+/* ---------- Capital stack (project-card view of debtSources[]/equitySources[]) ----------
+   Same underlying arrays (and DEBT_STATUS_META/EQUITY_STATUS_META status metadata) the dashboard's
+   Capital tab already reads via debtDealTotals/equityDealTotals and renders via
+   renderDebtView/renderEquityView — this just gives each deal its own debt/equity component editor
+   right on the card (acquisition loan, bridge loan, LP common equity, sponsor equity, etc.),
+   instead of needing to go find the deal in the separate dashboard tab to set up its financing.
+   Editing here calls the same updateDeal(id, {debtSources}/{equitySources}) the dashboard rows use,
+   so the Capital tab reflects it immediately — no separate plumbing needed. */
+function capitalStackRowHtml(kind){
+  return `
+    <input class="capstack-type" type="text" placeholder="${kind==="debt" ? "e.g. Acquisition loan" : "e.g. LP common equity"}">
+    <select class="capstack-status"></select>
+    <input class="capstack-lender" type="text" placeholder="${kind==="debt" ? "Lender" : "Investor"}">
+    <div class="money-field capstack-amount-wrap"><span class="money-field-prefix">$</span><input class="capstack-amount" type="text" inputmode="numeric" placeholder="Amount"></div>
+    <input class="capstack-date" type="date">
+    <button type="button" class="btn-icon capstack-remove" title="Remove ${kind==="debt"?"debt":"equity"} component">✕</button>`;
+}
+function renderCapitalStackList(kind){
+  const containerId = kind==="debt" ? "capstackDebtList" : "capstackEquityList";
+  const fieldKey = kind==="debt" ? "debtSources" : "equitySources";
+  const statusMeta = kind==="debt" ? DEBT_STATUS_META : EQUITY_STATUS_META;
+  const statusOptions = kind==="debt" ? DEBT_STATUS_OPTIONS : EQUITY_STATUS_OPTIONS;
+  const wrap = document.getElementById(containerId);
+  if(!wrap) return;
+  const d = deals.get(openDealId) || {};
+  const list = d[fieldKey] || [];
+  if(!list.length){
+    wrap.innerHTML = `<div class="locked-note">No ${kind==="debt"?"debt":"equity"} components yet.</div>`;
+    return;
+  }
+  wrap.innerHTML = "";
+  list.forEach((src, i)=>{
+    const row = document.createElement("div");
+    row.className = "capstack-row";
+    row.innerHTML = capitalStackRowHtml(kind);
+    row.querySelector(".capstack-type").value = src.type||"";
+    row.querySelector(".capstack-lender").value = src.lenderName||"";
+    row.querySelector(".capstack-amount").value = fmtMoneyInputPlain(src.committedAmount);
+    wireMoneyInputDisplay(row.querySelector(".capstack-amount"), true);
+    row.querySelector(".capstack-date").value = src.commitmentDate||"";
+    const sel = row.querySelector(".capstack-status");
+    statusOptions.forEach(k=>{
+      const o = document.createElement("option"); o.value=k; o.textContent=statusMeta[k].label;
+      if((src.status||"")===k) o.selected = true;
+      sel.appendChild(o);
+    });
+    colorSelectByStatus(sel, (statusMeta[sel.value]||statusMeta[""]).cls);
+    const commit = ()=>{
+      const cur = deals.get(openDealId);
+      if(!cur) return;
+      const next = (cur[fieldKey]||[]).slice();
+      next[i] = {
+        type: row.querySelector(".capstack-type").value.trim(),
+        status: sel.value,
+        lenderName: row.querySelector(".capstack-lender").value.trim(),
+        committedAmount: parseMoneyStr(row.querySelector(".capstack-amount").value),
+        commitmentDate: row.querySelector(".capstack-date").value,
+      };
+      cur[fieldKey] = next;
+      updateDeal(openDealId, {[fieldKey]: next});
+    };
+    row.querySelector(".capstack-type").addEventListener("change", commit);
+    row.querySelector(".capstack-lender").addEventListener("change", commit);
+    row.querySelector(".capstack-amount").addEventListener("change", ()=>{ commit(); renderCapitalStackSummary(); });
+    row.querySelector(".capstack-date").addEventListener("change", commit);
+    sel.addEventListener("change", ()=>{ colorSelectByStatus(sel, (statusMeta[sel.value]||statusMeta[""]).cls); commit(); renderCapitalStackSummary(); });
+    row.querySelector(".capstack-remove").addEventListener("click", ()=>{
+      const cur = deals.get(openDealId);
+      if(!cur) return;
+      const next = (cur[fieldKey]||[]).filter((_,idx)=>idx!==i);
+      cur[fieldKey] = next;
+      updateDeal(openDealId, {[fieldKey]: next});
+      renderCapitalStackSection();
+    });
+    wrap.appendChild(row);
+  });
+}
+function renderCapitalStackSummary(){
+  if(!openDealId) return;
+  const el = document.getElementById("capstackSummary");
+  if(!el) return;
+  const d = deals.get(openDealId) || {};
+  const cap = calcCapitalStack(d);
+  const debtT = debtDealTotals(d);
+  const equityT = equityDealTotals(d);
+  /* The total capital stack can legitimately run above the purchase price alone (predev costs, etc.
+     fold in too), so when it does, surface the purchase price alongside it as a plain reference point
+     rather than treating the gap as an error. */
+  const priceNum = Number(d.purchasePrice)||0;
+  const priceNote = (cap && priceNum && Math.round(cap.basis)!==Math.round(priceNum))
+    ? ` <span class="capstack-price-note">(purchase price ${fmtMoneyShort(priceNum)})</span>` : "";
+  el.innerHTML = `
+    <span class="capstack-split-stat">
+      <span class="capstack-split-field">
+        <span class="capstack-split-label">Debt $</span>
+        <div class="money-field capstack-split-amount-wrap"><span class="money-field-prefix">$</span><input type="text" inputmode="numeric" id="capstackDebtAmount" class="capstack-split-input" value="${fmtMoneyInputPlain(d.debtAmount)}" placeholder="0"></div>
+        ${cap?`<span class="capstack-split-pct">${cap.debtPct}% of stack</span>`:""}
+      </span>
+      <span class="capstack-split-field">
+        <span class="capstack-split-label">Equity $</span>
+        <div class="money-field capstack-split-amount-wrap"><span class="money-field-prefix">$</span><input type="text" inputmode="numeric" id="capstackEquityAmount" class="capstack-split-input" value="${fmtMoneyInputPlain(d.equityAmount)}" placeholder="0"></div>
+        ${cap?`<span class="capstack-split-pct">${cap.equityPct}% of stack</span>`:""}
+      </span>
+    </span>
+    ${cap
+      ? `<span class="capstack-stat">Total capital stack <b>${fmtMoneyShort(cap.basis)}</b></span>${priceNote}`
+      : `<span class="capstack-stat">Enter debt $ and equity $ above (or add a purchase price) to model the stack — the split calculates automatically.</span>`}
+    ${cap?`<span class="capstack-stat${debtT.gap>0?" capstack-stat-bad":""}">Debt ${debtT.gap>0?`short <b>${fmtMoneyShort(debtT.gap)}</b>`:"<b>covered</b>"}</span>`:""}
+    ${cap?`<span class="capstack-stat${equityT.gap>0?" capstack-stat-bad":""}">Equity ${equityT.gap>0?`short <b>${fmtMoneyShort(equityT.gap)}</b>`:"<b>covered</b>"}</span>`:""}`;
+  const debtInput = document.getElementById("capstackDebtAmount");
+  const equityInput = document.getElementById("capstackEquityAmount");
+  wireMoneyInputDisplay(debtInput, true);
+  wireMoneyInputDisplay(equityInput, true);
+  const commitAmounts = ()=>{
+    const cur = deals.get(openDealId);
+    if(!cur) return;
+    const debtAmount = parseMoneyStr(debtInput.value);
+    const equityAmount = parseMoneyStr(equityInput.value);
+    cur.debtAmount = debtAmount;
+    cur.equityAmount = equityAmount;
+    updateDeal(openDealId, {debtAmount, equityAmount});
+    renderCapitalStackSummary();
+  };
+  debtInput.addEventListener("change", commitAmounts);
+  equityInput.addEventListener("change", commitAmounts);
+}
+function renderCapitalStackSection(){
+  if(!openDealId) return;
+  renderCapitalStackSummary();
+  renderCapitalStackList("debt");
+  renderCapitalStackList("equity");
+}
+function wireCapitalStackAddButtons(){
+  const addDebtBtn = document.getElementById("capstackAddDebtBtn");
+  const addEquityBtn = document.getElementById("capstackAddEquityBtn");
+  if(!addDebtBtn || !addEquityBtn) return;
+  addDebtBtn.addEventListener("click", ()=>{
+    const cur = deals.get(openDealId); if(!cur) return;
+    const next = (cur.debtSources||[]).concat([{type:"", status:"", lenderName:"", committedAmount:null, commitmentDate:""}]);
+    cur.debtSources = next;
+    updateDeal(openDealId, {debtSources: next});
+    renderCapitalStackSection();
+  });
+  addEquityBtn.addEventListener("click", ()=>{
+    const cur = deals.get(openDealId); if(!cur) return;
+    const next = (cur.equitySources||[]).concat([{type:"", status:"", lenderName:"", committedAmount:null, commitmentDate:""}]);
+    cur.equitySources = next;
+    updateDeal(openDealId, {equitySources: next});
+    renderCapitalStackSection();
   });
 }
 
