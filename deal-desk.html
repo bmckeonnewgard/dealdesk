@@ -537,6 +537,21 @@
      one consistent list, but plain text instead of an editable .deposit-extra-label input since
      these two slots aren't renamed. */
   .deposit-fixed-label{ flex:1 1 140px; min-width:90px; font-size:12.5px; font-weight:600; color:var(--ink); }
+  /* Toast for the global "Undo" safety net (see showUndoToast/pendingUndo) — one at a time, bottom
+     center, dismissed by its own timeout, the Undo button, or Ctrl+Z/Cmd+Z. */
+  .undo-toast{
+    position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(12px);
+    background:var(--ink); color:var(--surface); padding:10px 10px 10px 16px; border-radius:10px;
+    display:flex; align-items:center; gap:14px; font-size:13px; font-family:var(--font-body);
+    box-shadow:0 8px 24px rgba(0,0,0,.28); z-index:9999; opacity:0; pointer-events:none;
+    transition:opacity .15s ease, transform .15s ease;
+  }
+  .undo-toast.visible{ opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
+  .undo-toast-btn{
+    background:var(--brass); color:var(--brass-ink); border:none; border-radius:6px; padding:6px 12px;
+    font-size:12.5px; font-weight:700; cursor:pointer; white-space:nowrap; font-family:var(--font-body);
+  }
+  .undo-toast-btn:hover{ opacity:.9; }
   .dep-chip{
     font-size:10.5px; color:var(--ink-soft); display:inline-flex; align-items:center; gap:4px; font-family:var(--font-mono);
     background:var(--surface-2); border:1px solid var(--border); border-radius:20px; padding:2px 7px 2px 5px;
@@ -3647,7 +3662,7 @@ async function boot(){
       renderBoard(); renderCounts();
       if(view==="brokers") renderBrokersView();
       if(openBrokerId) renderBrokerModalContent();
-      if(openDealId){ renderDDChecklistSection(); renderKeyMetrics(deals.get(openDealId)); renderExtraDeposits(); renderCapitalStackSection(); renderScreeningPdfRow(); }
+      if(openDealId){ renderDDChecklistSection(); renderKeyMetrics(deals.get(openDealId)); renderFixedDeposits(); renderExtraDeposits(); renderCapitalStackSection(); renderScreeningPdfRow(); }
     }, ()=>{});
     db.doc("settings/categories").onSnapshot(snap=>{
       const data = snap.data();
@@ -3783,7 +3798,7 @@ async function createDeal(data){
 }
 async function updateDeal(id, data){
   if(db){ logDealActivity(id, deals.get(id), data); await db.doc("deals/"+id).update(data); }
-  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDChecklistSection(); renderKeyMetrics(deals.get(id)); renderExtraDeposits(); renderCapitalStackSection(); renderScreeningPdfRow(); } }
+  else{ Object.assign(deals.get(id)||{}, data); renderBoard(); renderCounts(); if(openDealId===id){ renderDDChecklistSection(); renderKeyMetrics(deals.get(id)); renderFixedDeposits(); renderExtraDeposits(); renderCapitalStackSection(); renderScreeningPdfRow(); } }
 }
 async function deleteDeal(id){
   if(db){ await db.doc("deals/"+id).delete(); }
@@ -8428,22 +8443,7 @@ function openDealDetail(id){
 
         <div>
           <h4 class="section-label">Deposits</h4>
-          <div class="deposit-extra-list" style="margin-bottom:10px;">
-            <div class="deposit-extra-row">
-              <span class="deposit-fixed-label">1st deposit</span>
-              <div class="money-field deposit-extra-amount-wrap"><span class="money-field-prefix">$</span><input id="slideDep1Amt" class="deposit-extra-amount" type="text" inputmode="numeric" placeholder="Amount"></div>
-              <input id="slideDep1Date" class="deposit-extra-date" type="date">
-              <select id="slideDep1Status" class="deposit-extra-status">${DEPOSIT_STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join("")}</select>
-              <button type="button" class="btn-icon deposit-extra-remove" id="slideDep1ClearBtn" title="Clear the 1st deposit">✕</button>
-            </div>
-            <div class="deposit-extra-row">
-              <span class="deposit-fixed-label">2nd deposit</span>
-              <div class="money-field deposit-extra-amount-wrap"><span class="money-field-prefix">$</span><input id="slideDep2Amt" class="deposit-extra-amount" type="text" inputmode="numeric" placeholder="Amount"></div>
-              <input id="slideDep2Date" class="deposit-extra-date" type="date">
-              <select id="slideDep2Status" class="deposit-extra-status">${DEPOSIT_STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join("")}</select>
-              <button type="button" class="btn-icon deposit-extra-remove" id="slideDep2ClearBtn" title="Clear the 2nd deposit">✕</button>
-            </div>
-          </div>
+          <div class="deposit-extra-list" id="fixedDepositWrap" style="margin-bottom:10px;"></div>
           <div class="deposit-extra-head">
             <span class="cdate-label" style="font-weight:700;">Additional deposits</span>
             <button type="button" class="btn-icon" id="addDepositBtn">+ Add deposit</button>
@@ -8550,14 +8550,6 @@ function openDealDetail(id){
     document.getElementById(f.id).value = d[f.field]||"";
     updateCdateMark(f);
   });
-  document.getElementById("slideDep1Amt").value = fmtMoneyInputPlain(d.deposit1Amount);
-  wireMoneyInputDisplay(document.getElementById("slideDep1Amt"), true);
-  document.getElementById("slideDep1Date").value = d.deposit1Date||"";
-  document.getElementById("slideDep1Status").value = d.deposit1Status||"Not Due";
-  document.getElementById("slideDep2Amt").value = fmtMoneyInputPlain(d.deposit2Amount);
-  wireMoneyInputDisplay(document.getElementById("slideDep2Amt"), true);
-  document.getElementById("slideDep2Date").value = d.deposit2Date||"";
-  document.getElementById("slideDep2Status").value = d.deposit2Status||"Not Due";
   document.getElementById("slideFolder").value = d.folderUrl||"";
   document.getElementById("slideProforma").value = d.proformaUrl||"";
   document.getElementById("slideNotes").value = d.notes||"";
@@ -8566,6 +8558,8 @@ function openDealDetail(id){
   renderKeyMetrics(d);
   renderSlideProgress(d);
   renderOverviewGrid(d);
+  fixedDepositForceShow = {1:false, 2:false};
+  renderFixedDeposits();
   renderExtraDeposits();
   renderCapitalStackSection();
   renderDealLocationMap(id, d.address || "", d.mapOverride || "");
@@ -8692,51 +8686,12 @@ function openDealDetail(id){
       d[f.field] = e.target.value;
       updateCdateMark(f);
       // "Earnest money date" here is the same underlying field as "1st deposit date" down in
-      // Deposits — keep that field's own copy in sync too rather than waiting on a re-render.
+      // Deposits — re-render that section so it mirrors the value and (if this just gave the 1st
+      // deposit its first bit of data) reappears if it had been hidden as empty.
       if(f.field==="deposit1Date"){
-        const mirror = document.getElementById("slideDep1Date");
-        if(mirror) mirror.value = e.target.value;
+        renderFixedDeposits();
       }
     });
-  });
-  document.getElementById("slideDep1Amt").addEventListener("change", e=> save({deposit1Amount: parseMoneyStr(e.target.value)}));
-  document.getElementById("slideDep1Date").addEventListener("change", e=>{
-    save({deposit1Date: e.target.value});
-    d.deposit1Date = e.target.value;
-    // Mirror into "Earnest money date" under Critical dates — same underlying field, shown in
-    // both places (Critical dates as a milestone checklist item, here for quick access alongside
-    // the amount/status while entering deposit terms).
-    const cdEarnest = document.getElementById("cdEarnest");
-    if(cdEarnest){
-      cdEarnest.value = e.target.value;
-      updateCdateMark({id:"cdEarnest", field:"deposit1Date"});
-    }
-  });
-  document.getElementById("slideDep1Status").addEventListener("change", e=> save({deposit1Status: e.target.value}));
-  document.getElementById("slideDep2Amt").addEventListener("change", e=> save({deposit2Amount: parseMoneyStr(e.target.value)}));
-  document.getElementById("slideDep2Date").addEventListener("change", e=> save({deposit2Date: e.target.value}));
-  document.getElementById("slideDep2Status").addEventListener("change", e=> save({deposit2Status: e.target.value}));
-  /* "Clear" for the 1st/2nd deposit — unlike Additional deposits below (an actual array you can
-     remove a row from), these two are fixed fields on the deal, so there's nothing to "delete";
-     clearing resets amount/date/status back to blank/"Not Due" in one click instead of making
-     someone blank out three separate inputs by hand (the amount field in particular doesn't
-     accept an empty value comfortably once formatted). */
-  document.getElementById("slideDep1ClearBtn").addEventListener("click", ()=>{
-    document.getElementById("slideDep1Amt").value = "";
-    document.getElementById("slideDep1Date").value = "";
-    document.getElementById("slideDep1Status").value = "Not Due";
-    save({deposit1Amount: null, deposit1Date: "", deposit1Status: "Not Due"});
-    d.deposit1Date = "";
-    // Keep "Earnest money date" under Critical dates in sync — same underlying field (see the
-    // deposit1Date change handler above, which mirrors the other direction).
-    const cdEarnest = document.getElementById("cdEarnest");
-    if(cdEarnest){ cdEarnest.value = ""; updateCdateMark({id:"cdEarnest", field:"deposit1Date"}); }
-  });
-  document.getElementById("slideDep2ClearBtn").addEventListener("click", ()=>{
-    document.getElementById("slideDep2Amt").value = "";
-    document.getElementById("slideDep2Date").value = "";
-    document.getElementById("slideDep2Status").value = "Not Due";
-    save({deposit2Amount: null, deposit2Date: "", deposit2Status: "Not Due"});
   });
   document.getElementById("addDepositBtn").addEventListener("click", ()=>{
     const next = (d.extraDeposits||[]).concat([{label:"", amount:null, date:"", status:"Not Due"}]);
@@ -9084,6 +9039,137 @@ function renderIcCriteriaSection(){
   wrap.appendChild(box);
 }
 
+/* Lightweight "Undo" safety net for the quick, no-confirmation ✕ actions in the deal-detail panel
+   (Additional deposits, the fixed 1st/2nd deposit "clear", debt/equity capital-stack components).
+   Unlike "Delete deal" (which already asks first via openConfirm), these commit immediately, so a
+   stray click needs an easy way back. Only the most recent action stays undoable (standard
+   single-level undo) — a new one replaces whatever was pending. Ctrl+Z/Cmd+Z only fires it when
+   focus isn't inside a text input/textarea/select/contenteditable, so it never fights with the
+   browser's own per-field undo while typing. */
+let pendingUndo = null; // {fn}
+function dismissUndoToast(){
+  const el = document.getElementById("undoToast");
+  if(el) el.classList.remove("visible");
+  if(pendingUndo){ clearTimeout(pendingUndo.timer); pendingUndo = null; }
+}
+function showUndoToast(message, undoFn){
+  dismissUndoToast();
+  let el = document.getElementById("undoToast");
+  if(!el){
+    el = document.createElement("div");
+    el.id = "undoToast";
+    el.className = "undo-toast";
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `<span></span><button type="button" class="undo-toast-btn">Undo</button>`;
+  el.querySelector("span").textContent = message;
+  const run = ()=>{ dismissUndoToast(); undoFn(); };
+  el.querySelector(".undo-toast-btn").addEventListener("click", run);
+  requestAnimationFrame(()=> el.classList.add("visible"));
+  const timer = setTimeout(dismissUndoToast, 8000);
+  pendingUndo = {fn: run, timer};
+}
+function isEditableTarget(t){
+  if(!t || !t.tagName) return false;
+  const tag = t.tagName.toLowerCase();
+  return tag==="input" || tag==="textarea" || tag==="select" || t.isContentEditable;
+}
+document.addEventListener("keydown", (e)=>{
+  const key = (e.key||"").toLowerCase();
+  if((e.ctrlKey||e.metaKey) && key==="z" && !e.shiftKey && pendingUndo && !isEditableTarget(e.target)){
+    e.preventDefault();
+    pendingUndo.fn();
+  }
+});
+
+/* The 1st/2nd deposit are fixed fields on the deal (not an array like Additional deposits below),
+   so there's nothing to structurally remove — but an always-visible box for a never-used deposit
+   slot was exactly the clutter Brendan flagged, and clearing it while leaving an empty row behind
+   still read as "pressing X didn't get rid of the deposit." So each slot now hides itself once
+   cleared/empty, matching how an emptied Additional deposit row disappears, and is replaced by a
+   small "+ Add" button. fixedDepositForceShow tracks a slot the user just clicked "+ Add" for, so
+   it shows blank inputs ready for entry even though there's no data yet to key visibility off of —
+   reset whenever a deal is (re)opened, see openDealDetail. */
+let fixedDepositForceShow = {1:false, 2:false};
+function fixedDepositRowHtml(n){
+  const word = n===1 ? "1st" : "2nd";
+  return `
+    <span class="deposit-fixed-label">${word} deposit</span>
+    <div class="money-field deposit-extra-amount-wrap"><span class="money-field-prefix">$</span><input class="deposit-extra-amount" id="slideDep${n}Amt" type="text" inputmode="numeric" placeholder="Amount"></div>
+    <input class="deposit-extra-date" id="slideDep${n}Date" type="date">
+    <select class="deposit-extra-status" id="slideDep${n}Status">${DEPOSIT_STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join("")}</select>
+    <button type="button" class="btn-icon deposit-extra-remove" id="slideDep${n}ClearBtn" title="Clear the ${word} deposit">✕</button>`;
+}
+function renderFixedDeposits(){
+  if(!openDealId) return;
+  const wrap = document.getElementById("fixedDepositWrap");
+  if(!wrap) return;
+  const d = deals.get(openDealId) || {};
+  wrap.innerHTML = "";
+  [1,2].forEach(n=>{
+    const amtKey = `deposit${n}Amount`, dateKey = `deposit${n}Date`, statusKey = `deposit${n}Status`;
+    const hasData = !!(d[amtKey] || d[dateKey] || (d[statusKey] && d[statusKey]!=="Not Due"));
+    if(!hasData && !fixedDepositForceShow[n]){
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn-icon";
+      btn.style.marginBottom = "6px";
+      btn.textContent = `+ Add ${n===1?"1st":"2nd"} deposit`;
+      btn.addEventListener("click", ()=>{ fixedDepositForceShow[n] = true; renderFixedDeposits(); });
+      wrap.appendChild(btn);
+      return;
+    }
+    const row = document.createElement("div");
+    row.className = "deposit-extra-row";
+    row.innerHTML = fixedDepositRowHtml(n);
+    const amtInput = row.querySelector(`#slideDep${n}Amt`);
+    const dateInput = row.querySelector(`#slideDep${n}Date`);
+    const statusSel = row.querySelector(`#slideDep${n}Status`);
+    amtInput.value = fmtMoneyInputPlain(d[amtKey]);
+    wireMoneyInputDisplay(amtInput, true);
+    dateInput.value = d[dateKey]||"";
+    statusSel.value = d[statusKey]||"Not Due";
+    amtInput.addEventListener("change", e=> updateDeal(openDealId, {[amtKey]: parseMoneyStr(e.target.value)}));
+    dateInput.addEventListener("change", e=>{
+      updateDeal(openDealId, {[dateKey]: e.target.value});
+      // "Earnest money date" under Critical dates mirrors the 1st deposit's date — same underlying
+      // field, shown in both places.
+      if(n===1){
+        const cdEarnest = document.getElementById("cdEarnest");
+        if(cdEarnest){ cdEarnest.value = e.target.value; updateCdateMark({id:"cdEarnest", field:"deposit1Date"}); }
+      }
+    });
+    statusSel.addEventListener("change", e=> updateDeal(openDealId, {[statusKey]: e.target.value}));
+    row.querySelector(`#slideDep${n}ClearBtn`).addEventListener("click", ()=>{
+      const cur = deals.get(openDealId);
+      if(!cur) return;
+      const prev = {[amtKey]: cur[amtKey], [dateKey]: cur[dateKey], [statusKey]: cur[statusKey]};
+      const cleared = {[amtKey]: null, [dateKey]: "", [statusKey]: "Not Due"};
+      Object.assign(cur, cleared);
+      updateDeal(openDealId, cleared);
+      fixedDepositForceShow[n] = false;
+      if(n===1){
+        const cdEarnest = document.getElementById("cdEarnest");
+        if(cdEarnest){ cdEarnest.value = ""; updateCdateMark({id:"cdEarnest", field:"deposit1Date"}); }
+      }
+      renderFixedDeposits();
+      showUndoToast(`${n===1?"1st":"2nd"} deposit cleared`, ()=>{
+        const c2 = deals.get(openDealId);
+        if(!c2) return;
+        Object.assign(c2, prev);
+        updateDeal(openDealId, prev);
+        fixedDepositForceShow[n] = true;
+        renderFixedDeposits();
+        if(n===1){
+          const cdEarnest = document.getElementById("cdEarnest");
+          if(cdEarnest){ cdEarnest.value = prev[dateKey]||""; updateCdateMark({id:"cdEarnest", field:"deposit1Date"}); }
+        }
+      });
+    });
+    wrap.appendChild(row);
+  });
+}
+
 /* Additional deposits — an unlimited, add/remove-as-needed list layered on top of the fixed
    1st/2nd deposit fields above, for deals with extension fees or extra deposit tranches
    (e.g. Brentwood's non-refundable installments). Each entry: {label, amount, date, status}. */
@@ -9137,10 +9223,18 @@ function renderExtraDeposits(){
     row.querySelector(".deposit-extra-remove").addEventListener("click", ()=>{
       const cur = deals.get(openDealId);
       if(!cur) return;
-      const next = (cur.extraDeposits||[]).filter((_,idx)=>idx!==i);
+      const prevList = (cur.extraDeposits||[]).slice();
+      const next = prevList.filter((_,idx)=>idx!==i);
       cur.extraDeposits = next;
       updateDeal(openDealId, {extraDeposits: next});
       renderExtraDeposits();
+      showUndoToast(`Removed "${dep.label||"deposit"}"`, ()=>{
+        const c2 = deals.get(openDealId);
+        if(!c2) return;
+        c2.extraDeposits = prevList;
+        updateDeal(openDealId, {extraDeposits: prevList});
+        renderExtraDeposits();
+      });
     });
     wrap.appendChild(row);
   });
@@ -9215,10 +9309,18 @@ function renderCapitalStackList(kind){
     row.querySelector(".capstack-remove").addEventListener("click", ()=>{
       const cur = deals.get(openDealId);
       if(!cur) return;
-      const next = (cur[fieldKey]||[]).filter((_,idx)=>idx!==i);
+      const prevList = (cur[fieldKey]||[]).slice();
+      const next = prevList.filter((_,idx)=>idx!==i);
       cur[fieldKey] = next;
       updateDeal(openDealId, {[fieldKey]: next});
       renderCapitalStackSection();
+      showUndoToast(`Removed ${kind==="debt"?"debt":"equity"} component`, ()=>{
+        const c2 = deals.get(openDealId);
+        if(!c2) return;
+        c2[fieldKey] = prevList;
+        updateDeal(openDealId, {[fieldKey]: prevList});
+        renderCapitalStackSection();
+      });
     });
     wrap.appendChild(row);
   });
