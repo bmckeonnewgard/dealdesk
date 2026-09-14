@@ -2147,7 +2147,7 @@ function saveDismissedSuggestions(){
   if(db) db.doc("settings/dismissedSuggestions").set({keys: [...dismissedSuggestions]});
 }
 function saveDashboardGoal(){
-  if(db) db.doc("settings/goals").set({closedDealsGoal: dashboardGoal.amount, closedDealsGoalLabel: dashboardGoal.label});
+  if(db) db.doc("settings/goals").set({closedDealsGoal: dashboardGoal.amount, closedDealsGoalLabel: dashboardGoal.label, goalStartDate: dashboardGoal.startDate});
 }
 function rebuildCriteriaView(){
   criteriaViewBuilt = false;
@@ -2611,6 +2611,58 @@ function marketCoords(marketKey){
   if(!marketKey) return null;
   const c = MARKET_COORDS[marketKey.toLowerCase()];
   return c ? {lat:c[0], lon:c[1]} : null;
+}
+
+/* Target markets for the acquisitions program (KPI/stage-model brief item 4) — a short, fixed
+   list distinct from the address-derived dealMarketKey/dealMarketLabel above (those parse a
+   metro out of the street address for the pipeline map; this is the deal's own self-reported
+   target market, picked from this list via a datalist so it stays clean text for the "Markets
+   covered" / "Basis vs guardrail" KPI tiles to key off of). Lives on the deal as d.market. */
+const TARGET_MARKETS = ["Palm Beach","Dallas","Houston","Palm Springs","Scottsdale","Atlanta","Denver","Tampa/Orlando","NJ/CT","SoCal","Bay Area","Las Vegas"];
+function targetMarketsDatalistHtml(){
+  return `<datalist id="targetMarketsList">${TARGET_MARKETS.map(m=>`<option value="${escapeAttr(m)}">`).join("")}</datalist>`;
+}
+/* Per-market land-price-per-acre guardrail (KPI brief item 5) — name -> $/ac ceiling, synced via
+   settings/targetMarketGuardrails, edited from the small modal below (openTargetMarketGuardrailsModal).
+   Values are supplied by Brendan from the land guardrail workbook, so this starts empty (no
+   guardrail = that market is skipped by the Basis vs guardrail tile until a value is set). */
+let targetMarketGuardrails = {};
+function saveTargetMarketGuardrails(){
+  if(db) db.doc("settings/targetMarketGuardrails").set(targetMarketGuardrails);
+}
+function openTargetMarketGuardrailsModal(){
+  const root = document.getElementById("modalRoot");
+  root.innerHTML = `<div class="overlay" id="guardrailsEditOverlay">
+    <div class="modal" style="width:min(420px,94vw);">
+      <div class="modal-head"><h2>Edit market guardrails</h2></div>
+      <div class="modal-body" style="max-height:min(70vh,520px);overflow:auto;">
+        <p class="field-hint" style="margin:0 0 10px;">Max land price per acre by target market, used by the "Basis vs guardrail" KPI tile. Leave blank for a market with no guardrail set yet.</p>
+        ${TARGET_MARKETS.map(m=>`
+        <div class="field-row" style="margin-top:8px;align-items:flex-end;">
+          <div class="field" style="flex:1;"><label for="guardrail-${escapeAttr(m)}">${escapeHtml(m)}</label></div>
+          <div class="field" style="max-width:140px;"><input type="number" id="guardrail-${escapeAttr(m)}" value="${targetMarketGuardrails[m]??""}" min="0" step="1" placeholder="$/ac"></div>
+        </div>`).join("")}
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-primary" id="guardrailsSaveBtn">Save</button>
+        <button class="btn btn-ghost" id="guardrailsCancelBtn" style="margin-left:auto;">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+  const close = ()=>{ root.innerHTML=""; };
+  document.getElementById("guardrailsEditOverlay").addEventListener("click", e=>{ if(e.target.id==="guardrailsEditOverlay") close(); });
+  document.getElementById("guardrailsCancelBtn").addEventListener("click", close);
+  document.getElementById("guardrailsSaveBtn").addEventListener("click", ()=>{
+    const next = {};
+    TARGET_MARKETS.forEach(m=>{
+      const v = document.getElementById(`guardrail-${m}`).value;
+      if(v!=="" && v!=null) next[m] = Math.max(0, Number(v)||0);
+    });
+    targetMarketGuardrails = next;
+    saveTargetMarketGuardrails();
+    close();
+    if(view==="dashboard") renderDashboard();
+  });
 }
 
 const PRIORITY_META = {
@@ -3247,19 +3299,43 @@ let criteriaSets = {}; // product line (string) -> array of {key,label,requireme
 let criteriaViewSelectedLine = "";
 let criteriaViewBuilt = false;
 let dismissedSuggestions = new Set(); // sigKeys of Suggested Tasks the user has dismissed
-let dashboardGoal = {amount: 10, label: "by Sept 2028"}; // editable target # of closed acquisitions for the hero stat — 10 over 2 years (through fall 2028) is the real target per Harvey's acquisitions goal, counted from heroPeriodStart's Jan-1-2026 default below
+/* goalStartDate is the fixed anchor the "Closings vs goal" progress (both here and the matching
+   KPI tile in acquisitionsKpiSectionHtml) counts from — deliberately separate from heroPeriodStart
+   below, which is just the hero card's own adjustable viewing window (YTD/T12/All time/custom) for
+   the headline number and dollar volume. The goal itself has one fixed start date regardless of
+   what window the user happens to be looking at. */
+let dashboardGoal = {amount: 10, label: "by Sept 2028", startDate: "2025-09-01"}; // editable target # of closed acquisitions for the hero stat — 10 by Sept 2028, counted from goalStartDate
 /* Editable targets for the Acquisitions funnel KPI row (see acquisitionsKpiSectionHtml) — the
-   defaults are the numbers from the Sept 2026 stage-model brief, editable from the row's own
-   "Edit targets" button (openKpiTargetsEditModal), synced to everyone via settings/kpiTargets. */
+   defaults are the calibrated numbers from the Sept 2026 KPI model-changes brief, editable from
+   the row's own "Edit targets" button (openKpiTargetsEditModal), synced to everyone via
+   settings/kpiTargets. */
 let kpiTargets = {
-  sitesScreenedMin: 12, sitesScreenedMax: 15,          // sites screened, per month
-  screenPassRateMin: 20, screenPassRateMax: 30,        // screen pass rate, %
+  sitesScreenedMin: 8, sitesScreenedMax: 10,           // sites screened, per month
+  screenPassRateMin: 25, screenPassRateMax: 35,        // screen pass rate, %
   activeUnderwritingMin: 4, activeUnderwritingMax: 6,  // active underwriting, live count
-  loisSubmittedTarget: 3,                              // LOIs submitted, per quarter
-  loiAcceptRateMin: 35, loiAcceptRateMax: 50,          // LOI acceptance rate, %
-  underControlTarget: 1,                               // sites under control, new per quarter
+  loisSubmittedTarget: 4,                              // LOIs submitted, per quarter
+  loiAcceptRateMin: 40, loiAcceptRateMax: 50,          // LOI acceptance rate, %
+  // Sites under control: new sites entering control per quarter, by year — 2027 is where site
+  // control has to happen for a 2028 closing run (the real number is 1.5/qtr; 2 is the display
+  // target). A plain number here (old data shape) is still honored as the same value every year —
+  // see underControlTargetForYear().
+  underControlTarget: {"2026":1, "2027":2, "2028":1},
   staleDealsTarget: 0,                                 // stale deals, count (want 0)
+  // Per-stage staleness thresholds (KPI brief item 3) — just_landed is business days (paired with
+  // the unscreened/no-recommendation rule in dealIsStale), the rest are calendar days since the
+  // deal's last update. Any stage missing from this map falls back to 30 calendar days.
+  staleDaysByStage: {just_landed: 10, underwriting: 30, loi: 14, psa: 14, closing: 7},
+  marketsCoveredTarget: 6,                             // target markets (of TARGET_MARKETS) with an active Pursue-grade deal
 };
+/* Backward-compatible reader for kpiTargets.underControlTarget — a plain number (the old shape)
+   applies to every year; the new {"2026":1,...} shape looks up the requested year, falling back to
+   0 if that year isn't listed. */
+function underControlTargetForYear(year){
+  const v = kpiTargets.underControlTarget;
+  if(typeof v==="number") return v;
+  if(v && typeof v==="object"){ const n = v[String(year)]; return n!=null ? n : 0; }
+  return 0;
+}
 function saveKpiTargets(){
   if(db) db.doc("settings/kpiTargets").set(kpiTargets);
 }
@@ -3988,6 +4064,7 @@ async function boot(){
       dashboardGoal = {
         amount: (data && typeof data.closedDealsGoal==="number") ? data.closedDealsGoal : 10,
         label: (data && typeof data.closedDealsGoalLabel==="string") ? data.closedDealsGoalLabel : "by Sept 2028",
+        startDate: (data && typeof data.goalStartDate==="string" && data.goalStartDate) ? data.goalStartDate : "2025-09-01",
       };
       if(view==="dashboard") renderDashboard();
     }, ()=>{});
@@ -3998,6 +4075,11 @@ async function boot(){
         // update (one this doc predates) still shows its default instead of coming back undefined.
         kpiTargets = Object.assign({}, kpiTargets, data);
       }
+      if(view==="dashboard") renderDashboard();
+    }, ()=>{});
+    db.doc("settings/targetMarketGuardrails").onSnapshot(snap=>{
+      const data = snap.data();
+      if(data && typeof data==="object") targetMarketGuardrails = data;
       if(view==="dashboard") renderDashboard();
     }, ()=>{});
     db.collection("brokers").onSnapshot(snap=>{
@@ -4675,7 +4757,7 @@ function buildStageDealRow(id, d, stage, allEvents){
         <span class="stage-row-title"></span>
         <button class="star-btn${d.meetsTargetCriteria?" active":""}" title="Meets target criteria">★</button>
         <select class="priority-select" title="Priority"></select>
-        ${stale ? `<span class="stage-stale-badge" title="No update in 30+ days, or unscreened 10+ business days">⚠ Stale</span>` : ""}
+        ${stale ? `<span class="stage-stale-badge" title="${escapeAttr(staleTooltipText(d))}">⚠ Stale</span>` : ""}
         ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}${tierPillHtml(d)}${icSummaryPillHtml(d)}${icScorePillHtml(d)}${screenScoreBadgeHtml(d)}${icFlagBadgeHtml(d)}
       </div>
       ${d.address ? `<div class="stage-row-sub"></div>` : ""}
@@ -4734,7 +4816,7 @@ function buildStageDealRowCompact(id, d, stage, allEvents){
   const priority = dealPriority(d);
   const stale = dealIsStale(d);
   row.className = "stage-row-compact" + (priority==="high" ? " stage-row-compact-priority-high" : priority==="medium" ? " stage-row-compact-priority-medium" : "") + (stale ? " stage-row-compact-stale" : "");
-  row.title = PRIORITY_META[priority].label + " priority" + (stale ? " · Stale: no update in 30+ days, or unscreened 10+ business days" : "");
+  row.title = PRIORITY_META[priority].label + " priority" + (stale ? " · Stale: " + staleTooltipText(d) : "");
   row.style.borderLeftColor = `var(--${stage.color})`; // .stage-row-compact-stale overrides this with !important when stale
   row.draggable = true;
   row.addEventListener("dragstart", ()=>{ dragDealCard = {id, fromStage: stage.key}; row.classList.add("dragging"); });
@@ -4753,7 +4835,7 @@ function buildStageDealRowCompact(id, d, stage, allEvents){
   row.innerHTML = `
     <span class="dot dot-${stage.color}"></span>
     <div class="src-name-wrap">
-      ${stale ? `<span class="stage-stale-badge" title="No update in 30+ days, or unscreened 10+ business days">⚠</span>` : ""}
+      ${stale ? `<span class="stage-stale-badge" title="${escapeAttr(staleTooltipText(d))}">⚠</span>` : ""}
       <span class="src-name"></span>
       ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}${screenScoreBadgeHtml(d)}
       ${d.address ? `<span class="src-address"></span>` : ""}
@@ -5395,11 +5477,18 @@ function heroPeriodSentence(){
 function heroPeriodShort(){
   return heroPeriodStart ? fmtDateFull(heroPeriodStart) : "all time";
 }
-function heroKpiCardHtml(closedCapitalPeriod, closedCountPeriod, funnelStages){
+/* The goal's own fixed window, independent of the hero card's adjustable heroPeriodStart toggle
+   above (see the comment on dashboardGoal) — used for the goal-progress line here and for the
+   "Closings vs goal" KPI tile, so the two never disagree about what counts toward the goal. */
+function goalPeriodSentence(){
+  return dashboardGoal.startDate ? `since ${fmtDateFull(dashboardGoal.startDate)}` : "all time";
+}
+function heroKpiCardHtml(closedCapitalPeriod, closedCountPeriod, funnelStages, closedCountSinceGoalStart){
   const goalCount = dashboardGoal.amount||0;
-  const pct = goalCount>0 ? Math.min(100, Math.round(closedCountPeriod/goalCount*100)) : 0;
+  const goalProgress = closedCountSinceGoalStart!=null ? closedCountSinceGoalStart : closedCountPeriod;
+  const pct = goalCount>0 ? Math.min(100, Math.round(goalProgress/goalCount*100)) : 0;
   const goalLine = goalCount
-    ? `${pct}% of ${goalCount} closing${goalCount===1?"":"s"} goal · ${fmtMoneyShort(closedCapitalPeriod)} in closed volume (${heroPeriodSentence()})`
+    ? `${pct}% of ${goalCount} closing${goalCount===1?"":"s"} goal · ${goalProgress} ${goalPeriodSentence()} · ${fmtMoneyShort(closedCapitalPeriod)} in closed volume (${heroPeriodSentence()})`
     : `${fmtMoneyShort(closedCapitalPeriod)} in closed volume (${heroPeriodSentence()}) · no goal set yet`;
   const maxCount = Math.max(1, ...funnelStages.map(s=>s.count));
   return `<div class="hero-kpi-card">
@@ -5445,6 +5534,7 @@ function openGoalEditModal(){
       <div class="modal-body">
         <div class="field"><label for="goalAmountInput">Target # of closings</label><input type="number" id="goalAmountInput" value="${dashboardGoal.amount||0}" min="0" step="1"></div>
         <div class="field" style="margin-top:10px;"><label for="goalLabelInput">Timeframe label</label><input type="text" id="goalLabelInput" value="${escapeAttr(dashboardGoal.label||"")}" placeholder="e.g. by 2026 EOY"></div>
+        <div class="field" style="margin-top:10px;"><label for="goalStartDateInput">Counted from</label><input type="date" id="goalStartDateInput" value="${dashboardGoal.startDate||""}"></div>
       </div>
       <div class="modal-foot">
         <button class="btn btn-primary" id="goalSaveBtn">Save</button>
@@ -5458,7 +5548,8 @@ function openGoalEditModal(){
   document.getElementById("goalSaveBtn").addEventListener("click", ()=>{
     const amount = Math.max(0, Math.round(Number(document.getElementById("goalAmountInput").value)||0));
     const label = document.getElementById("goalLabelInput").value.trim();
-    dashboardGoal = {amount, label};
+    const startDate = document.getElementById("goalStartDateInput").value || "";
+    dashboardGoal = {amount, label, startDate};
     saveDashboardGoal();
     close();
     if(view==="dashboard") renderDashboard();
@@ -5485,6 +5576,7 @@ function openKpiTargetsEditModal(){
       <div class="field" style="max-width:90px;"><input type="number" id="${id}" value="${val}" min="0" step="1"></div>
       ${unit ? `<div class="field" style="flex:none;padding-bottom:9px;color:var(--ink-faint);font-size:12px;">${escapeHtml(unit)}</div>` : ""}
     </div>`;
+  const underControlYears = ["2026","2027","2028"];
   root.innerHTML = `<div class="overlay" id="kpiTargetsEditOverlay">
     <div class="modal" style="width:min(440px,94vw);">
       <div class="modal-head"><h2>Edit KPI targets</h2></div>
@@ -5494,11 +5586,20 @@ function openKpiTargetsEditModal(){
         ${rangeRow("kpiActiveUw", "Active underwriting", t.activeUnderwritingMin, t.activeUnderwritingMax, "live")}
         ${singleRow("kpiLoisSubmitted", "LOIs submitted", t.loisSubmittedTarget, "per quarter")}
         ${rangeRow("kpiLoiAccept", "LOI acceptance rate", t.loiAcceptRateMin, t.loiAcceptRateMax, "%")}
-        ${singleRow("kpiUnderControl", "Sites under control", t.underControlTarget, "new / quarter")}
         ${singleRow("kpiStaleDeals", "Stale deals", t.staleDealsTarget, "count")}
+        ${singleRow("kpiMarketsCovered", "Markets covered", t.marketsCoveredTarget||0, `of ${TARGET_MARKETS.length} target markets`)}
+        <p class="screen-section-label" style="margin:16px 0 2px;">Sites under control — new per quarter, by year</p>
+        ${underControlYears.map(y=>singleRow(`kpiUnderControl${y}`, y, underControlTargetForYear(y), "new / quarter")).join("")}
+        <p class="screen-section-label" style="margin:16px 0 2px;">Stale deal thresholds</p>
+        ${singleRow("kpiStaleJustLanded", "Screening (unscreened)", (t.staleDaysByStage||{}).just_landed??10, "business days")}
+        ${singleRow("kpiStaleUw", "Underwriting", (t.staleDaysByStage||{}).underwriting??30, "calendar days, no update")}
+        ${singleRow("kpiStaleLoi", "LOI", (t.staleDaysByStage||{}).loi??14, "calendar days, no update")}
+        ${singleRow("kpiStalePsa", "PSA", (t.staleDaysByStage||{}).psa??14, "calendar days, no update")}
+        ${singleRow("kpiStaleClosing", "Closing", (t.staleDaysByStage||{}).closing??7, "calendar days, no update")}
       </div>
       <div class="modal-foot">
         <button class="btn btn-primary" id="kpiTargetsSaveBtn">Save</button>
+        <button class="btn btn-ghost" id="kpiTargetsGuardrailsBtn" style="margin-left:8px;">📍 Market guardrails…</button>
         <button class="btn btn-ghost" id="kpiTargetsCancelBtn" style="margin-left:auto;">Cancel</button>
       </div>
     </div>
@@ -5506,16 +5607,27 @@ function openKpiTargetsEditModal(){
   const close = ()=>{ root.innerHTML=""; };
   document.getElementById("kpiTargetsEditOverlay").addEventListener("click", e=>{ if(e.target.id==="kpiTargetsEditOverlay") close(); });
   document.getElementById("kpiTargetsCancelBtn").addEventListener("click", close);
+  document.getElementById("kpiTargetsGuardrailsBtn").addEventListener("click", ()=>{ close(); openTargetMarketGuardrailsModal(); });
   document.getElementById("kpiTargetsSaveBtn").addEventListener("click", ()=>{
     const num = id => Math.max(0, Math.round(Number(document.getElementById(id).value)||0));
+    const underControlTarget = {};
+    underControlYears.forEach(y=>{ underControlTarget[y] = num(`kpiUnderControl${y}`); });
     kpiTargets = {
       sitesScreenedMin: num("kpiSitesScreenedMin"), sitesScreenedMax: num("kpiSitesScreenedMax"),
       screenPassRateMin: num("kpiScreenPassRateMin"), screenPassRateMax: num("kpiScreenPassRateMax"),
       activeUnderwritingMin: num("kpiActiveUwMin"), activeUnderwritingMax: num("kpiActiveUwMax"),
       loisSubmittedTarget: num("kpiLoisSubmitted"),
       loiAcceptRateMin: num("kpiLoiAcceptMin"), loiAcceptRateMax: num("kpiLoiAcceptMax"),
-      underControlTarget: num("kpiUnderControl"),
+      underControlTarget,
       staleDealsTarget: num("kpiStaleDeals"),
+      marketsCoveredTarget: num("kpiMarketsCovered"),
+      staleDaysByStage: {
+        just_landed: num("kpiStaleJustLanded"),
+        underwriting: num("kpiStaleUw"),
+        loi: num("kpiStaleLoi"),
+        psa: num("kpiStalePsa"),
+        closing: num("kpiStaleClosing"),
+      },
     };
     saveKpiTargets();
     close();
@@ -5595,6 +5707,15 @@ const KPI_PERIOD_PRESETS = [
   {key:"y2026",   label:"Since Jan 1, 2026"},
 ];
 let acqKpiPeriodKey = "t12";
+/* Product line scope for the hero funnel + Acquisitions funnel KPI row (KPI brief item 6) — the
+   closings goal is a Porsche Design Clubhouse goal, so that's the default scope; "All" includes
+   every deal, blank/null productLine included only under "All". Independent of the general
+   dashboard filter bar's own "All product lines" dropdown, which still scopes every other card. */
+let acqKpiProductLine = "Porsche Design Clubhouse";
+function dealMatchesKpiProductLine(d){
+  if(acqKpiProductLine==="All") return true;
+  return (d.productLine||"") === acqKpiProductLine;
+}
 function acqKpiPeriodStart(key){
   const now = new Date();
   if(key==="month") return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
@@ -5652,14 +5773,30 @@ function dealDaysInStage(d, stageKey){
 function dealIsStale(d){
   const stage = d.stage||"just_landed";
   if(stage==="dead" || stage==="onboarded") return false;
-  if(stage==="just_landed" && !d.recommendation){
+  const staleDays = kpiTargets.staleDaysByStage || {};
+  if(stage==="just_landed"){
+    // Screening staleness is judged purely on the unscreened-business-days rule, not a generic
+    // calendar-day-since-update check — a deal already screened (has a recommendation) but sitting
+    // in just_landed for other reasons isn't "stale" by this rule.
+    if(d.recommendation) return false;
+    const threshold = staleDays.just_landed!=null ? staleDays.just_landed : 10;
     const h = Array.isArray(d.stageHistory) ? d.stageHistory : [];
     const entered = (h.length ? h[h.length-1].date : d.createdAt || "").slice(0,10);
-    if(entered && businessDaysBetween(entered, new Date().toISOString().slice(0,10)) > 10) return true;
+    return !!(entered && businessDaysBetween(entered, new Date().toISOString().slice(0,10)) > threshold);
   }
+  const threshold = staleDays[stage]!=null ? staleDays[stage] : 30;
   const ref = d.updatedAt || d.createdAt;
-  if(ref && Math.floor((Date.now()-new Date(ref).getTime())/86400000) > 30) return true;
-  return false;
+  return !!(ref && Math.floor((Date.now()-new Date(ref).getTime())/86400000) > threshold);
+}
+/* Short, always-accurate tooltip/title text for the stale badge — reads the live per-stage
+   thresholds (settings/kpiTargets) rather than a hardcoded number, so it never drifts out of sync
+   with openKpiTargetsEditModal. */
+function staleTooltipText(d){
+  const staleDays = kpiTargets.staleDaysByStage || {};
+  const stage = d ? (d.stage||"just_landed") : null;
+  if(stage==="just_landed") return `Unscreened ${staleDays.just_landed!=null?staleDays.just_landed:10}+ business days`;
+  if(stage && staleDays[stage]!=null) return `No update in ${staleDays[stage]}+ days`;
+  return "No update within its stage's stale threshold — see Edit targets";
 }
 /* The KPI row from the Sept 2026 stage-model brief: funnel conversion + velocity, computed entirely
    from stageHistory (see stageHistoryTransitions) so it reflects real movement through the pipeline
@@ -5693,11 +5830,53 @@ function acquisitionsKpiSectionHtml(allDealEntries){
     if(stage==="loi" && d.loiStatus==="accepted") return true;
     return false;
   }).length;
+  // The snapshot above ("how many are under control right now") doesn't say anything about the
+  // rate the target is actually stated in ("new per quarter"), so also count sites that ENTERED
+  // control within the selected period — a deal crossing into PSA, or accepting an LOI, in-window.
+  const enteredControlPeriod = new Set();
+  allDealEntries.forEach(([id,d])=> stageHistoryTransitions(d).forEach(t=>{
+    if(!inPeriod(t.date)) return;
+    if(t.to==="psa" || (t.to==="loi" && d.loiStatus==="accepted")) enteredControlPeriod.add(id);
+  }));
+  const currentYear = String(new Date().getFullYear());
+  const underControlTargetThisYear = underControlTargetForYear(currentYear);
 
   const closedInKpiPeriod = allDealEntries.filter(([id,d])=> (d.stage||"just_landed")==="onboarded" && inPeriod(d.actualCloseDate));
-  const closedSinceGoalStart = allDealEntries.filter(([id,d])=> (d.stage||"just_landed")==="onboarded" && d.actualCloseDate && d.actualCloseDate.slice(0,10) >= "2026-01-01").length;
+  const closedSinceGoalStart = allDealEntries.filter(([id,d])=> (d.stage||"just_landed")==="onboarded" && d.actualCloseDate && d.actualCloseDate.slice(0,10) >= (dashboardGoal.startDate||"1900-01-01")).length;
 
   const staleDeals = allDealEntries.filter(([id,d])=>dealIsStale(d));
+
+  // Markets covered (KPI brief item 4): how many TARGET_MARKETS have at least one live, Pursue-
+  // grade deal working them — "live" excludes dead/onboarded (a closed deal has already served its
+  // purpose; a dead one clearly isn't coverage), "Pursue-grade" means a formal Pursue recommendation
+  // or a screen score of 75+ (a deal that hasn't been screened that far yet isn't real coverage).
+  const coveredMarkets = new Set();
+  allDealEntries.forEach(([id,d])=>{
+    const stage = d.stage||"just_landed";
+    if(stage==="dead" || stage==="onboarded") return;
+    if(!d.market || !TARGET_MARKETS.includes(d.market)) return;
+    const qualifies = d.recommendation==="pursue" || (d.screenScore!=null && Number(d.screenScore)>=75);
+    if(qualifies) coveredMarkets.add(d.market);
+  });
+  const uncoveredMarkets = TARGET_MARKETS.filter(m=>!coveredMarkets.has(m));
+
+  // Basis vs guardrail (KPI brief item 5): of the deals actually under contract or closed, what
+  // share are priced at or under their market's land-price-per-acre ceiling. Deals with no market
+  // set, or no guardrail on file yet for their market, are skipped rather than counted as a miss.
+  const guardrailStages = new Set(["psa","closing","onboarded"]);
+  const guardrailCandidates = allDealEntries.filter(([id,d])=>{
+    const stage = d.stage||"just_landed";
+    if(!guardrailStages.has(stage)) return false;
+    if(!d.market || !d.lotSizeAcres) return false;
+    const g = targetMarketGuardrails[d.market];
+    return g!=null && g>0;
+  });
+  const guardrailPass = guardrailCandidates.filter(([id,d])=>{
+    const basis = Number(d.purchasePrice||0)/Number(d.lotSizeAcres);
+    return basis <= targetMarketGuardrails[d.market];
+  });
+  const guardrailPct = guardrailCandidates.length ? Math.round(guardrailPass.length/guardrailCandidates.length*100) : null;
+  const guardrailCls = guardrailPct===null ? "" : guardrailPct>=100 ? "good" : guardrailPct>=80 ? "warn" : "bad";
 
   const stageMedians = DEAL_STAGES.filter(s=>s.key!=="dead").map(s=>{
     const inStage = allDealEntries.filter(([id,d])=>(d.stage||"just_landed")===s.key);
@@ -5734,10 +5913,16 @@ function acquisitionsKpiSectionHtml(allDealEntries){
   // plain percentages either way — all four compare cleanly against their target, so those get the
   // good/warn/bad band from kpiBandCls.
   const t = kpiTargets;
+  const kpiProductLineChoices = [...new Set(["Porsche Design Clubhouse", ...productLineOptions])];
+  const staleSubLabel = `target ${t.staleDealsTarget} · uw ${(t.staleDaysByStage||{}).underwriting??30}d / loi ${(t.staleDaysByStage||{}).loi??14}d / psa ${(t.staleDaysByStage||{}).psa??14}d / closing ${(t.staleDaysByStage||{}).closing??7}d no update, or unscreened ${(t.staleDaysByStage||{}).just_landed??10} biz days`;
   return `<div class="dash-card" style="margin-bottom:16px;">
-    <div class="screen-actions" style="justify-content:space-between; margin-top:0;">
+    <div class="screen-actions" style="justify-content:space-between; margin-top:0; flex-wrap:wrap; gap:8px;">
       <h4 class="section-label" style="margin:0;">Acquisitions funnel KPIs</h4>
-      <span style="display:flex;align-items:center;gap:8px;">
+      <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <select id="acqKpiProductLineSelect" title="Product line scope">
+          <option value="All"${acqKpiProductLine==="All"?" selected":""}>All product lines</option>
+          ${kpiProductLineChoices.map(p=>`<option value="${escapeAttr(p)}"${acqKpiProductLine===p?" selected":""}>${escapeHtml(p)}</option>`).join("")}
+        </select>
         <div class="hero-timeframe-toggle" id="acqKpiPeriodToggle">
           ${KPI_PERIOD_PRESETS.map(p=>`<button type="button" class="hero-timeframe-btn${acqKpiPeriodKey===p.key?" active":""}" data-period="${p.key}">${escapeHtml(p.label)}</button>`).join("")}
         </div>
@@ -5750,9 +5935,11 @@ function acquisitionsKpiSectionHtml(allDealEntries){
       <div class="kpi-tile"><span class="kpi-label">Active underwriting</span><span class="kpi-value ${kpiBandCls(inUnderwriting.length,t.activeUnderwritingMin,t.activeUnderwritingMax)}">${inUnderwriting.length}</span><span class="kpi-sub">target ${t.activeUnderwritingMin}–${t.activeUnderwritingMax} live · ${fmtMoneyShort(uwPriceTotal)} · median ${uwMedianDays!==null?uwMedianDays+"d":"—"}</span></div>
       <div class="kpi-tile"><span class="kpi-label">LOIs submitted</span><span class="kpi-value">${loisSubmitted}</span><span class="kpi-sub">target ${t.loisSubmittedTarget}/quarter</span></div>
       <div class="kpi-tile"><span class="kpi-label">LOI acceptance rate</span><span class="kpi-value${loiAcceptRate!==null?" "+kpiBandCls(loiAcceptRate,t.loiAcceptRateMin,t.loiAcceptRateMax):""}">${loiAcceptRate!==null?loiAcceptRate+"%":"—"}</span><span class="kpi-sub">target ${t.loiAcceptRateMin}–${t.loiAcceptRateMax}% · ${loisAccepted}/${loisSubmitted} accepted</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Sites under control</span><span class="kpi-value">${underControl}</span><span class="kpi-sub">target ${t.underControlTarget} new/quarter · LOI-accepted + PSA + Closing</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Closings vs goal</span><span class="kpi-value${closedSinceGoalStart>=dashboardGoal.amount?" good":""}">${closedSinceGoalStart} / ${dashboardGoal.amount}</span><span class="kpi-sub">${escapeHtml(dashboardGoal.label||"")} · since Jan 1, 2026</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Stale deals</span><span class="kpi-value${staleDeals.length>t.staleDealsTarget?" bad":" good"}">${staleDeals.length}</span><span class="kpi-sub">target ${t.staleDealsTarget} · no update 30+d, or unscreened 10+ biz days</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Sites under control</span><span class="kpi-value">${enteredControlPeriod.size} / ${underControl}</span><span class="kpi-sub">new this period / under control now · target ${underControlTargetThisYear}/qtr (${currentYear})</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Closings vs goal</span><span class="kpi-value${closedSinceGoalStart>=dashboardGoal.amount?" good":""}">${closedSinceGoalStart} / ${dashboardGoal.amount}</span><span class="kpi-sub">${escapeHtml(dashboardGoal.label||"")} · ${goalPeriodSentence()}</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Stale deals</span><span class="kpi-value${staleDeals.length>t.staleDealsTarget?" bad":" good"}">${staleDeals.length}</span><span class="kpi-sub">${escapeHtml(staleSubLabel)}</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Markets covered</span><span class="kpi-value ${kpiBandCls(coveredMarkets.size, t.marketsCoveredTarget||0, TARGET_MARKETS.length)}">${coveredMarkets.size} / ${TARGET_MARKETS.length}</span><span class="kpi-sub">target ${t.marketsCoveredTarget||0} · missing: ${uncoveredMarkets.length?escapeHtml(uncoveredMarkets.join(", ")):"none"}</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Basis vs guardrail</span><span class="kpi-value${guardrailCls?" "+guardrailCls:""}">${guardrailPct!==null?guardrailPct+"%":"n/a"}</span><span class="kpi-sub">target 100% · ${guardrailPass.length}/${guardrailCandidates.length} in-contract under guardrail</span></div>
     </div>
     <p class="locked-note" style="margin:10px 0 4px;">Median days in stage (current pipeline, informational):</p>
     <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:8px;">
@@ -5776,6 +5963,18 @@ function renderDashboard(){
   dashboardDealsFiltered = new Map([...deals.entries()].filter(([id,d])=>dealPassesFilters(d)));
   const activeEntries = [...deals.entries()].filter(([id,d])=>dealPassesFilters(d) && (d.stage||"just_landed")!=="dead");
   const decisionEntries = activeEntries.filter(([id,d])=>(d.decisionRequired||"").trim());
+
+  /* KPI brief item 6: the hero funnel + Acquisitions funnel KPI row are additionally scoped by
+     acqKpiProductLine (default "Porsche Design Clubhouse" — the closings goal is a PDC goal),
+     independent of the general dashboard filter bar's own product-line dropdown above. Only these
+     two sections read the kpi*-prefixed variables below; every other dashboard card keeps reading
+     active/activeEntries so it's unaffected by the KPI scope selector. */
+  const kpiActive = active.filter(dealMatchesKpiProductLine);
+  // Unlike kpiActive (dead-stage deals excluded, used for the hero funnel's live-pipeline buckets),
+  // acquisitionsKpiSectionHtml needs dead deals INCLUDED — a site that was screened and then passed
+  // (now dead) still counts toward "sites screened" for the period it was screened in, so this
+  // starts from dashboardDealsFiltered (filter-bar-scoped, stage-unrestricted) rather than active.
+  const kpiAllEntries = [...dashboardDealsFiltered.entries()].filter(([id,d])=>dealMatchesKpiProductLine(d));
 
   /* Debt / equity are forward capital commitments, not pipeline-wide speculation or already-
      deployed capital — real only once a deal is under a signed purchase agreement, and no longer
@@ -5840,10 +6039,14 @@ function renderDashboard(){
      just the "loi" stage on its own — kept as their own named sets mainly for readability below. */
   const FUNNEL_PROSPECT_STAGES = new Set(["just_landed","underwriting"]);
   const FUNNEL_LOI_STAGES = new Set(["loi"]);
-  const closedInPeriod = active.filter(d=> (d.stage||"just_landed")==="onboarded" && inHeroTimeframe(d.actualCloseDate));
+  // Scoped by kpiActive (acqKpiProductLine), not active — the hero funnel is one of the two
+  // sections the KPI product-line selector governs (see kpiActive/kpiAllEntries above).
+  const closedInPeriod = kpiActive.filter(d=> (d.stage||"just_landed")==="onboarded" && inHeroTimeframe(d.actualCloseDate));
   const closedCapitalPeriod = closedInPeriod.reduce((s,d)=> s+(Number(d.purchasePrice)||0), 0);
-  const funnelProspecting = active.filter(d=> FUNNEL_PROSPECT_STAGES.has(d.stage||"just_landed"));
-  const funnelLoi = active.filter(d=> FUNNEL_LOI_STAGES.has(d.stage||"just_landed"));
+  const closedSinceGoalStartCount = kpiActive.filter(d=> (d.stage||"just_landed")==="onboarded" && d.actualCloseDate && d.actualCloseDate.slice(0,10) >= (dashboardGoal.startDate||"1900-01-01")).length;
+  const funnelProspecting = kpiActive.filter(d=> FUNNEL_PROSPECT_STAGES.has(d.stage||"just_landed"));
+  const funnelLoi = kpiActive.filter(d=> FUNNEL_LOI_STAGES.has(d.stage||"just_landed"));
+  const kpiInContractDeals = kpiActive.filter(d=> IN_CONTRACT_STAGES.has(d.stage||"just_landed"));
   const funnelStages = [
     // Colors now read straight off the same DEAL_STAGES tokens used everywhere else a stage shows
     // up (Kanban, deal list, Gantt, map pins) — Brendan: "closing means 'x color', LOI means 'y
@@ -5854,7 +6057,7 @@ function renderDashboard(){
     // a real stage each, so those two are exact, not representative.
     {key:"prospects", label:"New prospects", color:"pipe1", count:funnelProspecting.length, capital: funnelProspecting.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
     {key:"loi", label:"LOI", color:"pipe5", count:funnelLoi.length, capital: funnelLoi.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
-    {key:"psa", label:"Under Contract", color:"pipe7", count:inContractDeals.length, capital: inContractDeals.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
+    {key:"psa", label:"Under Contract", color:"pipe7", count:kpiInContractDeals.length, capital: kpiInContractDeals.reduce((s,d)=>s+(Number(d.purchasePrice)||0),0)},
     {key:"closed", label:"Closed", color:"good", count:closedInPeriod.length, capital: closedCapitalPeriod, periodOnly:true},
   ];
   const prospectingEntries = activeEntries.filter(([id,d])=> (d.stage||"just_landed")==="just_landed");
@@ -5937,8 +6140,8 @@ function renderDashboard(){
   const vectorLayersDisabled = pipelineMapMode === "state";
 
   wrap.innerHTML = `
-    ${heroKpiCardHtml(closedCapitalPeriod, closedInPeriod.length, funnelStages)}
-    ${acquisitionsKpiSectionHtml([...dashboardDealsFiltered.entries()])}
+    ${heroKpiCardHtml(closedCapitalPeriod, closedInPeriod.length, funnelStages, closedSinceGoalStartCount)}
+    ${acquisitionsKpiSectionHtml(kpiAllEntries)}
     <div class="dash-filter-bar">
       <select id="filterStage"><option value="">All stages</option>${DEAL_STAGES.map(s=>`<option value="${s.key}">${s.title}</option>`).join("")}</select>
       <select id="filterProductLine"><option value="">All product lines</option>${productLines.map(p=>`<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join("")}</select>
@@ -6123,6 +6326,8 @@ function renderDashboard(){
   });
   const kpiTargetsEditBtn = document.getElementById("kpiTargetsEditBtn");
   if(kpiTargetsEditBtn) kpiTargetsEditBtn.addEventListener("click", openKpiTargetsEditModal);
+  const acqKpiProductLineSelect = document.getElementById("acqKpiProductLineSelect");
+  if(acqKpiProductLineSelect) acqKpiProductLineSelect.addEventListener("change", e=>{ acqKpiProductLine = e.target.value; renderDashboard(); });
   wrap.querySelectorAll(".basics-row").forEach(row=>{
     row.addEventListener("click", ()=> openDealDetail(row.getAttribute("data-deal")));
   });
@@ -8577,6 +8782,7 @@ function openEditDealModal(){
           </details>
           <div class="field"><label for="dName">Project name</label><input id="dName" type="text" placeholder="e.g. Maple Court Parcel"></div>
           <div class="field"><label for="dAddress">Address</label><input id="dAddress" type="text" placeholder="Street, city, state"></div>
+          <div class="field"><label for="dMarket">Target market</label><input id="dMarket" type="text" list="targetMarketsList" placeholder="e.g. Palm Beach"></div>
           <div class="field-row">
             <div class="field"><label for="dLot">Lot size (acres)</label><input id="dLot" type="number" step="0.1" placeholder="0"></div>
             <div class="field"><label for="dPrice">Purchase price</label><input id="dPrice" type="text" inputmode="numeric" placeholder="$0"></div>
@@ -8604,6 +8810,7 @@ function openEditDealModal(){
             </div>
           </div>
           <div class="field"><label for="dNotes">Notes</label><textarea id="dNotes" placeholder="Optional…"></textarea></div>
+          ${targetMarketsDatalistHtml()}
         </div>
         <div class="modal-foot">
           <button class="btn btn-primary" id="dSave">Add deal</button>
@@ -8645,6 +8852,7 @@ function openEditDealModal(){
     createDeal(Object.assign({
       name,
       address: document.getElementById("dAddress").value.trim(),
+      market: document.getElementById("dMarket").value.trim(),
       lotSizeAcres: document.getElementById("dLot").value ? Number(document.getElementById("dLot").value) : null,
       purchasePrice: parseMoneyStr(document.getElementById("dPrice").value),
       state: document.getElementById("dState").value,
@@ -8931,6 +9139,7 @@ function openCardPrintModal(id){
   ];
   const overviewRows = [
     ["Address", d.address || "—"],
+    ["Target market", d.market || "—"],
     ["Property type", d.propertyType || "—"],
     ["Deal type", d.dealType || "—"],
     ["Product line", d.productLine || "—"],
@@ -9149,6 +9358,8 @@ function openDealDetail(id){
           <h4 class="section-label">Overview</h4>
           <div class="deal-fields">
             <div class="field"><label for="slideAddress">Address</label><input id="slideAddress" type="text"></div>
+            <div class="field"><label for="slideMarket">Target market</label><input id="slideMarket" type="text" list="targetMarketsList" placeholder="e.g. Palm Beach"></div>
+            ${targetMarketsDatalistHtml()}
             <div class="field">
               <label for="slideMapOverride">Map coordinates override (optional)</label>
               <input id="slideMapOverride" type="text" placeholder="e.g. 33.7595, -116.4386">
@@ -9202,6 +9413,7 @@ function openDealDetail(id){
 
   initSlideResizeHandle();
   document.getElementById("slideAddress").value = d.address||"";
+  document.getElementById("slideMarket").value = d.market||"";
   document.getElementById("slideMapOverride").value = d.mapOverride||"";
   document.getElementById("slideStage").value = d.stage||"just_landed";
   document.getElementById("slidePsa").value = d.psaStatus||"Not Started";
@@ -9321,6 +9533,11 @@ function openDealDetail(id){
     const v = e.target.value.trim();
     save({address: v}); d.address = v;
     renderDealLocationMap(id, v, d.mapOverride||"");
+  });
+  document.getElementById("slideMarket").addEventListener("change", e=>{
+    const v = e.target.value.trim();
+    save({market: v}); d.market = v;
+    if(view==="dashboard") renderDashboard();
   });
   document.getElementById("slideMapOverride").addEventListener("change", e=>{
     const v = e.target.value.trim();
