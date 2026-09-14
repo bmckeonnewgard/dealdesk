@@ -869,6 +869,17 @@
   .kpi-value.bad{ color:var(--bad); }
   .kpi-value.warn{ color:var(--warn); }
   .kpi-sub{ font-size:10.5px; color:var(--ink-faint); }
+  /* The two headline KPIs (Closings vs goal, Sites under control) get their own larger tile style —
+     everything else in the Acquisitions KPI card is a "leading indicator" using the plain .kpi-tile
+     styling above, one visual step down from these. */
+  .kpi-grid-headline{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-bottom:4px; }
+  .kpi-tile-headline{
+    background:var(--surface); border:1px solid var(--border-strong); border-top:4px solid var(--accent); border-radius:12px;
+    padding:18px 20px; display:flex; flex-direction:column; gap:6px; box-shadow:0 2px 4px rgba(24,49,57,.1), 0 14px 30px -16px rgba(24,49,57,.32);
+  }
+  .kpi-tile-headline .kpi-label{ font-size:12px; }
+  .kpi-tile-headline .kpi-value{ font-size:38px; }
+  .kpi-tile-headline .kpi-sub{ font-size:12px; }
   .count-badge{
     font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--bad); background:var(--bad-soft);
     border-radius:20px; padding:1px 8px; margin-left:6px; vertical-align:middle;
@@ -5915,9 +5926,35 @@ function acquisitionsKpiSectionHtml(allDealEntries){
   const t = kpiTargets;
   const kpiProductLineChoices = [...new Set(["Porsche Design Clubhouse", ...productLineOptions])];
   const staleSubLabel = `target ${t.staleDealsTarget} · uw ${(t.staleDaysByStage||{}).underwriting??30}d / loi ${(t.staleDaysByStage||{}).loi??14}d / psa ${(t.staleDaysByStage||{}).psa??14}d / closing ${(t.staleDaysByStage||{}).closing??7}d no update, or unscreened ${(t.staleDaysByStage||{}).just_landed??10} biz days`;
-  return `<div class="dash-card" style="margin-bottom:16px;">
+  // Two headline KPIs, the rest as leading indicators lower on the page (Brendan: "KPI should
+  // really just be one or two indicators"). Closings vs goal is the one outcome number the desk is
+  // ultimately judged on; Sites under control is the leading indicator most directly tied to
+  // reaching it (a 2028 closing has to pass through site control first). The product line/period
+  // controls stay on this top card since they scope everything below it too.
+  const headlineTilesHtml = `
+    <div class="kpi-grid-headline">
+      <div class="kpi-tile-headline"><span class="kpi-label">Closings vs goal</span><span class="kpi-value${closedSinceGoalStart>=dashboardGoal.amount?" good":""}">${closedSinceGoalStart} / ${dashboardGoal.amount}</span><span class="kpi-sub">${escapeHtml(dashboardGoal.label||"")} · ${goalPeriodSentence()}</span></div>
+      <div class="kpi-tile-headline"><span class="kpi-label">Sites under control</span><span class="kpi-value">${enteredControlPeriod.size} / ${underControl}</span><span class="kpi-sub">new this period / under control now · target ${underControlTargetThisYear}/qtr (${currentYear})</span></div>
+    </div>`;
+  const leadingIndicatorTilesHtml = `
+    <div class="kpi-grid" style="margin-top:10px;">
+      <div class="kpi-tile"><span class="kpi-label">Sites screened</span><span class="kpi-value">${sitesScreened}</span><span class="kpi-sub">target ${t.sitesScreenedMin}–${t.sitesScreenedMax}/mo</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Screen pass rate</span><span class="kpi-value${screenPassRate!==null?" "+kpiBandCls(screenPassRate,t.screenPassRateMin,t.screenPassRateMax):""}">${screenPassRate!==null?screenPassRate+"%":"—"}</span><span class="kpi-sub">target ${t.screenPassRateMin}–${t.screenPassRateMax}% · ${enteredUnderwriting}/${sitesScreened} to underwriting</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Active underwriting</span><span class="kpi-value ${kpiBandCls(inUnderwriting.length,t.activeUnderwritingMin,t.activeUnderwritingMax)}">${inUnderwriting.length}</span><span class="kpi-sub">target ${t.activeUnderwritingMin}–${t.activeUnderwritingMax} live · ${fmtMoneyShort(uwPriceTotal)} · median ${uwMedianDays!==null?uwMedianDays+"d":"—"}</span></div>
+      <div class="kpi-tile"><span class="kpi-label">LOIs submitted</span><span class="kpi-value">${loisSubmitted}</span><span class="kpi-sub">target ${t.loisSubmittedTarget}/quarter</span></div>
+      <div class="kpi-tile"><span class="kpi-label">LOI acceptance rate</span><span class="kpi-value${loiAcceptRate!==null?" "+kpiBandCls(loiAcceptRate,t.loiAcceptRateMin,t.loiAcceptRateMax):""}">${loiAcceptRate!==null?loiAcceptRate+"%":"—"}</span><span class="kpi-sub">target ${t.loiAcceptRateMin}–${t.loiAcceptRateMax}% · ${loisAccepted}/${loisSubmitted} accepted</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Stale deals</span><span class="kpi-value${staleDeals.length>t.staleDealsTarget?" bad":" good"}">${staleDeals.length}</span><span class="kpi-sub">${escapeHtml(staleSubLabel)}</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Markets covered</span><span class="kpi-value ${kpiBandCls(coveredMarkets.size, t.marketsCoveredTarget||0, TARGET_MARKETS.length)}">${coveredMarkets.size} / ${TARGET_MARKETS.length}</span><span class="kpi-sub">target ${t.marketsCoveredTarget||0} · missing: ${uncoveredMarkets.length?escapeHtml(uncoveredMarkets.join(", ")):"none"}</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Basis vs guardrail</span><span class="kpi-value${guardrailCls?" "+guardrailCls:""}">${guardrailPct!==null?guardrailPct+"%":"n/a"}</span><span class="kpi-sub">target 100% · ${guardrailPass.length}/${guardrailCandidates.length} in-contract under guardrail</span></div>
+    </div>`;
+  // Returns the two pieces separately (rather than one combined block) so renderDashboard can
+  // place the headline card up top near the hero stat and the leading-indicator card further down
+  // the page — Brendan: "KPI should really just be one or two indicators... the rest can fall to
+  // the bottom of the dashboard as leading indicators." Both come out of one calc pass so nothing
+  // here is computed twice.
+  const headlineHtml = `<div class="dash-card" style="margin-bottom:16px;">
     <div class="screen-actions" style="justify-content:space-between; margin-top:0; flex-wrap:wrap; gap:8px;">
-      <h4 class="section-label" style="margin:0;">Acquisitions funnel KPIs</h4>
+      <h4 class="section-label" style="margin:0;">Acquisitions KPIs</h4>
       <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <select id="acqKpiProductLineSelect" title="Product line scope">
           <option value="All"${acqKpiProductLine==="All"?" selected":""}>All product lines</option>
@@ -5929,18 +5966,11 @@ function acquisitionsKpiSectionHtml(allDealEntries){
         <button type="button" class="btn-icon" id="kpiTargetsEditBtn">🎯 Edit targets</button>
       </span>
     </div>
-    <div class="kpi-grid" style="margin-top:10px;">
-      <div class="kpi-tile"><span class="kpi-label">Sites screened</span><span class="kpi-value">${sitesScreened}</span><span class="kpi-sub">target ${t.sitesScreenedMin}–${t.sitesScreenedMax}/mo</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Screen pass rate</span><span class="kpi-value${screenPassRate!==null?" "+kpiBandCls(screenPassRate,t.screenPassRateMin,t.screenPassRateMax):""}">${screenPassRate!==null?screenPassRate+"%":"—"}</span><span class="kpi-sub">target ${t.screenPassRateMin}–${t.screenPassRateMax}% · ${enteredUnderwriting}/${sitesScreened} to underwriting</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Active underwriting</span><span class="kpi-value ${kpiBandCls(inUnderwriting.length,t.activeUnderwritingMin,t.activeUnderwritingMax)}">${inUnderwriting.length}</span><span class="kpi-sub">target ${t.activeUnderwritingMin}–${t.activeUnderwritingMax} live · ${fmtMoneyShort(uwPriceTotal)} · median ${uwMedianDays!==null?uwMedianDays+"d":"—"}</span></div>
-      <div class="kpi-tile"><span class="kpi-label">LOIs submitted</span><span class="kpi-value">${loisSubmitted}</span><span class="kpi-sub">target ${t.loisSubmittedTarget}/quarter</span></div>
-      <div class="kpi-tile"><span class="kpi-label">LOI acceptance rate</span><span class="kpi-value${loiAcceptRate!==null?" "+kpiBandCls(loiAcceptRate,t.loiAcceptRateMin,t.loiAcceptRateMax):""}">${loiAcceptRate!==null?loiAcceptRate+"%":"—"}</span><span class="kpi-sub">target ${t.loiAcceptRateMin}–${t.loiAcceptRateMax}% · ${loisAccepted}/${loisSubmitted} accepted</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Sites under control</span><span class="kpi-value">${enteredControlPeriod.size} / ${underControl}</span><span class="kpi-sub">new this period / under control now · target ${underControlTargetThisYear}/qtr (${currentYear})</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Closings vs goal</span><span class="kpi-value${closedSinceGoalStart>=dashboardGoal.amount?" good":""}">${closedSinceGoalStart} / ${dashboardGoal.amount}</span><span class="kpi-sub">${escapeHtml(dashboardGoal.label||"")} · ${goalPeriodSentence()}</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Stale deals</span><span class="kpi-value${staleDeals.length>t.staleDealsTarget?" bad":" good"}">${staleDeals.length}</span><span class="kpi-sub">${escapeHtml(staleSubLabel)}</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Markets covered</span><span class="kpi-value ${kpiBandCls(coveredMarkets.size, t.marketsCoveredTarget||0, TARGET_MARKETS.length)}">${coveredMarkets.size} / ${TARGET_MARKETS.length}</span><span class="kpi-sub">target ${t.marketsCoveredTarget||0} · missing: ${uncoveredMarkets.length?escapeHtml(uncoveredMarkets.join(", ")):"none"}</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Basis vs guardrail</span><span class="kpi-value${guardrailCls?" "+guardrailCls:""}">${guardrailPct!==null?guardrailPct+"%":"n/a"}</span><span class="kpi-sub">target 100% · ${guardrailPass.length}/${guardrailCandidates.length} in-contract under guardrail</span></div>
-    </div>
+    ${headlineTilesHtml}
+  </div>`;
+  const leadingHtml = `<div class="dash-card" style="margin-bottom:16px;">
+    <h4 class="section-label" style="margin:0;">Leading indicators</h4>
+    ${leadingIndicatorTilesHtml}
     <p class="locked-note" style="margin:10px 0 4px;">Median days in stage (current pipeline, informational):</p>
     <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:8px;">
       ${stageMedians.map(s=>`<div class="kpi-tile" style="padding:9px 11px;"><span class="kpi-label">${escapeHtml(s.label)}</span><span class="kpi-value" style="font-size:17px;">${s.median!==null?s.median+"d":"—"}</span><span class="kpi-sub">${s.count} deal${s.count===1?"":"s"}</span></div>`).join("")}
@@ -5950,6 +5980,7 @@ function acquisitionsKpiSectionHtml(allDealEntries){
       <div style="flex:1;min-width:220px;"><p class="screen-section-label" style="margin:0 0 6px;">By broker</p>${breakdownTableHtml(byBrokerMap,"Broker")}</div>
     </div>
   </div>`;
+  return {headline: headlineHtml, leading: leadingHtml};
 }
 
 /* =================== dashboard =================== */
@@ -6139,9 +6170,10 @@ function renderDashboard(){
   // disabled there rather than let them silently time out or return partial data.
   const vectorLayersDisabled = pipelineMapMode === "state";
 
+  const acqKpiSections = acquisitionsKpiSectionHtml(kpiAllEntries);
   wrap.innerHTML = `
     ${heroKpiCardHtml(closedCapitalPeriod, closedInPeriod.length, funnelStages, closedSinceGoalStartCount)}
-    ${acquisitionsKpiSectionHtml(kpiAllEntries)}
+    ${acqKpiSections.headline}
     <div class="dash-filter-bar">
       <select id="filterStage"><option value="">All stages</option>${DEAL_STAGES.map(s=>`<option value="${s.key}">${s.title}</option>`).join("")}</select>
       <select id="filterProductLine"><option value="">All product lines</option>${productLines.map(p=>`<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join("")}</select>
@@ -6252,7 +6284,9 @@ function renderDashboard(){
     ${pageDividerHtml("Activity")}
     ${weeklySummaryCardHtml()}
     ${pageDividerHtml("Hit rate")}
-    ${passedDealsCardHtml(dashboardDealsFiltered)}`;
+    ${passedDealsCardHtml(dashboardDealsFiltered)}
+    ${pageDividerHtml("Leading indicators")}
+    ${acqKpiSections.leading}`;
   renderPipelineMap(byState, byMarket, activeEntries);
   const pipelineMapModeToggle = document.getElementById("pipelineMapModeToggle");
   if(pipelineMapModeToggle) pipelineMapModeToggle.querySelectorAll("button").forEach(btn=>{
