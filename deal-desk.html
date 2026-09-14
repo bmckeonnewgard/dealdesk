@@ -246,6 +246,16 @@
   .stage-row-priority-medium{ background:var(--priority-medium-soft); }
   .stage-row-compact-priority-high{ background:var(--priority-high-soft); }
   .stage-row-compact-priority-medium{ background:var(--priority-medium-soft); }
+  /* Stale-deal rule (KPI/stage-model brief): unscreened 10+ business days, or no update at all in
+     30+ days — see dealIsStale(). Deliberately a border/badge treatment rather than a background
+     tint, since a stale deal can also be high/medium priority and the two backgrounds would fight;
+     the badge always wins the eye regardless of what priority tint (if any) sits underneath. */
+  .stage-row-stale, .stage-row-compact-stale{ border-left-color:var(--warn) !important; }
+  .stage-stale-badge{
+    display:inline-flex; align-items:center; gap:3px; font-size:9.5px; font-weight:700;
+    text-transform:uppercase; letter-spacing:.03em; color:var(--warn); background:var(--warn-soft);
+    border-radius:20px; padding:2px 7px;
+  }
   .priority-select{
     flex:none; width:auto; border-radius:20px; padding:2px 9px; font-size:10.5px; font-weight:700;
     border:none; cursor:pointer; font-family:var(--font-body);
@@ -1631,16 +1641,6 @@
 </head>
 <body>
 
-<div id="pwGateOverlay" style="position:fixed;inset:0;z-index:99999;background:var(--bg,#D2D7D6);display:flex;align-items:center;justify-content:center;font-family:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;">
-  <form id="pwGateForm" style="max-width:360px;width:calc(100% - 40px);padding:32px;background:var(--surface,#fff);border:1px solid var(--border,#CDDBDD);border-radius:var(--radius,10px);box-shadow:var(--shadow,0 10px 28px -14px rgba(24,49,57,.26));">
-    <div style="font-family:'Source Serif 4',Georgia,serif;font-size:22px;font-weight:600;color:var(--ink,#183139);margin-bottom:4px;">Deal Desk</div>
-    <div style="font-size:13px;color:var(--ink-soft,#526468);margin-bottom:20px;">Enter the password to continue.</div>
-    <input type="password" id="pwGateInput" autocomplete="current-password" placeholder="Password" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border-strong,#AFC2C5);border-radius:8px;font-size:14px;margin-bottom:10px;">
-    <div id="pwGateError" style="color:var(--bad,#B7382F);font-size:13px;min-height:18px;margin-bottom:6px;"></div>
-    <button type="submit" id="pwGateSubmit" style="width:100%;padding:10px 12px;border:none;border-radius:8px;background:var(--accent,#183139);color:var(--accent-ink,#fff);font-size:14px;font-weight:600;cursor:pointer;">Enter</button>
-  </form>
-</div>
-
 <div class="app-shell">
   <header class="topbar">
     <div class="brand">
@@ -2030,6 +2030,62 @@ let masterIcCriteria = [
   {key:"capital",       label:"Capital requirements",    requirement:"Equity/debt needs vs. capacity and other commitments"},
   {key:"risks",         label:"Potential risks",         requirement:"Strictly residential zoning, sub-2-acre or footprint-constrained parcel, thin collector/luxury-auto market, height cap below 50', or poor access/visibility"},
 ];
+/* The CONCOURS rubric (KPI/stage-model brief §6) — the Porsche Design Clubhouse product line's
+   screening sheet. Unlike masterIcCriteria/customCriteria above, every row here carries a `weight`
+   (summing to 100) so the scorecard can roll ratings up into a 0–100 screenScore instead of just a
+   0–10 average — see isWeightedCriteriaList/computeWeightedScreenScore below. Seeded once into
+   criteriaSets["Porsche Design Clubhouse"] by migrateConcoursRubric() the first time the app loads
+   after this shipped; editable afterward like any other product-line sheet from the Criteria tab
+   (including the weight itself), and migrateConcoursRubric never overwrites a sheet that already
+   carries weights, so an edit here is never silently reset. */
+const CONCOURS_RUBRIC = [
+  {key:"wealth-density",      label:"Wealth / Customer Density",              weight:20, type:"scale", requirement:"Target metro with strong in-migration and a deep collector-car / UHNW household base"},
+  {key:"location-access",     label:"Location and Accessibility",             weight:15, type:"scale", requirement:"Convenient to target buyer communities; strong airport/interstate/arterial access"},
+  {key:"auto-ecosystem",      label:"Automotive Ecosystem",                   weight:10, type:"scale", requirement:"Proximity to dealerships, tracks, and the broader car-culture / enthusiast community"},
+  {key:"brand-lifestyle",     label:"Brand / Lifestyle Fit",                  weight:15, type:"scale", requirement:"Fits the Porsche Design Clubhouse brand and lifestyle positioning"},
+  {key:"site-physical",       label:"Site / Physical Characteristics",        weight:15, type:"scale", requirement:"Size, shape, clear height, and access suited to the clubhouse format"},
+  {key:"zoning-entitlement",  label:"Zoning / Entitlement / Development Risk",weight:10, type:"scale", requirement:"Zoning permits the use; manageable entitlement path and development risk"},
+  {key:"economics-basis",     label:"Economics / Basis",                     weight:10, type:"scale", requirement:"Attractive acquisition basis relative to market comps and underwriting"},
+  {key:"competition-whitespace", label:"Competition / White Space",           weight:5,  type:"scale", requirement:"Limited direct competition; genuine white space in the trade area"},
+];
+/* Grade bands for a 0–100 screenScore, per the brief: A+/A/B all map to "pursue" (B is the softer
+   "pursue with conditions" — recommendation itself stays the existing 3-value pursue/watch/pass
+   field, so this is a label distinction only, not a 4th enum value), C to "watch", D/F to "pass". */
+const SCREEN_GRADE_BANDS = [
+  {min:93, grade:"A+", reco:"pursue", recoLabel:"Pursue"},
+  {min:85, grade:"A",  reco:"pursue", recoLabel:"Pursue"},
+  {min:75, grade:"B",  reco:"pursue", recoLabel:"Pursue (with conditions)"},
+  {min:60, grade:"C",  reco:"watch",  recoLabel:"Watch"},
+  {min:-Infinity, grade:"D/F", reco:"pass", recoLabel:"Pass"},
+];
+function gradeForScreenScore(score){
+  if(score==null || isNaN(score)) return null;
+  return SCREEN_GRADE_BANDS.find(b=> score>=b.min) || SCREEN_GRADE_BANDS[SCREEN_GRADE_BANDS.length-1];
+}
+/* A "weighted rubric" is a criteria list where every row declares a weight — the CONCOURS sheet
+   today, and any other product-line sheet Brendan later gives full weights to from the Criteria
+   tab. A list with no weights, or only some rows weighted (a sheet mid-edit), is NOT treated as
+   weighted — recomputeIcCriteria leaves screenScore alone in that case rather than computing a
+   number from a partial/nonsensical weighting. */
+function isWeightedCriteriaList(list){
+  return Array.isArray(list) && list.length>0 && list.every(c=> typeof c.weight==="number" && c.weight>0);
+}
+/* Prorates over whatever's actually been rated so far (same spirit as the existing 0–10 icScore
+   average, which also updates as ratings come in rather than waiting for every row) — a deal rated
+   on just the highest-weight categories already gets a meaningful in-progress screenScore, not null
+   until every last row is filled in. */
+function computeWeightedScreenScore(list, cache){
+  let weightedSum=0, ratedWeight=0;
+  list.forEach(item=>{
+    const v = cache.get(item.key);
+    if(v && typeof v.rating==="number" && !isNaN(v.rating)){
+      weightedSum += (v.rating/10) * item.weight;
+      ratedWeight += item.weight;
+    }
+  });
+  if(ratedWeight<=0) return null;
+  return Math.round(weightedSum/ratedWeight*100);
+}
 /* Returns the criteria list that applies to this specific deal: the shared master sheet for
    Auto Condo concepts, or this deal's own custom criteria for every other product line (each
    product line's screening approach is still being developed, per the user). */
@@ -2062,6 +2118,20 @@ function jumpToCriteriaLine(line){
 }
 function saveCriteriaSets(){
   if(db) db.doc("settings/criteriaSets").set({sets: criteriaSets});
+}
+/* One-time seed: populate the "Porsche Design Clubhouse" product-line sheet with the CONCOURS
+   rubric (KPI/stage-model brief §6) so the IC scorecard produces a meaningful 0–100 screenScore for
+   that product line instead of empty/blank rows. Idempotent — only replaces the sheet when it isn't
+   already a full, weighted CONCOURS-shaped sheet, so a later edit Brendan makes here (including
+   re-weighting a category) is never reset by this running again on a future load. Called from the
+   criteriaSets load path (both the live onSnapshot and the no-db fallback), not the deals listener,
+   since it needs the *current* criteriaSets value — loaded separately — to decide whether seeding
+   is even needed. */
+function migrateConcoursRubric(){
+  const existing = criteriaSets["Porsche Design Clubhouse"];
+  if(isWeightedCriteriaList(existing) && existing.length===CONCOURS_RUBRIC.length) return;
+  criteriaSets["Porsche Design Clubhouse"] = CONCOURS_RUBRIC.map(c=>Object.assign({}, c));
+  saveCriteriaSets();
 }
 function saveDismissedSuggestions(){
   if(db) db.doc("settings/dismissedSuggestions").set({keys: [...dismissedSuggestions]});
@@ -2146,8 +2216,14 @@ const TASK_COLUMNS = [
    shows or filters by stage (the pipeline board, the dashboard's By-stage breakdown and filters,
    the CSV export, the printed IC memo). */
 const DEAL_STAGES = [
-  {key:"just_landed",  title:"Just landed",   color:"pipe1"},
-  {key:"underwriting", title:"Underwriting",  color:"pipe3"},
+  // Display titles below match the "UI label" column of the Sept 2026 stage-model brief; the keys
+  // themselves (just_landed, underwriting, etc.) are unchanged everywhere in code and storage —
+  // only what's shown on screen moved to the new language ("Screening" instead of "Just landed",
+  // "Underwriting (pre-LOI)" to make clear an LOI hasn't gone out yet, "Closed" instead of
+  // "Onboarded" — the DD checklist's own "onboarded"/ddChecklist naming is a separate concept and
+  // untouched by this).
+  {key:"just_landed",  title:"Screening",   color:"pipe1"},
+  {key:"underwriting", title:"Underwriting (pre-LOI)",  color:"pipe3"},
   {key:"loi",          title:"LOI",           color:"pipe5"},
   {key:"psa",          title:"PSA - inspection period", color:"pipe7"},
   /* "closing" jumps from pipe9 to pipe11 (the ramp's darkest, previously-unused stop) rather than
@@ -2158,7 +2234,7 @@ const DEAL_STAGES = [
      (Kanban board, filters, CSV export) — so "Closing" is simply darker still, not a different
      color system. */
   {key:"closing",      title:"Closing",       color:"pipe11"},
-  {key:"onboarded",    title:"Onboarded",     color:"good"},
+  {key:"onboarded",    title:"Closed",     color:"good"},
   {key:"dead",         title:"Dead / Passed", color:"bad"},
 ];
 /* legacy stage keys -> the older 9-stage pipeline scheme (v1), applied once per deal on load so
@@ -2341,6 +2417,21 @@ function migrateDebtSources(){
     }] : [];
     d.debtSources = sources;
     if(db) updateDeal(id, {debtSources: sources});
+  });
+}
+/* One-time backfill: every deal that predates stageHistory gets a single starting entry for its
+   CURRENT stage, dated from createdAt (or "now" if even that's missing) — no "by" actor, since
+   nobody actually made this move just now. Every deal created after this shipped already gets its
+   first entry from createDeal, and every future stage move is recorded by attemptStageChange (see
+   below), so the funnel/velocity KPIs have a real floor to measure from instead of a gap. Array
+   presence is itself the "already migrated" signal (same convention as migrateDebtSources above),
+   so this only ever does real work once per pre-existing deal. */
+function migrateStageHistory(){
+  deals.forEach((d,id)=>{
+    if(Array.isArray(d.stageHistory)) return;
+    const history = [{stage: d.stage||"just_landed", date: d.createdAt || new Date().toISOString(), by: null}];
+    d.stageHistory = history;
+    if(db) updateDeal(id, {stageHistory: history});
   });
 }
 
@@ -2877,6 +2968,144 @@ const CRITICAL_DATE_FIELDS = [
   {id:"cdClose",          field:"actualCloseDate",         label:"Close date"},
 ];
 
+/* LOI status — a deal's live LOI outcome, distinct from the Critical Dates milestone fields
+   (loiSubmittedDate/loiSignedDate) which just track when things happened. "submitted" is the state
+   required to move a deal into the loi stage (see STAGE_ENTRY_REQUIREMENTS-equivalent checks in
+   stageEntryWarnings below). */
+const LOI_STATUS_OPTIONS = [
+  {key:"submitted", label:"Submitted"},
+  {key:"countered",  label:"Countered"},
+  {key:"accepted",   label:"Accepted"},
+  {key:"rejected",   label:"Rejected"},
+  {key:"expired",    label:"Expired"},
+  {key:"withdrawn",  label:"Withdrawn"},
+];
+/* Why a deal died — set automatically to "other" when a deal moves to Dead without a reason chosen
+   yet (shouldn't normally happen, since openDeadReasonModal prompts first — see attemptStageChange),
+   editable afterward from the deal detail panel's "Dead / passed" section. */
+const DEAD_REASON_META = {
+  basis_too_high:       "Basis too high",
+  too_small:             "Too small",
+  zoning:                "Zoning",
+  seller_not_motivated:  "Seller not motivated",
+  lost_to_buyer:         "Lost to another buyer",
+  market_fit:            "Market fit",
+  environmental:         "Environmental",
+  other:                 "Other",
+};
+/* Stage entry requirements from the KPI/stage-model brief — checked as a warn-then-confirm (not a
+   hard block) when a deal moves INTO that stage, via attemptStageChange below, so incomplete data
+   doesn't stop Brendan's workflow but does surface a reminder. "closing" has no check here: the
+   brief's "Funding authorization" requirement isn't backed by any concrete field in this schema (the
+   old Gate Log feature it might once have tied to is deprecated — see the migrateStageSchemeV2
+   comment above), so enforcing it would mean inventing a field nobody asked for. */
+function stageEntryWarnings(d, newStage){
+  const missing = [];
+  if(newStage==="just_landed"){
+    if(!d.address) missing.push("address");
+    if(!d.source) missing.push("source");
+    if(!d.productLine) missing.push("product line");
+  } else if(newStage==="underwriting"){
+    if(d.screenScore==null || d.screenScore==="") missing.push("screen score");
+    if(d.recommendation!=="pursue") missing.push('recommendation set to "Pursue"');
+    if(!d.lead) missing.push("deal lead");
+  } else if(newStage==="loi"){
+    if(!d.loiSubmittedDate) missing.push("LOI submitted date");
+    if(d.loiAmount==null || d.loiAmount==="") missing.push("LOI amount");
+    if((d.loiStatus||"")!=="submitted") missing.push('LOI status set to "Submitted"');
+  } else if(newStage==="psa"){
+    if(!d.effectiveDate) missing.push("PSA effective date");
+    if(!d.deposit1Amount) missing.push("1st deposit");
+  }
+  return missing;
+}
+/* Builds the patch for a genuine stage move: appends one {stage,date,by} entry to stageHistory
+   (every conversion/velocity KPI on the dashboard is computed from this trail) plus the automatic
+   bookkeeping fields from the brief — deadStage/deadDate when landing on Dead, screenedDate the
+   first time a deal leaves Just Landed. Takes the deal object directly (not just its id) since every
+   caller already has it. Does NOT itself call updateDeal — see attemptStageChange, the only caller,
+   which decides whether to actually commit. */
+function recordStageChange(d, newStage){
+  const prevStage = d.stage || "just_landed";
+  const nowIso = new Date().toISOString();
+  const history = (Array.isArray(d.stageHistory) ? d.stageHistory : []).slice();
+  history.push({stage: newStage, date: nowIso, by: whoName()||null});
+  const patch = {stage: newStage, stageHistory: history};
+  if(newStage==="dead"){
+    patch.deadDate = nowIso;
+    if(prevStage!=="dead") patch.deadStage = prevStage;
+  }
+  if(prevStage==="just_landed" && newStage!=="just_landed" && !d.screenedDate) patch.screenedDate = nowIso;
+  return patch;
+}
+/* Single choke point for every real, user-initiated stage move (Kanban move-selects, drag-drop, and
+   the deal-detail Stage select) — deliberately NOT used by the one-time schema migrations above
+   (migrateDealStages/V2/V3), which rewrite d.stage directly via updateDeal, so a migration-time
+   rename is never misrecorded as an actual move in stageHistory.
+   opts: {revert(prevStage), onCommit()} — revert runs if the user cancels (the dead-reason prompt or
+   the missing-fields confirm), so the triggering control (a <select> whose value already changed
+   before this ran) can be put back; onCommit runs after a real commit, for a caller that needs to
+   re-render more than the board (the deal-detail panel). */
+function attemptStageChange(id, newStage, opts){
+  opts = opts || {};
+  const d = deals.get(id);
+  if(!d) return;
+  const prevStage = d.stage || "just_landed";
+  if(prevStage===newStage) return;
+  const revert = ()=>{ if(opts.revert) opts.revert(prevStage); };
+  const commit = (reasonPatch)=>{
+    const patch = Object.assign(recordStageChange(d, newStage), {order: Date.now()}, reasonPatch||{});
+    Object.assign(d, patch);
+    updateDeal(id, patch);
+    if(opts.onCommit) opts.onCommit();
+  };
+  const proceedWithWarnings = (reasonPatch)=>{
+    const missing = stageEntryWarnings(d, newStage);
+    if(missing.length){
+      const stageLabel = (DEAL_STAGES.find(s=>s.key===newStage)||{}).title || newStage;
+      openConfirm(
+        `Moving "${escapeHtml(d.name||d.address||"this deal")}" to ${escapeHtml(stageLabel)} is missing ${escapeHtml(missing.join(", "))}. Continue anyway?`,
+        ()=> commit(reasonPatch),
+        "Move anyway",
+        revert
+      );
+    } else {
+      commit(reasonPatch);
+    }
+  };
+  if(newStage==="dead"){
+    openDeadReasonModal(d, reason=> proceedWithWarnings({deadReason: reason}), revert);
+  } else {
+    proceedWithWarnings();
+  }
+}
+function openDeadReasonModal(d, onSubmit, onCancel){
+  const root = document.getElementById("modalRoot");
+  root.innerHTML = `
+    <div class="overlay" id="deadReasonOverlay">
+      <div class="modal" style="width:min(380px,94vw);" role="dialog" aria-modal="true">
+        <div class="modal-head"><h2>Mark "${escapeHtml(d.name||d.address||"this deal")}" dead</h2></div>
+        <div class="modal-body">
+          <div class="field"><label for="deadReasonSelect">Reason</label>
+            <select id="deadReasonSelect">${Object.keys(DEAD_REASON_META).map(k=>`<option value="${k}">${escapeHtml(DEAD_REASON_META[k])}</option>`).join("")}</select>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-danger" id="deadReasonSubmit">Mark dead</button>
+          <button class="btn btn-ghost" id="deadReasonCancel" style="margin-left:auto">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  const close = ()=>{ root.innerHTML=""; };
+  document.getElementById("deadReasonOverlay").addEventListener("click", e=>{ if(e.target.id==="deadReasonOverlay"){ close(); if(onCancel) onCancel(); } });
+  document.getElementById("deadReasonCancel").addEventListener("click", ()=>{ close(); if(onCancel) onCancel(); });
+  document.getElementById("deadReasonSubmit").addEventListener("click", ()=>{
+    const reason = document.getElementById("deadReasonSelect").value;
+    close();
+    onSubmit(reason);
+  });
+}
+
 /* funnel progress (excludes the "dead" stage from the sequence) */
 function dealStageProgressPct(d){
   const seq = DEAL_STAGES.filter(s=>s.key!=="dead");
@@ -2981,7 +3210,7 @@ let criteriaSets = {}; // product line (string) -> array of {key,label,requireme
 let criteriaViewSelectedLine = "";
 let criteriaViewBuilt = false;
 let dismissedSuggestions = new Set(); // sigKeys of Suggested Tasks the user has dismissed
-let dashboardGoal = {amount: 12, label: "by 2026 EOY"}; // editable annual target # of closed acquisitions for the hero stat
+let dashboardGoal = {amount: 10, label: "by Sept 2028"}; // editable target # of closed acquisitions for the hero stat — 10 over 2 years (through fall 2028) is the real target per Harvey's acquisitions goal, counted from heroPeriodStart's Jan-1-2026 default below
 let calendarRangeMonths = (()=>{
   try{ const v = Number(localStorage.getItem("dealdesk_calendar_range")); return [12,24,36].includes(v) ? v : 12; }
   catch(e){ return 12; }
@@ -3657,6 +3886,7 @@ async function boot(){
       migrateStageSchemeV2();
       migrateStageSchemeV3();
       migrateDebtSources();
+      migrateStageHistory();
       migrateProductLineOptions();
       recomputeProductLineColors();
       renderBoard(); renderCounts();
@@ -3680,6 +3910,7 @@ async function boot(){
     db.doc("settings/criteriaSets").onSnapshot(snap=>{
       const data = snap.data();
       if(data && data.sets && typeof data.sets==="object") criteriaSets = data.sets;
+      migrateConcoursRubric();
       rebuildCriteriaView();
       if(openDealId) renderIcCriteriaSection();
     }, ()=>{});
@@ -3691,8 +3922,8 @@ async function boot(){
     db.doc("settings/goals").onSnapshot(snap=>{
       const data = snap.data();
       dashboardGoal = {
-        amount: (data && typeof data.closedDealsGoal==="number") ? data.closedDealsGoal : 12,
-        label: (data && typeof data.closedDealsGoalLabel==="string") ? data.closedDealsGoalLabel : "by 2026 EOY",
+        amount: (data && typeof data.closedDealsGoal==="number") ? data.closedDealsGoal : 10,
+        label: (data && typeof data.closedDealsGoalLabel==="string") ? data.closedDealsGoalLabel : "by Sept 2028",
       };
       if(view==="dashboard") renderDashboard();
     }, ()=>{});
@@ -3717,8 +3948,10 @@ async function boot(){
     migrateStageSchemeV2();
     migrateStageSchemeV3();
     migrateDebtSources();
+    migrateStageHistory();
     categorySettingsLoaded = true;
     migrateProductLineOptions();
+    migrateConcoursRubric();
     recomputeProductLineColors();
     renderBoard(); renderCounts();
   }
@@ -3792,7 +4025,15 @@ function logDealCreated(dealId, data){
 }
 async function createDeal(data){
   const ddChecklist = cloneDefaultDdChecklist();
-  const full = Object.assign({ddChecklist, ddComplete:0, ddApplicable:ddChecklist.length, ddTotal:ddChecklist.length}, data);
+  // Every deal's stageHistory starts with one entry for whatever stage it's actually created into
+  // (normally "just_landed", but a caller — e.g. a future bulk-import — can pass a different
+  // starting stage). A caller that already supplies its own stageHistory (re-creating a deal from
+  // known history, say) wins over this default, since Object.assign below applies `data` last.
+  const startStage = (data && data.stage) || "just_landed";
+  const full = Object.assign({
+    ddChecklist, ddComplete:0, ddApplicable:ddChecklist.length, ddTotal:ddChecklist.length,
+    stageHistory: [{stage: startStage, date: new Date().toISOString(), by: whoName()||null}],
+  }, data);
   if(db){ const ref = await db.collection("deals").add(full); logDealCreated(ref.id, full); return ref.id; }
   else{ const id = localId(); deals.set(id, full); renderBoard(); renderCounts(); return id; }
 }
@@ -3861,7 +4102,15 @@ function recomputeIcCriteria(dealId){
     if(typeof v.rating==="number" && !isNaN(v.rating)){ scoreSum += v.rating; scoreCount++; }
   });
   const icScore = scoreCount ? Math.round((scoreSum/scoreCount)*10)/10 : null;
-  updateDeal(dealId, {icFit:fit, icWatch:watch, icNoFit:nofit, icTotal:list.length, icScore, icScoreCount:scoreCount});
+  const patch = {icFit:fit, icWatch:watch, icNoFit:nofit, icTotal:list.length, icScore, icScoreCount:scoreCount};
+  // Weighted CONCOURS-style rubrics (every row carrying a `weight`, e.g. the Porsche Design
+  // Clubhouse sheet) additionally roll up into the 0–100 screenScore that the stage-model brief's
+  // Screening-stage entry requirement and Dashboard KPIs read from. Non-weighted sheets (the Auto
+  // Condo master sheet, per-deal custom criteria) leave screenScore untouched — averaging unweighted
+  // 0–10 ratings into a 0–100 number wouldn't mean anything, so screenScore there stays whatever a
+  // person typed directly into the deal's Screening result section.
+  if(isWeightedCriteriaList(list)) patch.screenScore = computeWeightedScreenScore(list, cache);
+  updateDeal(dealId, patch);
 }
 
 /* =================== view switching =================== */
@@ -4197,16 +4446,23 @@ function stageHighlightFields(stageKey, d, extra){
 
   let fields;
   switch(stageKey){
-    case "just_landed":
+    case "just_landed": {
+      // Screen score / Recommendation are the Screening-group columns the Sept 2026 stage-model
+      // brief calls for — the score comes from the CONCOURS IC scorecard (screenScore, 0–100,
+      // distinct from the older 0–10 icScore "Criteria score" chip below, which stays as-is since
+      // it's still how the Criteria page scores today pending the weighted-rubric rebuild).
+      const recoMeta = {pursue:{label:"Pursue",cls:"good"}, watch:{label:"Watch",cls:"warn"}, pass:{label:"Pass",cls:"bad"}}[d.recommendation];
       fields = [
         {label:"Location", value: escapeHtml(d.address||"—")},
         {label:"Asking price", value: priceStr},
         {label:"Source", value: escapeHtml(d.source||"—")},
         {label:"Product line", value: escapeHtml(d.productLine||"—")},
-        {label:"Criteria score", value: (d.icScore!=null && d.icScoreCount) ? `${d.icScore.toFixed(1)}/10` : "Not rated",
-          cls: d.icScore==null ? "" : (d.icScore>=7.5?"good":d.icScore>=5?"warn":"bad")},
+        {label:"Screen score", value: (d.screenScore!=null && d.screenScore!=="") ? `${d.screenScore}/100` : "—",
+          cls: d.screenScore==null ? "" : (d.screenScore>=85?"good":d.screenScore>=60?"warn":"bad")},
+        {label:"Recommendation", value: recoMeta ? recoMeta.label : "—", cls: recoMeta ? recoMeta.cls : ""},
       ];
       break;
+    }
     case "underwriting":
       fields = [
         {label:"Purchase price", value: priceStr},
@@ -4216,11 +4472,14 @@ function stageHighlightFields(stageKey, d, extra){
       ];
       break;
     case "loi": {
-      const loiStatus = loiStatusLabel(d);
+      const loiStage = loiStatusLabel(d);
+      const loiStatusMeta = {submitted:{label:"Submitted",cls:"warn"}, countered:{label:"Countered",cls:"warn"}, accepted:{label:"Accepted",cls:"good"}, rejected:{label:"Rejected",cls:"bad"}, expired:{label:"Expired",cls:"bad"}, withdrawn:{label:"Withdrawn",cls:"bad"}}[d.loiStatus];
       fields = [
         {label:"Offer price", value: priceStr},
+        {label:"LOI amount", value: d.loiAmount ? fmtMoneyShort(d.loiAmount) : "—"},
+        {label:"LOI status", value: loiStatusMeta ? loiStatusMeta.label : "—", cls: loiStatusMeta ? loiStatusMeta.cls : ""},
+        {label:"LOI stage", value: loiStage.text, cls: loiStage.cls},
         {label:"Est. margin", value: marginStr, cls: marginCls},
-        {label:"LOI status", value: loiStatus.text, cls: loiStatus.cls},
         {label:"Capital needed", value: capStr},
       ];
       break;
@@ -4266,6 +4525,14 @@ function stageHighlightFields(stageKey, d, extra){
   fields.push({label:"Price / unit", value: ppuStr});
   fields.push({label:"Market", value: escapeHtml(dealMarketLabel(d))});
   fields.push({label:"Acreage", value: escapeHtml(acresSummaryText(d))});
+  // Days in (current) stage, from stageHistory — the brief's velocity signal, shown alongside the
+  // existing "days since update" (still visible via the Key dates / updated column) rather than
+  // replacing it, since "when did this last move" and "when was this last touched" answer different
+  // questions and both stay useful.
+  if(stageKey!=="dead"){
+    const daysIn = dealDaysInStage(d, stageKey);
+    fields.push({label:"Days in stage", value: daysIn!=null ? `${daysIn}d` : "—"});
+  }
   return fields;
 }
 
@@ -4311,8 +4578,9 @@ function keyDateCompactHtml(id, allEvents){
 function buildStageDealRow(id, d, stage, allEvents){
   const row = document.createElement("div");
   const priority = dealPriority(d);
-  row.className = "stage-row" + (priority==="high" ? " stage-row-priority-high" : priority==="medium" ? " stage-row-priority-medium" : "");
-  row.style.borderLeftColor = `var(--${stage.color})`;
+  const stale = dealIsStale(d);
+  row.className = "stage-row" + (priority==="high" ? " stage-row-priority-high" : priority==="medium" ? " stage-row-priority-medium" : "") + (stale ? " stage-row-stale" : "");
+  row.style.borderLeftColor = `var(--${stage.color})`; // .stage-row-stale overrides this with !important when stale
   row.draggable = true;
   row.addEventListener("dragstart", ()=>{ dragDealCard = {id, fromStage: stage.key}; row.classList.add("dragging"); });
   row.addEventListener("dragend", ()=>{ row.classList.remove("dragging"); dragDealCard = null; });
@@ -4334,6 +4602,7 @@ function buildStageDealRow(id, d, stage, allEvents){
         <span class="stage-row-title"></span>
         <button class="star-btn${d.meetsTargetCriteria?" active":""}" title="Meets target criteria">★</button>
         <select class="priority-select" title="Priority"></select>
+        ${stale ? `<span class="stage-stale-badge" title="No update in 30+ days, or unscreened 10+ business days">⚠ Stale</span>` : ""}
         ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}${tierPillHtml(d)}${icSummaryPillHtml(d)}${icScorePillHtml(d)}${icFlagBadgeHtml(d)}
       </div>
       ${d.address ? `<div class="stage-row-sub"></div>` : ""}
@@ -4376,7 +4645,7 @@ function buildStageDealRow(id, d, stage, allEvents){
   });
   sel.addEventListener("click", e=>e.stopPropagation());
   sel.addEventListener("change", ()=>{
-    updateDeal(id, {stage: sel.value, order: Date.now()});
+    attemptStageChange(id, sel.value, {revert: prevStage=>{ sel.value = prevStage; }});
   });
   return row;
 }
@@ -4390,9 +4659,10 @@ function setPipelineDensity(mode){
 function buildStageDealRowCompact(id, d, stage, allEvents){
   const row = document.createElement("div");
   const priority = dealPriority(d);
-  row.className = "stage-row-compact" + (priority==="high" ? " stage-row-compact-priority-high" : priority==="medium" ? " stage-row-compact-priority-medium" : "");
-  row.title = PRIORITY_META[priority].label + " priority";
-  row.style.borderLeftColor = `var(--${stage.color})`;
+  const stale = dealIsStale(d);
+  row.className = "stage-row-compact" + (priority==="high" ? " stage-row-compact-priority-high" : priority==="medium" ? " stage-row-compact-priority-medium" : "") + (stale ? " stage-row-compact-stale" : "");
+  row.title = PRIORITY_META[priority].label + " priority" + (stale ? " · Stale: no update in 30+ days, or unscreened 10+ business days" : "");
+  row.style.borderLeftColor = `var(--${stage.color})`; // .stage-row-compact-stale overrides this with !important when stale
   row.draggable = true;
   row.addEventListener("dragstart", ()=>{ dragDealCard = {id, fromStage: stage.key}; row.classList.add("dragging"); });
   row.addEventListener("dragend", ()=>{ row.classList.remove("dragging"); dragDealCard = null; });
@@ -4401,11 +4671,16 @@ function buildStageDealRowCompact(id, d, stage, allEvents){
     openDealDetail(id);
   });
   const {pct} = dealStageProgressPct(d);
+  // "Updated" now also carries days-in-stage (from stageHistory) rather than only the raw
+  // last-touched date — the brief's days-in-stage signal, next to rather than replacing the
+  // existing updated-date reading since they answer different questions.
   const updated = d.updatedAt ? fmtDate(d.updatedAt.slice(0,10)) : (d.createdAt ? fmtDate(d.createdAt.slice(0,10)) : "—");
+  const daysIn = stage.key!=="dead" ? dealDaysInStage(d, stage.key) : null;
 
   row.innerHTML = `
     <span class="dot dot-${stage.color}"></span>
     <div class="src-name-wrap">
+      ${stale ? `<span class="stage-stale-badge" title="No update in 30+ days, or unscreened 10+ business days">⚠</span>` : ""}
       <span class="src-name"></span>
       ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}
       ${d.address ? `<span class="src-address"></span>` : ""}
@@ -4416,7 +4691,7 @@ function buildStageDealRowCompact(id, d, stage, allEvents){
     <span class="src-ppu mono">${pricePerUnit(d)?fmtMoneyShort(pricePerUnit(d))+"/u":"—"}</span>
     <span class="src-progress">${dealProgressBarHtml(d,{size:"sm",showLabel:false})}<span class="src-progress-pct mono" style="color:${progressColorForDeal(d)}">${pct}%</span></span>
     ${keyDateCompactHtml(id, allEvents)}
-    <span class="src-updated mono">${updated}</span>
+    <span class="src-updated mono">${updated}${daysIn!=null?` · ${daysIn}d in stage`:""}</span>
     <select class="move-select src-move"></select>`;
   row.querySelector(".src-name").textContent = d.name || "Untitled deal";
   if(d.address) row.querySelector(".src-address").textContent = d.address;
@@ -4429,7 +4704,7 @@ function buildStageDealRowCompact(id, d, stage, allEvents){
   });
   sel.addEventListener("click", e=>e.stopPropagation());
   sel.addEventListener("change", ()=>{
-    updateDeal(id, {stage: sel.value, order: Date.now()});
+    attemptStageChange(id, sel.value, {revert: prevStage=>{ sel.value = prevStage; }});
   });
   return row;
 }
@@ -4545,7 +4820,7 @@ function renderPipelineStages(){
       if(fromStage===stage.key) return;
       const dd = deals.get(draggedId);
       if(!dd) return;
-      updateDeal(draggedId, {stage: stage.key, order: Date.now()});
+      attemptStageChange(draggedId, stage.key);
     });
     board.appendChild(section);
   });
@@ -5179,6 +5454,172 @@ function financingGapsCardHtml(dealEntries){
   </div>`;
 }
 
+/* =================== dashboard: Acquisitions funnel KPIs (KPI/stage-model brief) =================== */
+const KPI_PERIOD_PRESETS = [
+  {key:"month",   label:"This month"},
+  {key:"quarter", label:"This quarter"},
+  {key:"t12",     label:"Trailing 12 mo"},
+  {key:"y2026",   label:"Since Jan 1, 2026"},
+];
+let acqKpiPeriodKey = "t12";
+function acqKpiPeriodStart(key){
+  const now = new Date();
+  if(key==="month") return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+  if(key==="quarter") return new Date(now.getFullYear(), Math.floor(now.getMonth()/3)*3, 1).toISOString().slice(0,10);
+  if(key==="y2026") return "2026-01-01";
+  const d = new Date(now); d.setFullYear(d.getFullYear()-1);
+  return d.toISOString().slice(0,10);
+}
+/* Walks a deal's stageHistory and returns every {from,to,date} transition (skips the first entry,
+   which has nothing to transition FROM). A deal that predates stageHistory always has at least the
+   one entry migrateStageHistory backfilled it with, so this never throws on old data — it just
+   reports no transitions for a deal that hasn't moved since the backfill ran. */
+function stageHistoryTransitions(d){
+  const h = Array.isArray(d.stageHistory) ? d.stageHistory : [];
+  const out = [];
+  for(let i=1;i<h.length;i++){
+    if(h[i] && h[i-1] && h[i].stage!==h[i-1].stage) out.push({from:h[i-1].stage, to:h[i].stage, date:h[i].date});
+  }
+  return out;
+}
+/* Weekday count between two ISO dates, inclusive — no holiday calendar, just Mon–Fri, which is
+   enough for the "10 business days" screening-staleness rule below. */
+function businessDaysBetween(startIso, endIso){
+  const start = new Date(startIso+"T00:00:00"), end = new Date(endIso+"T00:00:00");
+  if(isNaN(start)||isNaN(end)||end<start) return 0;
+  let count = 0;
+  const cur = new Date(start);
+  while(cur<=end){
+    const dow = cur.getDay();
+    if(dow!==0 && dow!==6) count++;
+    cur.setDate(cur.getDate()+1);
+  }
+  return count;
+}
+function median(nums){
+  if(!nums.length) return null;
+  const s = nums.slice().sort((a,b)=>a-b);
+  const mid = Math.floor(s.length/2);
+  return s.length%2 ? s[mid] : Math.round((s[mid-1]+s[mid])/2);
+}
+/* Days since a deal most recently entered the given stage (current stage if omitted), read from the
+   back of stageHistory. Shared by the dashboard's median-days tiles and the Acquisitions pipeline
+   row's own days-in-stage chip (buildStageDealRow) so both always agree on the same number. */
+function dealDaysInStage(d, stageKey){
+  const key = stageKey || d.stage || "just_landed";
+  const h = Array.isArray(d.stageHistory) ? d.stageHistory : [];
+  const entry = [...h].reverse().find(e=>e.stage===key);
+  if(!entry || !entry.date) return null;
+  return Math.floor((Date.now()-new Date(entry.date).getTime())/86400000);
+}
+/* The brief's stale-deal rule, in one place so the Dashboard "Stale deals" KPI tile and the
+   Acquisitions pipeline's row-highlighting (buildStageDealRow/Compact) can never disagree on which
+   deals count: unscreened 10+ business days, or no update at all in 30+ days, excluding deals that
+   are already done (dead or closed). */
+function dealIsStale(d){
+  const stage = d.stage||"just_landed";
+  if(stage==="dead" || stage==="onboarded") return false;
+  if(stage==="just_landed" && !d.recommendation){
+    const h = Array.isArray(d.stageHistory) ? d.stageHistory : [];
+    const entered = (h.length ? h[h.length-1].date : d.createdAt || "").slice(0,10);
+    if(entered && businessDaysBetween(entered, new Date().toISOString().slice(0,10)) > 10) return true;
+  }
+  const ref = d.updatedAt || d.createdAt;
+  if(ref && Math.floor((Date.now()-new Date(ref).getTime())/86400000) > 30) return true;
+  return false;
+}
+/* The KPI row from the Sept 2026 stage-model brief: funnel conversion + velocity, computed entirely
+   from stageHistory (see stageHistoryTransitions) so it reflects real movement through the pipeline
+   rather than just today's snapshot. Its period selector is deliberately separate from the hero
+   card's own YTD/T12/All-time/custom toggle above — this row measures activity WITHIN a window
+   (screened, LOIs submitted), the hero measures a cumulative total, so sharing one selector would
+   make one of the two say something it doesn't mean. */
+function acquisitionsKpiSectionHtml(allDealEntries){
+  const periodStart = acqKpiPeriodStart(acqKpiPeriodKey);
+  const inPeriod = iso => !!iso && iso.slice(0,10) >= periodStart;
+
+  const screenedExits = [];
+  allDealEntries.forEach(([id,d])=> stageHistoryTransitions(d).forEach(t=>{ if(t.from==="just_landed" && inPeriod(t.date)) screenedExits.push({id,d,t}); }));
+  const sitesScreened = screenedExits.length;
+  const enteredUnderwriting = screenedExits.filter(x=>x.t.to==="underwriting").length;
+  const screenPassRate = sitesScreened ? Math.round(enteredUnderwriting/sitesScreened*100) : null;
+
+  const inUnderwriting = allDealEntries.filter(([id,d])=>(d.stage||"just_landed")==="underwriting");
+  const uwPriceTotal = inUnderwriting.reduce((s,[id,d])=>s+(Number(d.purchasePrice)||0),0);
+  const uwMedianDays = median(inUnderwriting.map(([id,d])=>dealDaysInStage(d,"underwriting")).filter(n=>n!==null));
+
+  const loiEntries = [];
+  allDealEntries.forEach(([id,d])=> stageHistoryTransitions(d).forEach(t=>{ if(t.to==="loi" && t.from!=="loi" && inPeriod(t.date)) loiEntries.push({id,d,t}); }));
+  const loisSubmitted = loiEntries.length;
+  const loisAccepted = loiEntries.filter(x=>x.d.loiStatus==="accepted").length;
+  const loiAcceptRate = loisSubmitted ? Math.round(loisAccepted/loisSubmitted*100) : null;
+
+  const underControl = allDealEntries.filter(([id,d])=>{
+    const stage = d.stage||"just_landed";
+    if(stage==="psa" || stage==="closing") return true;
+    if(stage==="loi" && d.loiStatus==="accepted") return true;
+    return false;
+  }).length;
+
+  const closedInKpiPeriod = allDealEntries.filter(([id,d])=> (d.stage||"just_landed")==="onboarded" && inPeriod(d.actualCloseDate));
+  const closedSinceGoalStart = allDealEntries.filter(([id,d])=> (d.stage||"just_landed")==="onboarded" && d.actualCloseDate && d.actualCloseDate.slice(0,10) >= "2026-01-01").length;
+
+  const staleDeals = allDealEntries.filter(([id,d])=>dealIsStale(d));
+
+  const stageMedians = DEAL_STAGES.filter(s=>s.key!=="dead").map(s=>{
+    const inStage = allDealEntries.filter(([id,d])=>(d.stage||"just_landed")===s.key);
+    const days = inStage.map(([id,d])=>dealDaysInStage(d,s.key)).filter(n=>n!==null);
+    return {label:s.title, count:inStage.length, median: median(days)};
+  });
+
+  const bySourceMap = new Map(), byBrokerMap = new Map();
+  const bump = (map,key,field)=>{
+    const k = key || "—";
+    if(!map.has(k)) map.set(k, {screened:0, lois:0, closings:0});
+    map.get(k)[field]++;
+  };
+  const brokerKey = d => d.brokerId ? brokerLabel(brokers.get(d.brokerId)) : "";
+  screenedExits.forEach(x=>{ bump(bySourceMap, x.d.source, "screened"); bump(byBrokerMap, brokerKey(x.d), "screened"); });
+  loiEntries.forEach(x=>{ bump(bySourceMap, x.d.source, "lois"); bump(byBrokerMap, brokerKey(x.d), "lois"); });
+  closedInKpiPeriod.forEach(([id,d])=>{ bump(bySourceMap, d.source, "closings"); bump(byBrokerMap, brokerKey(d), "closings"); });
+  const breakdownTableHtml = (map, label) => {
+    const rows = [...map.entries()].filter(([k,v])=> v.screened||v.lois||v.closings)
+      .sort((a,b)=> (b[1].screened+b[1].lois+b[1].closings)-(a[1].screened+a[1].lois+a[1].closings));
+    if(!rows.length) return `<div class="locked-note">No ${escapeHtml(label.toLowerCase())} data in this period yet.</div>`;
+    return `<table class="basics-table" style="width:100%;">
+      <thead><tr><th style="text-align:left;">${escapeHtml(label)}</th><th>Screened</th><th>LOIs</th><th>Closings</th></tr></thead>
+      <tbody>${rows.map(([k,v])=>`<tr><td>${escapeHtml(k)}</td><td class="mono" style="text-align:center;">${v.screened}</td><td class="mono" style="text-align:center;">${v.lois}</td><td class="mono" style="text-align:center;">${v.closings}</td></tr>`).join("")}</tbody>
+    </table>`;
+  };
+
+  return `<div class="dash-card" style="margin-bottom:16px;">
+    <div class="screen-actions" style="justify-content:space-between; margin-top:0;">
+      <h4 class="section-label" style="margin:0;">Acquisitions funnel KPIs</h4>
+      <div class="hero-timeframe-toggle" id="acqKpiPeriodToggle">
+        ${KPI_PERIOD_PRESETS.map(p=>`<button type="button" class="hero-timeframe-btn${acqKpiPeriodKey===p.key?" active":""}" data-period="${p.key}">${escapeHtml(p.label)}</button>`).join("")}
+      </div>
+    </div>
+    <div class="kpi-grid" style="margin-top:10px;">
+      <div class="kpi-tile"><span class="kpi-label">Sites screened</span><span class="kpi-value">${sitesScreened}</span><span class="kpi-sub">target 12–15/mo</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Screen pass rate</span><span class="kpi-value">${screenPassRate!==null?screenPassRate+"%":"—"}</span><span class="kpi-sub">target 20–30% · ${enteredUnderwriting}/${sitesScreened} to underwriting</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Active underwriting</span><span class="kpi-value">${inUnderwriting.length}</span><span class="kpi-sub">target 4–6 live · ${fmtMoneyShort(uwPriceTotal)} · median ${uwMedianDays!==null?uwMedianDays+"d":"—"}</span></div>
+      <div class="kpi-tile"><span class="kpi-label">LOIs submitted</span><span class="kpi-value">${loisSubmitted}</span><span class="kpi-sub">target 3/quarter</span></div>
+      <div class="kpi-tile"><span class="kpi-label">LOI acceptance rate</span><span class="kpi-value">${loiAcceptRate!==null?loiAcceptRate+"%":"—"}</span><span class="kpi-sub">target 35–50% · ${loisAccepted}/${loisSubmitted} accepted</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Sites under control</span><span class="kpi-value">${underControl}</span><span class="kpi-sub">target 1 new/quarter · LOI-accepted + PSA + Closing</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Closings vs goal</span><span class="kpi-value${closedSinceGoalStart>=10?" good":""}">${closedSinceGoalStart} / 10</span><span class="kpi-sub">by Sept 2028 · since Jan 1, 2026</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Stale deals</span><span class="kpi-value${staleDeals.length>0?" bad":" good"}">${staleDeals.length}</span><span class="kpi-sub">target 0 · no update 30+d, or unscreened 10+ biz days</span></div>
+    </div>
+    <p class="locked-note" style="margin:10px 0 4px;">Median days in stage (current pipeline, informational):</p>
+    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:8px;">
+      ${stageMedians.map(s=>`<div class="kpi-tile" style="padding:9px 11px;"><span class="kpi-label">${escapeHtml(s.label)}</span><span class="kpi-value" style="font-size:17px;">${s.median!==null?s.median+"d":"—"}</span><span class="kpi-sub">${s.count} deal${s.count===1?"":"s"}</span></div>`).join("")}
+    </div>
+    <div class="field-row" style="margin-top:14px;gap:16px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:220px;"><p class="screen-section-label" style="margin:0 0 6px;">By source</p>${breakdownTableHtml(bySourceMap,"Source")}</div>
+      <div style="flex:1;min-width:220px;"><p class="screen-section-label" style="margin:0 0 6px;">By broker</p>${breakdownTableHtml(byBrokerMap,"Broker")}</div>
+    </div>
+  </div>`;
+}
+
 /* =================== dashboard =================== */
 function renderDashboard(){
   const wrap = document.getElementById("dashboardWrap");
@@ -5352,6 +5793,7 @@ function renderDashboard(){
 
   wrap.innerHTML = `
     ${heroKpiCardHtml(closedCapitalPeriod, closedInPeriod.length, funnelStages)}
+    ${acquisitionsKpiSectionHtml([...dashboardDealsFiltered.entries()])}
     <div class="dash-filter-bar">
       <select id="filterStage"><option value="">All stages</option>${DEAL_STAGES.map(s=>`<option value="${s.key}">${s.title}</option>`).join("")}</select>
       <select id="filterProductLine"><option value="">All product lines</option>${productLines.map(p=>`<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join("")}</select>
@@ -5523,11 +5965,17 @@ function renderDashboard(){
   });
   const heroKpiEditBtn = document.getElementById("heroKpiEditBtn");
   if(heroKpiEditBtn) heroKpiEditBtn.addEventListener("click", openGoalEditModal);
-  wrap.querySelectorAll(".hero-timeframe-btn").forEach(btn=>{
+  wrap.querySelectorAll("#heroTimeframeToggle .hero-timeframe-btn").forEach(btn=>{
     btn.addEventListener("click", ()=> setHeroPeriodStart(heroPeriodStartFor(btn.getAttribute("data-preset"))));
   });
   const heroPeriodStartInput = document.getElementById("heroPeriodStartInput");
   if(heroPeriodStartInput) heroPeriodStartInput.addEventListener("change", e=> setHeroPeriodStart(e.target.value));
+  // Acquisitions funnel KPI row's own period toggle — separate module-level key (acqKpiPeriodKey)
+  // and a scoped selector (#acqKpiPeriodToggle) so it never collides with the hero card's
+  // #heroTimeframeToggle above, even though both reuse the same .hero-timeframe-btn look.
+  wrap.querySelectorAll("#acqKpiPeriodToggle .hero-timeframe-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=>{ acqKpiPeriodKey = btn.getAttribute("data-period"); renderDashboard(); });
+  });
   wrap.querySelectorAll(".basics-row").forEach(row=>{
     row.addEventListener("click", ()=> openDealDetail(row.getAttribute("data-deal")));
   });
@@ -8124,23 +8572,37 @@ function renderCriteriaView(){
     <div class="dash-card screen-card" style="margin-top:14px;">
       <div class="screen-actions" style="justify-content:space-between; margin-top:0;">
         <p class="screen-section-label" style="margin:0;">Screening criteria — ${escapeHtml(selected)}</p>
-        <button class="btn" id="criteriaLoadStarterBtn" type="button">Load Auto Condo starter set</button>
+        <span style="display:flex;gap:8px;">
+          <button class="btn" id="criteriaLoadStarterBtn" type="button">Load Auto Condo starter set</button>
+          <button class="btn" id="criteriaLoadConcoursBtn" type="button">Load CONCOURS rubric</button>
+        </span>
       </div>
-      <p class="locked-note" style="margin:6px 0 12px;">These are what the IC scorecard weighs a ${escapeHtml(selected)} deal against. Changes save immediately for everyone.</p>
+      <p class="locked-note" style="margin:6px 0 12px;">These are what the IC scorecard weighs a ${escapeHtml(selected)} deal against. Changes save immediately for everyone. Give every row a weight (summing to 100) to turn this into a weighted 0–100 screenScore sheet like CONCOURS — leave weight blank for a plain 0–10 average sheet instead.</p>
       <div class="catmgr-list" id="criteriaRowsList" style="max-height:none;">
         ${rows.length ? rows.map((c,i)=>`<div class="mc-row" data-idx="${i}">
           <div class="field"><label>Label</label><input type="text" class="crit-label" data-idx="${i}" value="${escapeAttr(c.label)}"></div>
           <div class="field"><label>Requirement</label><input type="text" class="crit-req" data-idx="${i}" value="${escapeAttr(c.requirement)}"></div>
+          <div class="field" style="max-width:90px;"><label>Weight %</label><input type="number" min="0" max="100" step="1" class="crit-weight" data-idx="${i}" value="${c.weight!=null?c.weight:""}" placeholder="—"></div>
           <div class="field"><label>Rating type</label><select class="crit-type" data-idx="${i}">
             <option value="scale"${c.type!=="binary"?" selected":""}>Scale 0–10</option>
             <option value="binary"${c.type==="binary"?" selected":""}>Binary Yes/No</option>
           </select></div>
           <button type="button" class="btn-icon crit-remove" data-idx="${i}" title="Remove">✕</button>
-        </div>`).join("") : `<div class="empty-hint">No criteria yet for ${escapeHtml(selected)} — add one below, or load the Auto Condo starter set.</div>`}
+        </div>`).join("") : `<div class="empty-hint">No criteria yet for ${escapeHtml(selected)} — add one below, or load a starter set.</div>`}
       </div>
+      ${rows.length && rows.some(c=>typeof c.weight==="number") ? (()=>{
+        const weightedCount = rows.filter(c=>typeof c.weight==="number").length;
+        const totalWeight = rows.reduce((s,c)=>s+(typeof c.weight==="number"?c.weight:0),0);
+        const allWeighted = weightedCount===rows.length;
+        if(!allWeighted){
+          return `<p class="locked-note" style="margin-top:8px;color:var(--warn);font-weight:700;">${weightedCount} of ${rows.length} rows have a weight (${totalWeight}% so far) — every row needs one before this sheet computes a screenScore. Rows without a weight are treated as a plain 0–10 sheet for now.</p>`;
+        }
+        return `<p class="locked-note" style="margin-top:8px;${totalWeight!==100?"color:var(--warn);font-weight:700;":""}">Weights total ${totalWeight}%${totalWeight!==100?" — should sum to 100% for screenScore to read as a true 0–100 (it still prorates over whatever's rated, so it isn't broken, just not on a clean 0–100 scale until this adds up)." : " ✓ — this sheet computes screenScore automatically"}</p>`;
+      })() : ""}
       <div class="field-row" style="margin-top:10px;align-items:flex-end;">
         <div class="field" style="flex:1;"><label for="critNewLabel">Add criterion — label</label><input type="text" id="critNewLabel" placeholder="e.g. Parking ratio"></div>
         <div class="field" style="flex:2;"><label for="critNewReq">Requirement</label><input type="text" id="critNewReq" placeholder="What we're looking for…"></div>
+        <div class="field" style="max-width:90px;"><label for="critNewWeight">Weight %</label><input type="number" min="0" max="100" step="1" id="critNewWeight" placeholder="—"></div>
         <div class="field"><label for="critNewType">Rating type</label><select id="critNewType"><option value="scale">Scale 0–10</option><option value="binary">Binary Yes/No</option></select></div>
         <button type="button" class="btn btn-primary" id="critAddBtn" type="button">+ Add</button>
       </div>
@@ -8189,17 +8651,38 @@ function renderCriteriaView(){
       doLoad();
     }
   });
-  wrap.querySelectorAll(".crit-label, .crit-req, .crit-type").forEach(inp=>{
+  document.getElementById("criteriaLoadConcoursBtn").addEventListener("click", ()=>{
+    const doLoad = ()=>{
+      criteriaSets[selected] = CONCOURS_RUBRIC.map(c=> Object.assign({}, c));
+      saveCriteriaSets();
+      rebuildCriteriaView();
+    };
+    if(rows.length){
+      openConfirm(`Replace the ${rows.length} existing criteria for "${escapeHtml(selected)}" with the CONCOURS rubric (8 weighted categories)? This can't be undone.`, doLoad, "Replace");
+    } else {
+      doLoad();
+    }
+  });
+  wrap.querySelectorAll(".crit-label, .crit-req, .crit-type, .crit-weight").forEach(inp=>{
     inp.addEventListener("change", ()=>{
       const idx = Number(inp.getAttribute("data-idx"));
       const list = (criteriaSets[selected] || []).slice();
       const item = list[idx];
       if(!item) return;
+      const isWeight = inp.classList.contains("crit-weight");
       if(inp.classList.contains("crit-label")) item.label = inp.value.trim() || item.label;
       else if(inp.classList.contains("crit-type")) item.type = inp.value;
+      else if(isWeight){
+        const n = inp.value===""? null : Math.max(0, Math.min(100, Math.round(Number(inp.value))));
+        if(n==null) delete item.weight; else item.weight = n;
+      }
       else item.requirement = inp.value.trim();
       criteriaSets[selected] = list;
       saveCriteriaSets();
+      // Weight is the only field whose change affects other on-screen text (the "weights total X%"
+      // footer) — label/requirement/type edits stay a plain save so the user isn't kicked out of
+      // whichever field they're mid-edit on by an unrelated rebuild.
+      if(isWeight) rebuildCriteriaView();
     });
   });
   wrap.querySelectorAll(".crit-remove").forEach(btn=>{
@@ -8215,12 +8698,16 @@ function renderCriteriaView(){
   document.getElementById("critAddBtn").addEventListener("click", ()=>{
     const labelInput = document.getElementById("critNewLabel");
     const reqInput = document.getElementById("critNewReq");
+    const weightInput = document.getElementById("critNewWeight");
     const typeInput = document.getElementById("critNewType");
     const label = labelInput.value.trim();
     if(!label) return;
     const list = (criteriaSets[selected] || []).slice();
     const key = slugifyCriterionKey(label, list.map(c=>c.key));
-    list.push({key, label, requirement: reqInput.value.trim(), type: typeInput.value});
+    const newItem = {key, label, requirement: reqInput.value.trim(), type: typeInput.value};
+    const w = weightInput.value===""? null : Math.max(0, Math.min(100, Math.round(Number(weightInput.value))));
+    if(w!=null) newItem.weight = w;
+    list.push(newItem);
     criteriaSets[selected] = list;
     saveCriteriaSets();
     rebuildCriteriaView();
@@ -8402,6 +8889,45 @@ function openDealDetail(id){
         </div>
 
         <div>
+          <h4 class="section-label">Screening result</h4>
+          <div class="deal-fields">
+            <div class="field-row">
+              <div class="field"><label for="slideScreenScore">Screen score (0–100)</label><input id="slideScreenScore" type="number" min="0" max="100" step="1" placeholder="—"></div>
+              <div class="field"><label for="slideRecommendation">Recommendation</label>
+                <select id="slideRecommendation"><option value="">—</option><option value="pursue">Pursue</option><option value="watch">Watch</option><option value="pass">Pass</option></select>
+              </div>
+            </div>
+            <div class="field" id="slideWatchReviewWrap" hidden><label for="slideWatchReviewDate">Watch review date</label><input id="slideWatchReviewDate" type="date"></div>
+          </div>
+        </div>
+
+        <div>
+          <h4 class="section-label">LOI</h4>
+          <div class="deal-fields">
+            <div class="field-row">
+              <div class="field"><label for="slideLoiAmount">LOI amount</label><div class="money-field"><span class="money-field-prefix">$</span><input id="slideLoiAmount" type="text" inputmode="numeric" placeholder="0"></div></div>
+              <div class="field"><label for="slideLoiStatus">LOI status</label>
+                <select id="slideLoiStatus"><option value="">—</option>${LOI_STATUS_OPTIONS.map(s=>`<option value="${s.key}">${s.label}</option>`).join("")}</select>
+              </div>
+            </div>
+            <div class="field"><label for="slideLoiResponseDate">LOI response date</label><input id="slideLoiResponseDate" type="date"></div>
+          </div>
+        </div>
+        ${d.stage==="dead" ? `
+        <div>
+          <h4 class="section-label">Dead / passed</h4>
+          <div class="deal-fields">
+            <div class="field-row">
+              <div class="field"><label>Died from stage</label><input type="text" id="slideDeadStageDisplay" disabled></div>
+              <div class="field"><label>Date</label><input type="text" id="slideDeadDateDisplay" disabled></div>
+            </div>
+            <div class="field"><label for="slideDeadReason">Reason</label>
+              <select id="slideDeadReason">${Object.keys(DEAD_REASON_META).map(k=>`<option value="${k}">${escapeHtml(DEAD_REASON_META[k])}</option>`).join("")}</select>
+            </div>
+          </div>
+        </div>` : ""}
+
+        <div>
           <h4 class="section-label">Deal overview</h4>
           <div class="overview-grid" id="overviewGrid"></div>
           <div class="deal-fields" style="margin-top:10px;">
@@ -8550,6 +9076,31 @@ function openDealDetail(id){
     document.getElementById(f.id).value = d[f.field]||"";
     updateCdateMark(f);
   });
+  // When this deal's screening sheet is a weighted rubric (CONCOURS today), the scorecard modal
+  // computes screenScore automatically from the per-category ratings (see recomputeIcCriteria) —
+  // this field becomes read-only and points there instead, so the two never fight over the number.
+  const screenScoreWeighted = isWeightedCriteriaList(activeIcCriteria(d));
+  const slideScreenScoreEl = document.getElementById("slideScreenScore");
+  slideScreenScoreEl.value = d.screenScore??"";
+  slideScreenScoreEl.disabled = screenScoreWeighted;
+  slideScreenScoreEl.title = screenScoreWeighted ? "Computed from the CONCOURS scorecard — open the full scorecard to change it" : "";
+  slideScreenScoreEl.placeholder = screenScoreWeighted ? "See scorecard" : "—";
+  document.getElementById("slideRecommendation").value = d.recommendation||"";
+  document.getElementById("slideWatchReviewDate").value = d.watchReviewDate||"";
+  document.getElementById("slideWatchReviewWrap").hidden = d.recommendation!=="watch";
+  document.getElementById("slideLoiAmount").value = fmtMoneyInputPlain(d.loiAmount);
+  wireMoneyInputDisplay(document.getElementById("slideLoiAmount"), true);
+  document.getElementById("slideLoiStatus").value = d.loiStatus||"";
+  document.getElementById("slideLoiResponseDate").value = d.loiResponseDate||"";
+  if(d.stage==="dead"){
+    const deadStageMeta = DEAL_STAGES.find(s=>s.key===d.deadStage);
+    const dsEl = document.getElementById("slideDeadStageDisplay");
+    if(dsEl) dsEl.value = deadStageMeta ? deadStageMeta.title : (d.deadStage||"—");
+    const ddEl = document.getElementById("slideDeadDateDisplay");
+    if(ddEl) ddEl.value = d.deadDate ? fmtDate(d.deadDate.slice(0,10)) : "—";
+    const drEl = document.getElementById("slideDeadReason");
+    if(drEl) drEl.value = d.deadReason||"other";
+  }
   document.getElementById("slideFolder").value = d.folderUrl||"";
   document.getElementById("slideProforma").value = d.proformaUrl||"";
   document.getElementById("slideNotes").value = d.notes||"";
@@ -8629,11 +9180,35 @@ function openDealDetail(id){
   });
   document.getElementById("slideStage").addEventListener("change", e=>{
     const newStage = e.target.value;
-    save({stage: newStage, order: Date.now()}); d.stage = newStage; renderDDChecklistSection(); renderSlideProgress(d); renderKeyMetrics(d);
+    attemptStageChange(id, newStage, {
+      revert: prevStage=>{ e.target.value = prevStage; },
+      // Full re-open rather than a narrower re-render: a stage move can also toggle whole sections
+      // in this panel (the "Dead / passed" block appears/disappears with the dead stage, the Screen
+      // Score requirements only bite on the way into Underwriting, etc.) — simplest to just rebuild.
+      onCommit: ()=> openDealDetail(id),
+    });
   });
   document.getElementById("slidePsa").addEventListener("change", e=> save({psaStatus: e.target.value}));
   document.getElementById("slideLead").addEventListener("change", e=> save({lead: e.target.value.trim()}));
   document.getElementById("slideState").addEventListener("change", e=>{ save({state: e.target.value}); d.state = e.target.value; });
+  document.getElementById("slideScreenScore").addEventListener("change", e=>{
+    const n = e.target.value===""? null : Math.max(0, Math.min(100, Math.round(Number(e.target.value))||0));
+    e.target.value = n??"";
+    save({screenScore: n}); d.screenScore = n;
+  });
+  document.getElementById("slideRecommendation").addEventListener("change", e=>{
+    const v = e.target.value;
+    save({recommendation: v}); d.recommendation = v;
+    document.getElementById("slideWatchReviewWrap").hidden = v!=="watch";
+  });
+  document.getElementById("slideWatchReviewDate").addEventListener("change", e=>{ save({watchReviewDate: e.target.value}); d.watchReviewDate = e.target.value; });
+  document.getElementById("slideLoiAmount").addEventListener("change", e=>{ const n = parseMoneyStr(e.target.value); save({loiAmount: n}); d.loiAmount = n; });
+  document.getElementById("slideLoiStatus").addEventListener("change", e=>{ save({loiStatus: e.target.value}); d.loiStatus = e.target.value; });
+  document.getElementById("slideLoiResponseDate").addEventListener("change", e=>{ save({loiResponseDate: e.target.value}); d.loiResponseDate = e.target.value; });
+  if(d.stage==="dead"){
+    const drEl = document.getElementById("slideDeadReason");
+    if(drEl) drEl.addEventListener("change", e=>{ save({deadReason: e.target.value}); d.deadReason = e.target.value; });
+  }
   marketTierSel.addEventListener("change", e=>{
     save({marketTier: e.target.value});
     d.marketTier = e.target.value;
@@ -8874,7 +9449,7 @@ function buildIcCriteriaList(dealId){
       <div class="ic-row-requirement"><span class="ic-row-line-label">Requirement</span><span class="ic-row-req-text"></span></div>
       <div class="ic-row-actual"></div>
       <input class="dd-notes" type="text" placeholder="Backup / notes…">`;
-    row.querySelector(".ic-row-label").textContent = item.label;
+    row.querySelector(".ic-row-label").textContent = item.label + (typeof item.weight==="number" ? ` (${item.weight}%)` : "");
     const ratingWrap = row.querySelector(".ic-rating-wrap");
     if(critType==="binary"){
       ratingWrap.innerHTML = `
@@ -8946,6 +9521,28 @@ function buildIcCriteriaList(dealId){
   return {wrap, fit, watch, nofit, tbd, total:list.length, isAutoCondo, source};
 }
 
+/* Shared by renderIcScoreCard and renderIcCriteriaSection: when a deal's active sheet is a
+   weighted rubric (CONCOURS today), show the 0–100 screenScore + letter grade + the grade's
+   suggested recommendation (see SCREEN_GRADE_BANDS) instead of the plain 0–10 "Quality score" —
+   the weighted number is the one that actually means something for that sheet. */
+function screenScoreBlockHtml(d, weighted, align){
+  const alignCss = align||"flex-end";
+  if(!weighted){
+    const scoreText = (d.icScore!=null && d.icScoreCount) ? `${d.icScore.toFixed(1)}/10` : "Not rated";
+    const scoreColor = d.icScore==null ? "var(--ink-faint)" : d.icScore>=7.5 ? "var(--good)" : d.icScore>=5 ? "var(--warn)" : "var(--bad)";
+    return `<div style="display:flex;flex-direction:column;align-items:${alignCss};gap:1px;flex:none;">
+      <span class="uw-label">Quality score</span>
+      <span class="num" style="color:${scoreColor};">${scoreText}</span>
+    </div>`;
+  }
+  const grade = gradeForScreenScore(d.screenScore);
+  const gradeColor = !grade ? "var(--ink-faint)" : (grade.reco==="pursue" ? "var(--good)" : grade.reco==="watch" ? "var(--warn)" : "var(--bad)");
+  return `<div style="display:flex;flex-direction:column;align-items:${alignCss};gap:1px;flex:none;">
+    <span class="uw-label">CONCOURS score</span>
+    <span class="num" style="color:${gradeColor};">${d.screenScore!=null?`${d.screenScore}/100`:"Not rated"}${grade?` · ${grade.grade}`:""}</span>
+    ${grade ? `<span class="ic-criteria-source" style="margin-top:1px;">Suggested: ${escapeHtml(grade.recoLabel)}</span>` : ""}
+  </div>`;
+}
 /* The main deal card only ever shows the single aggregate score, plus a link to the full
    scorecard modal (openIcScorecardModal below) — this keeps that score pill in sync every time
    the criteria change, regardless of whether the modal happens to be open. */
@@ -8954,14 +9551,10 @@ function renderIcScoreCard(){
   const cardWrap = document.getElementById("icScoreCardWrap");
   if(!cardWrap) return;
   const scoredDeal = deals.get(openDealId) || {};
-  const scoreText = (scoredDeal.icScore!=null && scoredDeal.icScoreCount) ? `${scoredDeal.icScore.toFixed(1)}/10` : "Not rated";
-  const scoreColor = scoredDeal.icScore==null ? "var(--ink-faint)" : scoredDeal.icScore>=7.5 ? "var(--good)" : scoredDeal.icScore>=5 ? "var(--warn)" : "var(--bad)";
+  const weighted = isWeightedCriteriaList(activeIcCriteria(scoredDeal));
   cardWrap.innerHTML = `
     <div class="dd-summary">
-      <div style="display:flex;flex-direction:column;gap:1px;">
-        <span class="uw-label">Quality score</span>
-        <span class="num" style="color:${scoreColor};">${scoreText}</span>
-      </div>
+      ${screenScoreBlockHtml(scoredDeal, weighted, "flex-start")}
       <button type="button" class="btn-icon" id="icScorecardLinkBtn" style="margin-left:auto;">📋 View full scorecard →</button>
     </div>`;
   document.getElementById("icScorecardLinkBtn").addEventListener("click", ()=> openIcScorecardModal(openDealId));
@@ -8997,8 +9590,7 @@ function renderIcCriteriaSection(){
   if(!wrap) return;
   const {wrap: listEl, fit, watch, nofit, tbd, total, isAutoCondo, source} = buildIcCriteriaList(openDealId);
   const scoredDeal = deals.get(openDealId) || {};
-  const scoreText = (scoredDeal.icScore!=null && scoredDeal.icScoreCount) ? `${scoredDeal.icScore.toFixed(1)}/10` : "Not rated";
-  const scoreColor = scoredDeal.icScore==null ? "var(--ink-faint)" : scoredDeal.icScore>=7.5 ? "var(--good)" : scoredDeal.icScore>=5 ? "var(--warn)" : "var(--bad)";
+  const weighted = isWeightedCriteriaList(activeIcCriteria(scoredDeal));
 
   const summary = document.createElement("div");
   summary.className = "dd-summary";
@@ -9009,10 +9601,23 @@ function renderIcCriteriaSection(){
       <span class="pill pill-bad">${nofit} Doesn't fit</span>
       <span class="pill pill-neutral">${tbd} Not assessed</span>
     </div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px;flex:none;">
-      <span class="uw-label">Quality score</span>
-      <span class="num" style="color:${scoreColor};">${scoreText}</span>
-    </div>`;
+    ${screenScoreBlockHtml(scoredDeal, weighted)}`;
+  if(weighted){
+    const grade = gradeForScreenScore(scoredDeal.screenScore);
+    if(grade && scoredDeal.recommendation!==grade.reco){
+      const applyBtn = document.createElement("button");
+      applyBtn.type = "button";
+      applyBtn.className = "btn-icon";
+      applyBtn.style.marginLeft = "8px";
+      applyBtn.textContent = `Apply "${grade.recoLabel}" to Recommendation`;
+      applyBtn.addEventListener("click", ()=>{
+        updateDeal(openDealId, {recommendation: grade.reco});
+        scoredDeal.recommendation = grade.reco;
+        renderIcCriteriaSection();
+      });
+      summary.appendChild(applyBtn);
+    }
+  }
 
   const box = document.createElement("div");
   box.className = "category";
@@ -10976,46 +11581,7 @@ function openConfirm(message, onConfirm, confirmLabel, onCancel){
   document.getElementById("confirmYes").addEventListener("click", ()=>{ close(); onConfirm(); });
 }
 
-/* =================== password gate ===================
-   Client-side only: there is no backend here, so this cannot stop someone who opens dev tools
-   and reads the page source or the stored hash. It's a lightweight deterrent against casual/
-   accidental visitors (e.g. the link getting passed around or indexed), not real access control —
-   the real access boundary is this artifact's own sharing setting (owner/editor/viewer / "anyone
-   with the link"), set from the artifact's share menu, independent of this gate. */
-const PW_GATE_HASH = "e908ee7f28b12ab3af4b5034d16bda0df3bdb422918bfa3ae1765eb36c5e25a4";
-const PW_GATE_STORAGE_KEY = "dealdesk_gate_ok";
-async function pwGateSha256Hex(str){
-  const enc = new TextEncoder().encode(str);
-  const buf = await crypto.subtle.digest("SHA-256", enc);
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
-}
-function pwGateUnlock(){
-  const overlay = document.getElementById("pwGateOverlay");
-  if(overlay) overlay.remove();
-  boot();
-}
-function initPasswordGate(){
-  let alreadyOk = false;
-  try{ alreadyOk = localStorage.getItem(PW_GATE_STORAGE_KEY) === "1"; }catch(e){}
-  if(alreadyOk){ pwGateUnlock(); return; }
-  const form = document.getElementById("pwGateForm");
-  const input = document.getElementById("pwGateInput");
-  const errEl = document.getElementById("pwGateError");
-  form.addEventListener("submit", async (e)=>{
-    e.preventDefault();
-    const hash = await pwGateSha256Hex(input.value||"");
-    if(hash === PW_GATE_HASH){
-      try{ localStorage.setItem(PW_GATE_STORAGE_KEY, "1"); }catch(e){}
-      pwGateUnlock();
-    } else {
-      errEl.textContent = "Incorrect password.";
-      input.value = "";
-      input.focus();
-    }
-  });
-  input.focus();
-}
-initPasswordGate();
+boot();
 </script>
 </body>
 </html>
