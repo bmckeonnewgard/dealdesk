@@ -1015,6 +1015,12 @@
   .attn-row-flag{ border-left-color:#C0392B; background:rgba(192,57,43,0.08); }
   .attn-row-name{ font-weight:700; color:var(--ink); flex:none; max-width:38%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .attn-row-text{ color:var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* Opt-in second line for an .attn-row — market/address/price/acreage (see dealFactsLineHtml)
+     wraps onto its own full-width line below the name/badges row, rather than fighting the
+     name/text columns above for space and getting truncated. Only rows that include a
+     .attn-row-facts child need attn-row-wrap; other .attn-row usages are unaffected. */
+  .attn-row-wrap{ flex-wrap:wrap; }
+  .attn-row-facts{ flex-basis:100%; white-space:normal; font-size:11px; color:var(--ink-faint); margin-top:1px; }
   .attn-clear{ margin-top:8px; font-size:13px; color:var(--good); font-weight:600; }
   .financing-gap-sub{ font-size:11.5px; color:var(--ink-faint); font-weight:600; margin:-6px 0 8px; }
   .weekly-total{ font-family:var(--font-body); font-weight:500; font-size:11.5px; color:var(--ink-faint); letter-spacing:0; text-transform:none; }
@@ -1148,6 +1154,9 @@
   .agenda-inmotion-name{ font-weight:600; color:var(--ink); }
   .agenda-inmotion-note{ color:var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .agenda-inmotion-meta{ color:var(--ink-faint); font-size:11px; text-align:right; }
+  /* Full-width second grid row for market/address/price/acreage (see dealFactsLineHtml) — spans
+     every column of the 4-col grid above rather than squeezing into one of them. */
+  .agenda-inmotion-facts{ grid-column:1/-1; color:var(--ink-faint); font-size:11px; margin-top:-4px; }
   .agenda-recap-cols{ display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-left:36px; }
   @media (max-width:720px){ .agenda-recap-cols{ grid-template-columns:1fr; } }
   .agenda-recap-list{ display:flex; flex-direction:column; gap:6px; }
@@ -2639,6 +2648,33 @@ function icScorePillHtml(d){
   if(d.icScore==null || !d.icScoreCount) return "";
   const cls = d.icScore>=7.5 ? "pill-good" : d.icScore>=5 ? "pill-warn" : "pill-bad";
   return `<span class="pill pill-solid ${cls}" title="Average of ${d.icScoreCount} rated screening criteria">★ ${d.icScore.toFixed(1)}/10</span>`;
+}
+/* The CONCOURS 0–100 screenScore + letter grade (see gradeForScreenScore), as a small badge —
+   distinct from icScoreBadgeHtml/icScorePillHtml above, which are the older 0–10 average and stay
+   as-is. Works off d.screenScore directly, so it renders the same whether that number came from a
+   weighted rubric's auto-rollup or was typed straight into the deal's Screening result section.
+   Reused everywhere a deal shows up as a row/card — the pipeline (both densities), the Dashboard's
+   "Prospects in underwriting" card, and the Weekly Agenda's Prospects/Deals-in-motion dockets —
+   so the score/grade reads the same wherever a project appears. */
+function screenScoreBadgeHtml(d){
+  if(d.screenScore==null || d.screenScore==="") return "";
+  const grade = gradeForScreenScore(d.screenScore);
+  const cls = !grade ? "pill-neutral" : grade.reco==="pursue" ? "pill-good" : grade.reco==="watch" ? "pill-warn" : "pill-bad";
+  return `<span class="pill ${cls}" title="Screen score${grade?` — ${grade.recoLabel}`:""}">${d.screenScore}/100${grade?` · ${grade.grade}`:""}</span>`;
+}
+/* One-line "where and how big" summary — market, address, price, and acreage/$-per-acre — reused
+   across the same deal-listing cards as screenScoreBadgeHtml so a project reads the same basic
+   facts wherever it shows up, not just inside the pipeline rows that already had dedicated columns
+   for these. Skips any piece the deal doesn't have yet rather than showing a run of em dashes. */
+function dealFactsLineHtml(d){
+  const bits = [];
+  const market = dealMarketLabel(d);
+  if(market && market!=="—") bits.push(escapeHtml(market));
+  if(d.address) bits.push(escapeHtml(d.address));
+  if(d.purchasePrice) bits.push(fmtMoneyShort(d.purchasePrice));
+  const acres = acresSummaryText(d);
+  if(acres && acres!=="—") bits.push(acres);
+  return bits.join(" · ");
 }
 
 /* National market tier — from the weekly acquisitions pipeline report */
@@ -4640,7 +4676,7 @@ function buildStageDealRow(id, d, stage, allEvents){
         <button class="star-btn${d.meetsTargetCriteria?" active":""}" title="Meets target criteria">★</button>
         <select class="priority-select" title="Priority"></select>
         ${stale ? `<span class="stage-stale-badge" title="No update in 30+ days, or unscreened 10+ business days">⚠ Stale</span>` : ""}
-        ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}${tierPillHtml(d)}${icSummaryPillHtml(d)}${icScorePillHtml(d)}${icFlagBadgeHtml(d)}
+        ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}${tierPillHtml(d)}${icSummaryPillHtml(d)}${icScorePillHtml(d)}${screenScoreBadgeHtml(d)}${icFlagBadgeHtml(d)}
       </div>
       ${d.address ? `<div class="stage-row-sub"></div>` : ""}
       ${dealProgressBarHtml(d, {size:"sm"})}
@@ -4719,7 +4755,7 @@ function buildStageDealRowCompact(id, d, stage, allEvents){
     <div class="src-name-wrap">
       ${stale ? `<span class="stage-stale-badge" title="No update in 30+ days, or unscreened 10+ business days">⚠</span>` : ""}
       <span class="src-name"></span>
-      ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}
+      ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}${screenScoreBadgeHtml(d)}
       ${d.address ? `<span class="src-address"></span>` : ""}
     </div>
     <span class="src-market"></span>
@@ -5509,9 +5545,11 @@ function prospectsForReviewCardHtml(dealEntries){
     const bits = [d.source ? escapeHtml(d.source) : "", days!==null ? `${days}d in pipeline` : ""].filter(Boolean).join(" · ");
     const priority = dealPriority(d);
     const priorityCls = priority==="high" ? "attn-row-priority-high" : priority==="medium" ? "attn-row-priority-medium" : "attn-row-neutral";
-    return `<button type="button" class="attn-row ${priorityCls}" data-deal="${escapeAttr(id)}">
+    const factsLine = dealFactsLineHtml(d);
+    return `<button type="button" class="attn-row attn-row-wrap ${priorityCls}" data-deal="${escapeAttr(id)}">
       <span class="attn-row-name">${escapeHtml(d.name||d.address||"Untitled deal")}</span>
-      <span class="attn-row-text"><span class="pill ${PRIORITY_META[priority].cls}">${PRIORITY_META[priority].label}</span> ${icScoreBadgeHtml(d)} ${bits}</span>
+      <span class="attn-row-text"><span class="pill ${PRIORITY_META[priority].cls}">${PRIORITY_META[priority].label}</span> ${screenScoreBadgeHtml(d)} ${icScoreBadgeHtml(d)} ${bits}</span>
+      ${factsLine ? `<span class="attn-row-facts">${factsLine}</span>` : ""}
     </button>`;
   };
   return `<div class="dash-card prospects-card" style="margin-bottom:16px;">
@@ -6145,11 +6183,13 @@ function agendaInMotionCardHtml(entries, asOfIso){
       const days = ref ? Math.floor((refTime-new Date(ref).getTime())/86400000) : null;
       const priority = dealPriority(d);
       const priorityRowCls = priority==="high" ? " agenda-inmotion-row-priority-high" : priority==="medium" ? " agenda-inmotion-row-priority-medium" : "";
+      const factsLine = dealFactsLineHtml(d);
       return `<button type="button" class="agenda-inmotion-row${priorityRowCls}" data-deal="${escapeAttr(id)}">
-        <span class="agenda-inmotion-name">${escapeHtml(d.name||d.address||"Untitled deal")} <span class="pill ${PRIORITY_META[priority].cls}" style="margin-left:2px;">${PRIORITY_META[priority].label}</span></span>
+        <span class="agenda-inmotion-name">${escapeHtml(d.name||d.address||"Untitled deal")} <span class="pill ${PRIORITY_META[priority].cls}" style="margin-left:2px;">${PRIORITY_META[priority].label}</span> ${screenScoreBadgeHtml(d)}</span>
         <span class="pill pill-solid pill-${stage.color}">${escapeHtml(stage.title)}</span>
         <span class="agenda-inmotion-note">${note ? escapeHtml(note) : "—"}</span>
         <span class="agenda-inmotion-meta">${days!==null ? `${days}d since update${days>=21?" ⚠":""}` : ""}</span>
+        ${factsLine ? `<span class="agenda-inmotion-facts">${factsLine}</span>` : ""}
       </button>`;
     }).join("")}
   </div>`;
