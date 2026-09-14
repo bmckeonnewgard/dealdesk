@@ -867,6 +867,7 @@
   .kpi-value{ font-family:var(--font-mono); font-weight:800; font-size:23px; color:var(--ink); letter-spacing:-.01em; }
   .kpi-value.good{ color:var(--good); }
   .kpi-value.bad{ color:var(--bad); }
+  .kpi-value.warn{ color:var(--warn); }
   .kpi-sub{ font-size:10.5px; color:var(--ink-faint); }
   .count-badge{
     font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--bad); background:var(--bad-soft);
@@ -3211,6 +3212,33 @@ let criteriaViewSelectedLine = "";
 let criteriaViewBuilt = false;
 let dismissedSuggestions = new Set(); // sigKeys of Suggested Tasks the user has dismissed
 let dashboardGoal = {amount: 10, label: "by Sept 2028"}; // editable target # of closed acquisitions for the hero stat — 10 over 2 years (through fall 2028) is the real target per Harvey's acquisitions goal, counted from heroPeriodStart's Jan-1-2026 default below
+/* Editable targets for the Acquisitions funnel KPI row (see acquisitionsKpiSectionHtml) — the
+   defaults are the numbers from the Sept 2026 stage-model brief, editable from the row's own
+   "Edit targets" button (openKpiTargetsEditModal), synced to everyone via settings/kpiTargets. */
+let kpiTargets = {
+  sitesScreenedMin: 12, sitesScreenedMax: 15,          // sites screened, per month
+  screenPassRateMin: 20, screenPassRateMax: 30,        // screen pass rate, %
+  activeUnderwritingMin: 4, activeUnderwritingMax: 6,  // active underwriting, live count
+  loisSubmittedTarget: 3,                              // LOIs submitted, per quarter
+  loiAcceptRateMin: 35, loiAcceptRateMax: 50,          // LOI acceptance rate, %
+  underControlTarget: 1,                               // sites under control, new per quarter
+  staleDealsTarget: 0,                                 // stale deals, count (want 0)
+};
+function saveKpiTargets(){
+  if(db) db.doc("settings/kpiTargets").set(kpiTargets);
+}
+/* Shared 3-band coloring for a target range: below the low end reads as needing attention, within
+   (or better than) the range reads good, and above the high end is flagged too — for a metric like
+   screen pass rate or active-underwriting headcount, drifting well past the top of the range is
+   also worth a second look (bar too low / pipeline overloaded), not simply "better." Only used for
+   metrics that are a true current snapshot or an exact-unit match to their target — see the callers
+   in acquisitionsKpiSectionHtml for which tiles this applies to and why. */
+function kpiBandCls(value, min, max){
+  if(value==null) return "";
+  if(value<min) return "bad";
+  if(value>max) return "warn";
+  return "good";
+}
 let calendarRangeMonths = (()=>{
   try{ const v = Number(localStorage.getItem("dealdesk_calendar_range")); return [12,24,36].includes(v) ? v : 12; }
   catch(e){ return 12; }
@@ -3925,6 +3953,15 @@ async function boot(){
         amount: (data && typeof data.closedDealsGoal==="number") ? data.closedDealsGoal : 10,
         label: (data && typeof data.closedDealsGoalLabel==="string") ? data.closedDealsGoalLabel : "by Sept 2028",
       };
+      if(view==="dashboard") renderDashboard();
+    }, ()=>{});
+    db.doc("settings/kpiTargets").onSnapshot(snap=>{
+      const data = snap.data();
+      if(data && typeof data==="object"){
+        // Merge over the defaults rather than replacing outright, so a target added in a later
+        // update (one this doc predates) still shows its default instead of coming back undefined.
+        kpiTargets = Object.assign({}, kpiTargets, data);
+      }
       if(view==="dashboard") renderDashboard();
     }, ()=>{});
     db.collection("brokers").onSnapshot(snap=>{
@@ -5392,6 +5429,64 @@ function openGoalEditModal(){
   });
 }
 
+/* Editor for the 8 Acquisitions funnel KPI targets (everything in the row except Closings vs
+   goal, which keeps its own longstanding Edit goal modal above) — same overlay/modal/field
+   conventions as openGoalEditModal, just more rows. Range targets (min/max) get two side-by-side
+   inputs; single-number targets (LOIs submitted, sites under control, stale deals) get one. */
+function openKpiTargetsEditModal(){
+  const root = document.getElementById("modalRoot");
+  const t = kpiTargets;
+  const rangeRow = (idPrefix, label, minVal, maxVal, unit)=> `
+    <div class="field-row" style="margin-top:10px;align-items:flex-end;">
+      <div class="field" style="flex:1;"><label>${label}</label></div>
+      <div class="field" style="max-width:90px;"><label for="${idPrefix}Min">Min</label><input type="number" id="${idPrefix}Min" value="${minVal}" min="0" step="1"></div>
+      <div class="field" style="max-width:90px;"><label for="${idPrefix}Max">Max</label><input type="number" id="${idPrefix}Max" value="${maxVal}" min="0" step="1"></div>
+      ${unit ? `<div class="field" style="flex:none;padding-bottom:9px;color:var(--ink-faint);font-size:12px;">${escapeHtml(unit)}</div>` : ""}
+    </div>`;
+  const singleRow = (id, label, val, unit)=> `
+    <div class="field-row" style="margin-top:10px;align-items:flex-end;">
+      <div class="field" style="flex:1;"><label for="${id}">${label}</label></div>
+      <div class="field" style="max-width:90px;"><input type="number" id="${id}" value="${val}" min="0" step="1"></div>
+      ${unit ? `<div class="field" style="flex:none;padding-bottom:9px;color:var(--ink-faint);font-size:12px;">${escapeHtml(unit)}</div>` : ""}
+    </div>`;
+  root.innerHTML = `<div class="overlay" id="kpiTargetsEditOverlay">
+    <div class="modal" style="width:min(440px,94vw);">
+      <div class="modal-head"><h2>Edit KPI targets</h2></div>
+      <div class="modal-body" style="max-height:min(70vh,560px);overflow:auto;">
+        ${rangeRow("kpiSitesScreened", "Sites screened", t.sitesScreenedMin, t.sitesScreenedMax, "per month")}
+        ${rangeRow("kpiScreenPassRate", "Screen pass rate", t.screenPassRateMin, t.screenPassRateMax, "%")}
+        ${rangeRow("kpiActiveUw", "Active underwriting", t.activeUnderwritingMin, t.activeUnderwritingMax, "live")}
+        ${singleRow("kpiLoisSubmitted", "LOIs submitted", t.loisSubmittedTarget, "per quarter")}
+        ${rangeRow("kpiLoiAccept", "LOI acceptance rate", t.loiAcceptRateMin, t.loiAcceptRateMax, "%")}
+        ${singleRow("kpiUnderControl", "Sites under control", t.underControlTarget, "new / quarter")}
+        ${singleRow("kpiStaleDeals", "Stale deals", t.staleDealsTarget, "count")}
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-primary" id="kpiTargetsSaveBtn">Save</button>
+        <button class="btn btn-ghost" id="kpiTargetsCancelBtn" style="margin-left:auto;">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+  const close = ()=>{ root.innerHTML=""; };
+  document.getElementById("kpiTargetsEditOverlay").addEventListener("click", e=>{ if(e.target.id==="kpiTargetsEditOverlay") close(); });
+  document.getElementById("kpiTargetsCancelBtn").addEventListener("click", close);
+  document.getElementById("kpiTargetsSaveBtn").addEventListener("click", ()=>{
+    const num = id => Math.max(0, Math.round(Number(document.getElementById(id).value)||0));
+    kpiTargets = {
+      sitesScreenedMin: num("kpiSitesScreenedMin"), sitesScreenedMax: num("kpiSitesScreenedMax"),
+      screenPassRateMin: num("kpiScreenPassRateMin"), screenPassRateMax: num("kpiScreenPassRateMax"),
+      activeUnderwritingMin: num("kpiActiveUwMin"), activeUnderwritingMax: num("kpiActiveUwMax"),
+      loisSubmittedTarget: num("kpiLoisSubmitted"),
+      loiAcceptRateMin: num("kpiLoiAcceptMin"), loiAcceptRateMax: num("kpiLoiAcceptMax"),
+      underControlTarget: num("kpiUnderControl"),
+      staleDealsTarget: num("kpiStaleDeals"),
+    };
+    saveKpiTargets();
+    close();
+    if(view==="dashboard") renderDashboard();
+  });
+}
+
 /* =================== dashboard: prospects in underwriting =================== */
 /* Fresh prospects the team hasn't moved past the top of the funnel yet — the list an IC meeting
    works through week to week, separate from "Needs your attention" (which is about things already
@@ -5592,22 +5687,34 @@ function acquisitionsKpiSectionHtml(allDealEntries){
     </table>`;
   };
 
+  // Not every tile gets a color band: the three period-scoped counts (sites screened, LOIs
+  // submitted, sites under control) are stated as a per-month/per-quarter rate but the period
+  // selector above can show a month, a quarter, trailing 12 months, or since Jan 1 — comparing a
+  // window of unknown length against a fixed-cadence target would color the tile misleadingly, so
+  // those three stay neutral (the target still shows as text). Active underwriting and Stale deals
+  // are true current-pipeline snapshots regardless of period, and Screen/LOI acceptance rates are
+  // plain percentages either way — all four compare cleanly against their target, so those get the
+  // good/warn/bad band from kpiBandCls.
+  const t = kpiTargets;
   return `<div class="dash-card" style="margin-bottom:16px;">
     <div class="screen-actions" style="justify-content:space-between; margin-top:0;">
       <h4 class="section-label" style="margin:0;">Acquisitions funnel KPIs</h4>
-      <div class="hero-timeframe-toggle" id="acqKpiPeriodToggle">
-        ${KPI_PERIOD_PRESETS.map(p=>`<button type="button" class="hero-timeframe-btn${acqKpiPeriodKey===p.key?" active":""}" data-period="${p.key}">${escapeHtml(p.label)}</button>`).join("")}
-      </div>
+      <span style="display:flex;align-items:center;gap:8px;">
+        <div class="hero-timeframe-toggle" id="acqKpiPeriodToggle">
+          ${KPI_PERIOD_PRESETS.map(p=>`<button type="button" class="hero-timeframe-btn${acqKpiPeriodKey===p.key?" active":""}" data-period="${p.key}">${escapeHtml(p.label)}</button>`).join("")}
+        </div>
+        <button type="button" class="btn-icon" id="kpiTargetsEditBtn">🎯 Edit targets</button>
+      </span>
     </div>
     <div class="kpi-grid" style="margin-top:10px;">
-      <div class="kpi-tile"><span class="kpi-label">Sites screened</span><span class="kpi-value">${sitesScreened}</span><span class="kpi-sub">target 12–15/mo</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Screen pass rate</span><span class="kpi-value">${screenPassRate!==null?screenPassRate+"%":"—"}</span><span class="kpi-sub">target 20–30% · ${enteredUnderwriting}/${sitesScreened} to underwriting</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Active underwriting</span><span class="kpi-value">${inUnderwriting.length}</span><span class="kpi-sub">target 4–6 live · ${fmtMoneyShort(uwPriceTotal)} · median ${uwMedianDays!==null?uwMedianDays+"d":"—"}</span></div>
-      <div class="kpi-tile"><span class="kpi-label">LOIs submitted</span><span class="kpi-value">${loisSubmitted}</span><span class="kpi-sub">target 3/quarter</span></div>
-      <div class="kpi-tile"><span class="kpi-label">LOI acceptance rate</span><span class="kpi-value">${loiAcceptRate!==null?loiAcceptRate+"%":"—"}</span><span class="kpi-sub">target 35–50% · ${loisAccepted}/${loisSubmitted} accepted</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Sites under control</span><span class="kpi-value">${underControl}</span><span class="kpi-sub">target 1 new/quarter · LOI-accepted + PSA + Closing</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Closings vs goal</span><span class="kpi-value${closedSinceGoalStart>=10?" good":""}">${closedSinceGoalStart} / 10</span><span class="kpi-sub">by Sept 2028 · since Jan 1, 2026</span></div>
-      <div class="kpi-tile"><span class="kpi-label">Stale deals</span><span class="kpi-value${staleDeals.length>0?" bad":" good"}">${staleDeals.length}</span><span class="kpi-sub">target 0 · no update 30+d, or unscreened 10+ biz days</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Sites screened</span><span class="kpi-value">${sitesScreened}</span><span class="kpi-sub">target ${t.sitesScreenedMin}–${t.sitesScreenedMax}/mo</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Screen pass rate</span><span class="kpi-value${screenPassRate!==null?" "+kpiBandCls(screenPassRate,t.screenPassRateMin,t.screenPassRateMax):""}">${screenPassRate!==null?screenPassRate+"%":"—"}</span><span class="kpi-sub">target ${t.screenPassRateMin}–${t.screenPassRateMax}% · ${enteredUnderwriting}/${sitesScreened} to underwriting</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Active underwriting</span><span class="kpi-value ${kpiBandCls(inUnderwriting.length,t.activeUnderwritingMin,t.activeUnderwritingMax)}">${inUnderwriting.length}</span><span class="kpi-sub">target ${t.activeUnderwritingMin}–${t.activeUnderwritingMax} live · ${fmtMoneyShort(uwPriceTotal)} · median ${uwMedianDays!==null?uwMedianDays+"d":"—"}</span></div>
+      <div class="kpi-tile"><span class="kpi-label">LOIs submitted</span><span class="kpi-value">${loisSubmitted}</span><span class="kpi-sub">target ${t.loisSubmittedTarget}/quarter</span></div>
+      <div class="kpi-tile"><span class="kpi-label">LOI acceptance rate</span><span class="kpi-value${loiAcceptRate!==null?" "+kpiBandCls(loiAcceptRate,t.loiAcceptRateMin,t.loiAcceptRateMax):""}">${loiAcceptRate!==null?loiAcceptRate+"%":"—"}</span><span class="kpi-sub">target ${t.loiAcceptRateMin}–${t.loiAcceptRateMax}% · ${loisAccepted}/${loisSubmitted} accepted</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Sites under control</span><span class="kpi-value">${underControl}</span><span class="kpi-sub">target ${t.underControlTarget} new/quarter · LOI-accepted + PSA + Closing</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Closings vs goal</span><span class="kpi-value${closedSinceGoalStart>=dashboardGoal.amount?" good":""}">${closedSinceGoalStart} / ${dashboardGoal.amount}</span><span class="kpi-sub">${escapeHtml(dashboardGoal.label||"")} · since Jan 1, 2026</span></div>
+      <div class="kpi-tile"><span class="kpi-label">Stale deals</span><span class="kpi-value${staleDeals.length>t.staleDealsTarget?" bad":" good"}">${staleDeals.length}</span><span class="kpi-sub">target ${t.staleDealsTarget} · no update 30+d, or unscreened 10+ biz days</span></div>
     </div>
     <p class="locked-note" style="margin:10px 0 4px;">Median days in stage (current pipeline, informational):</p>
     <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:8px;">
@@ -5976,6 +6083,8 @@ function renderDashboard(){
   wrap.querySelectorAll("#acqKpiPeriodToggle .hero-timeframe-btn").forEach(btn=>{
     btn.addEventListener("click", ()=>{ acqKpiPeriodKey = btn.getAttribute("data-period"); renderDashboard(); });
   });
+  const kpiTargetsEditBtn = document.getElementById("kpiTargetsEditBtn");
+  if(kpiTargetsEditBtn) kpiTargetsEditBtn.addEventListener("click", openKpiTargetsEditModal);
   wrap.querySelectorAll(".basics-row").forEach(row=>{
     row.addEventListener("click", ()=> openDealDetail(row.getAttribute("data-deal")));
   });
