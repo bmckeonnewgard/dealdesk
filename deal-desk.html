@@ -6259,6 +6259,10 @@ function renderDashboard(){
   wrap.innerHTML = `
     ${heroKpiCardHtml(closedCapitalPeriod, closedInPeriod.length, funnelStages, closedSinceGoalStartCount)}
     ${acqKpiSections.headline}
+    <div class="dash-card" style="margin-bottom:16px;">
+      <h4 class="section-label">Project timeline — stage progress &amp; dollars due</h4>
+      <div class="gantt-scroll"><div id="ganttGrid"></div></div>
+    </div>
     <div class="dash-filter-bar">
       <select id="filterStage"><option value="">All stages</option>${DEAL_STAGES.map(s=>`<option value="${s.key}">${s.title}</option>`).join("")}</select>
       <select id="filterProductLine"><option value="">All product lines</option>${productLines.map(p=>`<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join("")}</select>
@@ -6343,10 +6347,6 @@ function renderDashboard(){
     ${pageDividerHtml("This week")}
     ${basicsTableCardHtml(inContractEntries)}
     ${needsAttentionCardHtml(overdue, decisionEntries, upcoming, stalled)}
-    <div class="dash-card" style="margin-top:16px;margin-bottom:16px;">
-      <h4 class="section-label">Project timeline — stage progress &amp; dollars due</h4>
-      <div class="gantt-scroll"><div id="ganttGrid"></div></div>
-    </div>
     ${financingGapsCardHtml(inContractEntries)}
     ${capitalNeedCardHtml(capNeedBuckets)}
     ${prospectsForReviewCardHtml(prospectingEntries)}
