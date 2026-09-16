@@ -8045,36 +8045,60 @@ async function fetchArcGISGeoJSON(baseUrl, bounds, extraParams, layerKey){
   }
 }
 
+// Case-insensitive property lookup. ArcGIS services are inconsistent about whether a field's name is
+// FLD_ZONE, fld_zone, or something else entirely depending on how it was published, and — unlike the
+// URL/layer index, which errors loudly if wrong — guessing the wrong CASE on a where-clause or outFields
+// value tends to fail silently (zero matching rows, no error), which is exactly what made this flood
+// layer look identical to "just toggle it off already" instead of "broken". Requesting outFields:"*" and
+// reading properties back through this helper sidesteps the guess entirely: whatever the server actually
+// calls the field, we find it.
+function ciProp(props, name){
+  if(!props) return undefined;
+  if(name in props) return props[name];
+  const lower = name.toLowerCase();
+  const key = Object.keys(props).find(k=>k.toLowerCase()===lower);
+  return key!==undefined ? props[key] : undefined;
+}
+
 /* FEMA flood hazard zones: Special Flood Hazard Area (SFHA) polygons, color-coded by zone type.
    Sourced from a services.arcgis.com (ArcGIS Online) hosted mirror of FEMA's National Flood Hazard
    Layer, not FEMA's own hazards.fema.gov WMS service (that WMS endpoint rendered only LOMA/LOMR
    case-point labels at this app's usual zoom levels, not the flood zone polygons — confirmed against
-   a real deal address on the live map) and — this was the actual bug Brendan hit — not the raw
+   a real deal address on the live map) and — the first thing we suspected here — not the raw
    maps.nccs.nasa.gov ArcGIS Server mirror this used to point at either. That NASA-hosted instance
-   never returned an error; it just never returned data in the browser at all, which is the fingerprint
-   of a CORS rejection (a bare ArcGIS Server instance doesn't send Access-Control-Allow-Origin unless
-   someone explicitly turns it on — this is a known, documented gap on NASA's ArcGIS deployments, not
-   specific to this dataset), invisible to curl/server-side tools and to this file's own try/catch
-   alike. The other vector layers below never hit this because they're all already on services.arcgis.com
-   or api.census.gov, which both send permissive CORS headers by default — this fix just brings flood
-   onto the same footing. The query filters server-side to sfha_tf='T' (an actual flood designation) —
-   "unshaded Zone X" (the 90%+ of most maps that's outside the mapped floodplain) is deliberately left
-   untinted, matching FEMA's own FIRM cartographic convention of only shading zones with a real designation. */
+   never returned an error; it just never returned data in the browser at all, the fingerprint of a
+   CORS rejection (a bare ArcGIS Server instance doesn't send Access-Control-Allow-Origin unless
+   someone explicitly turns it on — a known, documented gap on NASA's ArcGIS deployments), invisible to
+   curl/server-side tools and to this file's own try/catch alike. Moving to services.arcgis.com (same
+   CORS-friendly footing as the other layers below) fixed that half of it — but toggling the layer
+   afterward still showed nothing, with no error either, which pointed at a second, independent bug:
+   the original query filtered server-side on `sfha_tf='T'`, betting on both the exact field name and
+   the exact value encoding of a flag field this mirror was never confirmed to expose the same way. A
+   wrong guess there doesn't error, it just quietly matches zero rows — indistinguishable from "no flood
+   risk here". So this no longer trusts that flag at all: it fetches every zone feature in view via
+   outFields:"*" (whatever the real field names turn out to be, read back through ciProp above) and
+   decides "is this actually a flood hazard zone" from the FEMA zone CODE itself — Zone A* and V*
+   designations are Special Flood Hazard Areas by FEMA's own national Data Dictionary, a stable
+   convention across every NFHL mirror, unlike any one mirror's own derived flag field. "Unshaded Zone
+   X" (the 90%+ of most maps outside the mapped floodplain) and Zone D (undetermined) are left untinted,
+   matching FEMA's own FIRM cartographic convention of only shading zones with a real designation. */
 async function renderFloodZoneLayer(map, bounds, isCurrent){
   const gj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.flood.query, bounds, {
-    outFields: "fld_zone,zone_subty,sfha_tf", where: "sfha_tf='T'", resultRecordCount: 500,
+    outFields: "*", resultRecordCount: 2000,
   }, "flood");
   if(!isCurrent() || !map || !gj || !gj.features.length) return;
   gj.features.forEach(f=>{
     const p = f.properties||{};
-    const zone = (p.fld_zone||"").toUpperCase();
+    const zone = String(ciProp(p,"fld_zone")||"").toUpperCase().trim();
+    if(!zone || zone[0]!=="A" && zone[0]!=="V") return; // A*/V* = Special Flood Hazard Area; X/X500/D are not
     const isCoastal = zone==="VE" || zone==="V";
     const style = isCoastal
       ? { color:"#7A2E8C", weight:1, fillColor:"#7A2E8C", fillOpacity:.38 }
       : { color:"#2E6DA4", weight:1, fillColor:"#2E6DA4", fillOpacity:.32 };
     const desc = isCoastal ? "Coastal high-hazard area (wave action) — 1% annual chance" : "Special Flood Hazard Area — 1% annual chance";
+    const subty = ciProp(p,"zone_subty");
     L.geoJSON(f, { style: ()=>style })
-      .bindTooltip(`Zone ${escapeHtml(p.fld_zone||"?")}${p.zone_subty?` (${escapeHtml(p.zone_subty)})`:""} — ${desc}`, { sticky:true })
+      .bindTooltip(`Zone ${escapeHtml(zone)}${subty?` (${escapeHtml(String(subty))})`:""} — ${desc}`, { sticky:true })
       .addTo(map);
   });
 }
