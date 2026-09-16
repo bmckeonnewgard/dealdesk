@@ -783,6 +783,7 @@
   .agenda-comment-bullets{ margin:3px 0 3px 18px; padding:0; }
   .agenda-comment-bullets li{ font-size:13px; color:var(--ink); margin-bottom:2px; }
   .agenda-comment-owner{ font-size:11px; color:var(--ink-faint); margin-top:2px; }
+  .pill-solid.pill-accent.agenda-comment-assignee{ font-size:10.5px; padding:2px 8px; }
   .agenda-comment-remove, .agenda-comment-carry-btn{
     flex:none; border:none; background:transparent; color:var(--ink-faint); cursor:pointer; font-size:13px; padding:2px 4px;
   }
@@ -3542,7 +3543,7 @@ function fmtMoneyShort(n){
   if(n===undefined||n===null||n==="") return "";
   const num = Number(n);
   if(isNaN(num)) return "";
-  if(Math.abs(num)>=1000000) return "$"+(num/1000000).toFixed(num%1000000===0?0:1)+"M";
+  if(Math.abs(num)>=1000000) return "$"+(num/1000000).toFixed(num%1000000===0?0:2)+"M";
   if(Math.abs(num)>=1000) return "$"+(num/1000).toFixed(num%1000===0?0:1)+"K";
   return "$"+num.toLocaleString();
 }
@@ -7076,11 +7077,11 @@ function agendaCommentsCardHtml(){
         <div class="agenda-comment-body">
           <div class="agenda-comment-title-row">
             <span class="pill ${typeMeta.pill}">${escapeHtml(typeMeta.label)}</span>
+            ${item.owner ? `<span class="pill pill-solid pill-accent agenda-comment-assignee" title="Assigned to">👤 ${escapeHtml(item.owner)}</span>` : ""}
             ${isCarried ? `<span class="agenda-comment-carried-badge" title="Not resolved at the ${item.carriedAt?fmtDate(item.carriedAt):"previous"} meeting">↻ Carried${item.carriedAt?` from ${fmtDate(item.carriedAt)}`:""}</span>` : ""}
           </div>
           ${item.title ? `<div class="agenda-comment-title">${escapeHtml(item.title)}</div>` : ""}
           <div class="agenda-comment-text">${agendaCommentBodyHtml(item.text)}</div>
-          ${item.owner ? `<div class="agenda-comment-owner">— ${escapeHtml(item.owner)}</div>` : ""}
           ${notesHtml}
           <div class="agenda-comment-note-add no-print">
             <input type="text" class="agenda-comment-note-input" data-id="${escapeAttr(id)}" placeholder="Add a note or response…">
@@ -7103,7 +7104,7 @@ function agendaCommentsCardHtml(){
         <select id="agendaCommentTypeInput" title="Type">
           ${AGENDA_ITEM_TYPES.map(t=>`<option value="${t.key}"${t.key==="discussion"?" selected":""}>${escapeHtml(t.label)}</option>`).join("")}
         </select>
-        <input type="text" id="agendaCommentOwnerInput" placeholder="Owner (optional)">
+        <input type="text" id="agendaCommentOwnerInput" placeholder="Assigned to (optional — e.g. Harvey)">
         <button type="button" class="btn-icon" id="agendaCommentAddBtn">+ Add item</button>
       </div>
     </div>
@@ -7143,6 +7144,43 @@ function buildAgendaShareText(meetingDate, opts){
   lines.push("WEEKLY INVESTMENT COMMITTEE MEETING");
   lines.push(fmtDateFull(meetingDate));
   if(agendaAttendees) lines.push(`Attendees: ${agendaAttendees}`);
+  lines.push("");
+
+  /* Brendan: "i should be able to track the responses then send out meeting minutes in an
+     organized way with responsible parties" — a lead summary, grouped by who's on the hook,
+     pulled from Special comments' own Assigned-to field (the same field shown as a pill on each
+     item) rather than a separate assignment system. Decision-needed items with no one assigned
+     get their own "needs an owner" bucket instead of silently not appearing here, so a gap in
+     accountability is visible before the minutes go out, not after. */
+  lines.push("RESPONSIBLE PARTIES — OPEN ITEMS");
+  const openItemsForOwners = sortedAgendaItemEntries().filter(([id,item])=> item.status!=="Discussed");
+  const byOwner = new Map();
+  const unassignedDecisions = [];
+  openItemsForOwners.forEach(([id,item])=>{
+    const typeMeta = agendaItemTypeMeta(item.type);
+    const heading = item.title || String(item.text||"").split(/\r?\n/)[0] || "(untitled)";
+    const carried = item.status==="Carried" ? " [CARRIED]" : "";
+    const line = `${typeMeta.label.toUpperCase()}${carried}: ${heading}`;
+    if((item.owner||"").trim()){
+      const key = item.owner.trim();
+      if(!byOwner.has(key)) byOwner.set(key, []);
+      byOwner.get(key).push(line);
+    } else if(item.type==="decision"){
+      unassignedDecisions.push(line);
+    }
+  });
+  if(byOwner.size || unassignedDecisions.length){
+    [...byOwner.entries()].sort((a,b)=>a[0].localeCompare(b[0])).forEach(([owner, itemLines])=>{
+      lines.push(`   ${owner}:`);
+      itemLines.forEach(l=> lines.push(`     - ${l}`));
+    });
+    if(unassignedDecisions.length){
+      lines.push(`   Unassigned — needs an owner:`);
+      unassignedDecisions.forEach(l=> lines.push(`     - ${l}`));
+    }
+  } else {
+    lines.push("   Nothing currently open with an assigned owner.");
+  }
   lines.push("");
 
   let num = 1;
@@ -7194,7 +7232,7 @@ function buildAgendaShareText(meetingDate, opts){
         const heading = item.title || String(item.text||"").split(/\r?\n/)[0] || "(untitled)";
         lines.push(`   - [${typeMeta.label.toUpperCase()}]${carried} ${heading}`);
         if(item.title && item.text) String(item.text).split(/\r?\n/).forEach(l=> lines.push(`     ${l}`));
-        if(item.owner) lines.push(`     Owner: ${item.owner}`);
+        if(item.owner) lines.push(`     Assigned to: ${item.owner}`);
         if(item.status==="Discussed") lines.push(`     Status: Discussed`);
         if(includeNotes && Array.isArray(item.notes)){
           item.notes.forEach(n=> lines.push(`     > ${n.text}${n.by?` — ${n.by}`:""}${n.at?` (${fmtDate((n.at||"").slice(0,10))})`:""}`));
@@ -7369,17 +7407,22 @@ function openPastMeetingsModal(){
               const typeMeta = agendaItemTypeMeta(c.type);
               return `<div class="agenda-comment-row${c.status==="Discussed"?" is-discussed":""}">
                 <div class="agenda-comment-body">
-                  <div class="agenda-comment-title-row"><span class="pill ${typeMeta.pill}">${escapeHtml(typeMeta.label)}</span></div>
+                  <div class="agenda-comment-title-row">
+                    <span class="pill ${typeMeta.pill}">${escapeHtml(typeMeta.label)}</span>
+                    ${c.owner ? `<span class="pill pill-solid pill-accent agenda-comment-assignee" title="Assigned to">👤 ${escapeHtml(c.owner)}</span>` : ""}
+                  </div>
                   ${c.title ? `<div class="agenda-comment-title">${escapeHtml(c.title)}</div>` : ""}
                   <div class="agenda-comment-text">${agendaCommentBodyHtml(c.text)}</div>
-                  ${c.owner ? `<div class="agenda-comment-owner">— ${escapeHtml(c.owner)}</div>` : ""}
                   ${(c.notes||[]).length ? `<div class="agenda-comment-notes">${c.notes.map(n=>`<div class="agenda-comment-note"><span class="agenda-comment-note-text">${escapeHtml(n.text||"")}</span><span class="agenda-comment-note-meta">${n.by?escapeHtml(n.by)+" · ":""}${fmtDate((n.at||"").slice(0,10))}</span></div>`).join("")}</div>` : ""}
                 </div>
-                <span class="pill ${c.status==="Discussed"?"pill-good":"pill-neutral"}">${escapeHtml(c.status||"Open")}</span>
+                <span class="pill ${c.status==="Discussed"?"pill-good":c.status==="Carried"?"pill-warn":"pill-neutral"}">${escapeHtml(c.status||"Open")}</span>
               </div>`;
             }).join("") : `<div class="empty-hint">No Special comments recorded at this meeting.</div>`}
           </div>
-          <button type="button" class="btn-icon past-meeting-copy" data-id="${escapeAttr(id)}" style="margin-top:8px;">📋 Copy full minutes</button>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button type="button" class="btn-icon past-meeting-copy" data-id="${escapeAttr(id)}">📋 Copy full minutes</button>
+            <button type="button" class="btn-icon past-meeting-send" data-id="${escapeAttr(id)}">✉️ Send minutes</button>
+          </div>
         </div>
       </div>`;
     }).join("");
@@ -7410,6 +7453,15 @@ function openPastMeetingsModal(){
         const m = meetingMinutes.get(btn.getAttribute("data-id"));
         if(m) copyTextToClipboard(m.summaryText||"");
         const orig = e.currentTarget.textContent; e.currentTarget.textContent = "✓ Copied"; setTimeout(()=>{ e.currentTarget.textContent = orig; }, 1500);
+      });
+    });
+    // Reopens the same copy/mailto follow-up used right after close-out — so a meeting minutes
+    // record can be sent (or re-sent, e.g. to someone who missed it) any time later from the
+    // archive, not only in the one moment right after "Close out this meeting" runs.
+    listEl.querySelectorAll(".past-meeting-send").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const m = meetingMinutes.get(btn.getAttribute("data-id"));
+        if(m) openMeetingMinutesFollowupModal(m.date, m.attendees||agendaAttendees||"", m.summaryText||"");
       });
     });
   };
