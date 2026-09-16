@@ -7694,9 +7694,11 @@ function parseLatLngOverride(str){
    close/deal switch, re-invokes this whole function — see isCurrent below) so a stale in-flight
    fetch can't draw onto a map that's no longer the one on screen. */
 let dealMapRenderGen = 0;
+let dealLocationMapInstance = null; // same leak/fix as pipelineMapInstance — see disposePipelineMapInstance
 async function renderDealLocationMap(dealId, addr, overrideStr){
   const wrap = document.getElementById("dealLocationMapWrap");
   if(!wrap) return;
+  if(dealLocationMapInstance){ try{ dealLocationMapInstance.remove(); }catch(e){} dealLocationMapInstance = null; }
   const myGen = ++dealMapRenderGen;
   addr = (addr||"").trim();
   // overrideStr is passed in by the caller (mirroring how addr is) rather than re-read here via
@@ -7729,6 +7731,7 @@ async function renderDealLocationMap(dealId, addr, overrideStr){
   slot.className = "deal-location-map";
   slot.textContent = "";
   const map = L.map(slot, { scrollWheelZoom:false, dragging:true }).setView([coords.lat, coords.lon], approx ? 11 : 15);
+  dealLocationMapInstance = map; // so the next open/close/switch disposes this one — see the dealLocationMapInstance declaration above
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
@@ -7896,6 +7899,18 @@ let pipelineMapRenderGen = 0; // bumped on every renderPipelineMap call so a sta
    market/address have very different marker layouts) and restored on rebuild instead of re-fitting —
    fitBounds only runs the first time a mode has no remembered view yet. */
 let pipelineMapViewState = {};
+/* The previous Leaflet map instance, so it can be disposed (map.remove()) before the next one is
+   built. Clearing the container's innerHTML alone (see above) detaches its DOM nodes but does NOT
+   tear down the Leaflet instance itself — its tile layer, its own window/document-level event
+   listeners (resize, keyboard nav), and every marker/polygon on it stay alive in memory, doing
+   nothing useful, for as long as anything still references them. On a live-synced dashboard that
+   rebuilds this map on basically every realtime update, that leaked a fresh orphaned map (OSM tiles,
+   the 60-polygon CONCOURS overlay when it's on, every deal marker) on every single one — the
+   likely cause of the map getting laggier the longer the dashboard stays open in a session. */
+let pipelineMapInstance = null;
+function disposePipelineMapInstance(){
+  if(pipelineMapInstance){ try{ pipelineMapInstance.remove(); }catch(e){} pipelineMapInstance = null; }
+}
 
 /* Optional free/public GIS overlays for the pipeline map (and the deal-detail location map — see
    renderDealLocationMap) — a deal-screening aid, not a survey instrument. Each is toggled
@@ -8209,6 +8224,7 @@ function scheduleDataLayersRefetch(map, isCurrent, labelElId){
 function renderPipelineMap(byState, byMarket, activeEntries){
   const el = document.getElementById("pipelineMap");
   if(!el || typeof L === "undefined") return;
+  disposePipelineMapInstance(); // tear down whatever map this render is about to replace — see disposePipelineMapInstance
   const myGen = ++pipelineMapRenderGen;
   const mode = pipelineMapMode==="market" ? "market" : pipelineMapMode==="address" ? "address" : "state";
   const addressNote = document.getElementById("pipelineMapAddressNote");
@@ -8237,8 +8253,9 @@ function renderPipelineMap(byState, byMarket, activeEntries){
   const accent = cssVar("--accent", "#183139");
   const brass = cssVar("--brass", "#2C7E97");
   const savedView = pipelineMapViewState[mode];
-  const map = L.map(el, { scrollWheelZoom:false, worldCopyJump:true })
+  const map = L.map(el, { scrollWheelZoom:false, worldCopyJump:true, preferCanvas:true })
     .setView(savedView ? savedView.center : [39.5, -98.35], savedView ? savedView.zoom : 4);
+  pipelineMapInstance = map; // so the NEXT render's disposePipelineMapInstance() can tear this one down
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
@@ -8342,8 +8359,9 @@ async function renderPipelineMapByAddress(el, activeEntries, myGen, addressNote)
   const stageColorHex = {};
   DEAL_STAGES.forEach(s=>{ stageColorHex[s.key] = cssVar("--"+s.color, warn); });
   const savedView = pipelineMapViewState.address;
-  const map = L.map(el, { scrollWheelZoom:false, worldCopyJump:true })
+  const map = L.map(el, { scrollWheelZoom:false, worldCopyJump:true, preferCanvas:true })
     .setView(savedView ? savedView.center : [39.5, -98.35], savedView ? savedView.zoom : 4);
+  pipelineMapInstance = map; // so the NEXT render's disposePipelineMapInstance() can tear this one down
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
