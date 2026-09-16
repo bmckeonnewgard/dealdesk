@@ -1,0 +1,161 @@
+// api/pipeline-kml.js
+//
+// Live KML feed of the Deal Desk pipeline, for Google Earth's "network link" feature — a network
+// link is a tiny KML file you open once (see deal-desk-live-pipeline.kml, sent alongside this) that
+// tells Google Earth to re-fetch a URL on a timer and redraw whatever comes back. This endpoint is
+// that URL: every time it's hit, it reads whatever's actually in the pipeline right now from the same
+// Supabase project deal-desk.html itself reads from, and returns it as fresh KML placemarks. Nothing
+// is cached or pre-generated — "live" here means "regenerated on every request."
+//
+// Drop this file in alongside your existing api/geocode-census.js (same api/ folder, same repo, same
+// Vercel deploy) and push it through your usual GitHub -> Vercel pipeline. It needs the
+// @supabase/supabase-js package — if it isn't already a dependency of this project, add it with
+// `npm install @supabase/supabase-js` before you commit (check package.json — geocode-census.js may
+// already use raw fetch() instead and not need it; this file uses the SDK deliberately, see below).
+//
+// Note on style: geocode-census.js may use different export syntax (CommonJS `module.exports` vs.
+// ESM `export default`) depending on how this project's package.json is configured — if this file
+// fails to load once deployed, open geocode-census.js and match whichever style it uses; the two
+// syntaxes aren't interchangeable in the same project.
+//
+// One thing I could not verify from outside your deployment: whether Supabase's Row Level Security
+// policy on the "docs" table requires a signed-in session (even an anonymous one) to read it, the way
+// deal-desk.html itself signs in anonymously before reading. This uses the same @supabase/supabase-js
+// SDK and the same anonymous sign-in call the app already does, specifically so it's making the same
+// kind of request the browser does rather than a bare REST call that might get a different answer
+// from your RLS policies. If this comes back empty despite deals existing, that's the first thing to
+// check.
+
+const { createClient } = require("@supabase/supabase-js");
+
+// Same public project URL + anon/publishable key already embedded in deal-desk.html's own
+// supabaseConfig — these identify the project only, they're not secret; access is enforced by RLS,
+// not by hiding this pair. Kept as a literal here (rather than an env var) so this file works the
+// moment it's deployed, with nothing extra to configure in the Vercel project settings. If you ever
+// rotate this key, update it in both places.
+const SUPABASE_URL = "https://frxwekuejwabylezpvom.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_7ox6RZ3U5r2F-E3VTF99pw_NG8opJ1t";
+
+// Mirrors DEAL_STAGES in deal-desk.html (title + accent color per stage) — kept as its own small copy
+// here rather than importing from the HTML file, since there's nothing clean to import from a static
+// HTML page. If you rename or add a stage there, mirror the change here too, or it'll just fall back
+// to the neutral gray below rather than being wrong.
+const STAGE_META = {
+  just_landed: { title: "Screening", hex: "D9E6DC" },
+  underwriting: { title: "Underwriting (pre-LOI)", hex: "2E9C90" },
+  loi: { title: "LOI", hex: "0F6BA0" },
+  psa: { title: "PSA - inspection period", hex: "241F8E" },
+  closing: { title: "Closing", hex: "3A0A1E" },
+  onboarded: { title: "Closed", hex: "1F7A4C" },
+  dead: { title: "Dead / Passed", hex: "B7382F" },
+};
+const FALLBACK_STAGE_META = { title: "Other", hex: "8892A0" };
+
+// KML <color> is AABBGGRR, not the RRGGBB everyone actually thinks in — this just does that swap.
+function kmlColor(hex, alphaHex) {
+  const h = String(hex || "8892A0").replace("#", "");
+  const r = h.slice(0, 2), g = h.slice(2, 4), b = h.slice(4, 6);
+  return `${alphaHex || "ff"}${b}${g}${r}`;
+}
+
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function fmtMoneyShort(n) {
+  if (n === undefined || n === null || n === "") return "";
+  const num = Number(n);
+  if (isNaN(num)) return "";
+  if (Math.abs(num) >= 1000000) return "$" + (num / 1000000).toFixed(num % 1000000 === 0 ? 0 : 2) + "M";
+  if (Math.abs(num) >= 1000) return "$" + (num / 1000).toFixed(num % 1000 === 0 ? 0 : 1) + "K";
+  return "$" + num.toLocaleString();
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Same free OpenStreetMap Nominatim service deal-desk.html's own geocodeAddress() uses for the
+// pipeline map, called the same polite way: one address at a time with a short pause between calls
+// (see the 300ms pause in the loop below) and an identifying User-Agent, per Nominatim's usage
+// policy. At an hourly refresh and ~20 pipeline deals this stays nowhere near their rate limits, so
+// there's no persistent cache here — every refresh just geocodes fresh, which is simpler and has
+// fewer places to go stale than caching would. If the pipeline grows to where this gets slow, that's
+// the first thing worth adding back.
+async function geocode(address) {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=${encodeURIComponent(address)}`,
+      { headers: { Accept: "application/json", "User-Agent": "DealDesk-PipelineKML/1.0 (bmckeon@newgardgroup.com)" } }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const top = data && data[0];
+    if (!top) return null;
+    return { lat: parseFloat(top.lat), lon: parseFloat(top.lon) };
+  } catch (e) {
+    return null;
+  }
+}
+
+module.exports = async function handler(req, res) {
+  try {
+    const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    try {
+      await sb.auth.signInAnonymously();
+    } catch (e) {
+      // Same as deal-desk.html's own supabaseSignIn() — if anonymous auth isn't enabled on this
+      // project, keep going with the plain anon key rather than failing the whole feed.
+    }
+
+    const { data: rows, error } = await sb.from("docs").select("id,data").eq("collection", "deals");
+    if (error) throw error;
+
+    const placemarks = [];
+    for (const row of rows || []) {
+      const d = row.data || {};
+      const address = (d.address || "").trim();
+      if (!address) continue; // nothing to place on the map without one
+      const coords = await geocode(address);
+      await sleep(300); // stay well under Nominatim's ~1 req/sec usage-policy ceiling
+      if (!coords) continue;
+      const meta = STAGE_META[d.stage] || FALLBACK_STAGE_META;
+      const subtitle = [meta.title, fmtMoneyShort(d.purchasePrice), d.productLine].filter(Boolean).join(" · ");
+      placemarks.push(`
+    <Placemark>
+      <name>${esc(d.name || row.id)}</name>
+      <description><![CDATA[${esc(subtitle)}<br/>${esc(address)}<br/><a href="https://dealdesk-lake.vercel.app/">Open in Deal Desk</a>]]></description>
+      <Style><IconStyle><color>${kmlColor(meta.hex)}</color><scale>1.1</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon></IconStyle></Style>
+      <Point><coordinates>${coords.lon},${coords.lat},0</coordinates></Point>
+    </Placemark>`);
+    }
+
+    const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Newgard Deal Desk — Live Pipeline</name>
+    <description>Regenerated on every refresh from the live pipeline — ${esc(new Date().toISOString())}</description>${placemarks.join("")}
+  </Document>
+</kml>`;
+
+    res.setHeader("Content-Type", "application/vnd.google-earth.kml+xml; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    res.status(200).send(kml);
+  } catch (e) {
+    // Returned as valid (if empty) KML rather than a bare 500, so Google Earth shows a document
+    // named with the actual error instead of just silently failing to refresh.
+    res.setHeader("Content-Type", "application/vnd.google-earth.kml+xml; charset=utf-8");
+    res.status(200).send(
+      `<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Deal Desk feed error: ${esc(e.message || String(e))}</name></Document></kml>`
+    );
+  }
+};
+
+// Raises this one function's execution time limit — a full pipeline refresh (Supabase read + one
+// geocode call per deal, paced 300ms apart) can take longer than Vercel's 10-second default on the
+// Hobby plan once there are more than a handful of deals with addresses. If you'd rather keep this
+// out of vercel.json, an equivalent block there is:
+//   { "functions": { "api/pipeline-kml.js": { "maxDuration": 30 } } }
+module.exports.config = { maxDuration: 30 };
