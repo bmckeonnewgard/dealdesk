@@ -7936,8 +7936,10 @@ let activeDataLayers = { flood: false, wetlands: false, oz: false, brownfields: 
 const DATA_LAYER_SOURCES = {
   flood: {
     label: "FEMA flood zones",
-    attribution: 'FEMA National Flood Hazard Layer, via <a href="https://gis-fema.hub.arcgis.com/" target="_blank" rel="noopener">DHS HIFLD Open</a>',
-    query: "https://maps.nccs.nasa.gov/mapping/rest/services/hifld_open/national_flood_hazard/MapServer/5/query",
+    attribution: 'FEMA National Flood Hazard Layer, via <a href="https://gis-fema.hub.arcgis.com/" target="_blank" rel="noopener">FEMA GIS Open Data</a>',
+    // Hosted on services.arcgis.com (ArcGIS Online) rather than a bare ArcGIS Server instance — see the
+    // comment above renderFloodZoneLayer for why that distinction is the whole story here.
+    query: "https://services.arcgis.com/2gdL2gxYNFY2TOUb/arcgis/rest/services/FEMA_National_Flood_Hazard_Layer/FeatureServer/0/query",
   },
   wetlands: {
     label: "USFWS wetlands",
@@ -8010,28 +8012,58 @@ function arcgisEnvelopeQueryUrl(baseUrl, bounds, extraParams){
   }, extraParams||{});
   return `${baseUrl}?${new URLSearchParams(params).toString()}`;
 }
-async function fetchArcGISGeoJSON(baseUrl, bounds, extraParams){
+// layerKey (optional) -> reason string, for whichever data layer's most recent fetch failed outright
+// (as opposed to succeeding with zero features for the current view). Cleared on that layer's next
+// successful fetch. Previously nothing recorded this at all, so a genuinely broken layer (wrong URL,
+// CORS rejection, service down) looked pixel-for-pixel identical to "no flood zones in this county" —
+// see refreshVectorDataLayers, which surfaces this in the "Data layers:" label instead of staying silent.
+let dataLayerFetchIssues = new Map();
+async function fetchArcGISGeoJSON(baseUrl, bounds, extraParams, layerKey){
   try{
     const res = await fetch(arcgisEnvelopeQueryUrl(baseUrl, bounds, extraParams));
-    if(!res.ok) return null;
+    if(!res.ok){
+      if(layerKey) dataLayerFetchIssues.set(layerKey, `HTTP ${res.status}`);
+      return null;
+    }
     const data = await res.json();
-    return (data && data.type==="FeatureCollection") ? data : null;
-  }catch(e){ return null; }
+    if(data && data.error){
+      if(layerKey) dataLayerFetchIssues.set(layerKey, data.error.message || "service returned an error");
+      return null;
+    }
+    if(!(data && data.type==="FeatureCollection")){
+      if(layerKey) dataLayerFetchIssues.set(layerKey, "unexpected response from the data service");
+      return null;
+    }
+    if(layerKey) dataLayerFetchIssues.delete(layerKey);
+    return data;
+  }catch(e){
+    // A network-level failure lands here, including a CORS rejection — the browser reports that to JS
+    // as a generic, detail-free TypeError, so this can't distinguish "blocked by CORS" from "offline"
+    // from "DNS hiccup". We can't say which one it was, but we can make sure it's never invisible.
+    if(layerKey) dataLayerFetchIssues.set(layerKey, "request failed (network or CORS)");
+    return null;
+  }
 }
 
 /* FEMA flood hazard zones: Special Flood Hazard Area (SFHA) polygons, color-coded by zone type.
-   Sourced from DHS/FEMA's HIFLD Open mirror of the National Flood Hazard Layer rather than FEMA's
-   own hazards.fema.gov WMS service — that WMS endpoint rendered only LOMA/LOMR case-point labels at
-   this app's usual zoom levels, not the flood zone polygons (confirmed against a real deal address
-   on the live map), so this fetches and renders the zone polygons itself instead of depending on a
-   third party's WMS tile output, the same way the other vector layers on this map already work. The
-   query filters server-side to sfha_tf='T' (an actual flood designation) — "unshaded Zone X" (the
-   90%+ of most maps that's outside the mapped floodplain) is deliberately left untinted, matching
-   FEMA's own FIRM cartographic convention of only shading zones that carry a real designation. */
+   Sourced from a services.arcgis.com (ArcGIS Online) hosted mirror of FEMA's National Flood Hazard
+   Layer, not FEMA's own hazards.fema.gov WMS service (that WMS endpoint rendered only LOMA/LOMR
+   case-point labels at this app's usual zoom levels, not the flood zone polygons — confirmed against
+   a real deal address on the live map) and — this was the actual bug Brendan hit — not the raw
+   maps.nccs.nasa.gov ArcGIS Server mirror this used to point at either. That NASA-hosted instance
+   never returned an error; it just never returned data in the browser at all, which is the fingerprint
+   of a CORS rejection (a bare ArcGIS Server instance doesn't send Access-Control-Allow-Origin unless
+   someone explicitly turns it on — this is a known, documented gap on NASA's ArcGIS deployments, not
+   specific to this dataset), invisible to curl/server-side tools and to this file's own try/catch
+   alike. The other vector layers below never hit this because they're all already on services.arcgis.com
+   or api.census.gov, which both send permissive CORS headers by default — this fix just brings flood
+   onto the same footing. The query filters server-side to sfha_tf='T' (an actual flood designation) —
+   "unshaded Zone X" (the 90%+ of most maps that's outside the mapped floodplain) is deliberately left
+   untinted, matching FEMA's own FIRM cartographic convention of only shading zones with a real designation. */
 async function renderFloodZoneLayer(map, bounds, isCurrent){
   const gj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.flood.query, bounds, {
     outFields: "fld_zone,zone_subty,sfha_tf", where: "sfha_tf='T'", resultRecordCount: 500,
-  });
+  }, "flood");
   if(!isCurrent() || !map || !gj || !gj.features.length) return;
   gj.features.forEach(f=>{
     const p = f.properties||{};
@@ -8049,7 +8081,7 @@ async function renderFloodZoneLayer(map, bounds, isCurrent){
 
 /* Opportunity Zones: designated census-tract polygons, shaded green. */
 async function renderOpportunityZonesLayer(map, bounds, isCurrent){
-  const gj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.oz.query, bounds, { outFields: "GEOID10", resultRecordCount: 500 });
+  const gj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.oz.query, bounds, { outFields: "GEOID10", resultRecordCount: 500 }, "oz");
   if(!isCurrent() || !map) return;
   if(gj && typeof L.geoJSON==="function" && gj.features.length){
     L.geoJSON(gj, { style: { color:"#2A8A2A", weight:1.5, fillColor:"#2A8A2A", fillOpacity:.14 } })
@@ -8064,7 +8096,7 @@ async function renderBrownfieldsLayer(map, bounds, isCurrent){
   const gj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.brownfields.query, bounds, {
     outFields: "PRIMARY_NAME,SF_SITE_NAME,BF_PROPERTY_NAME,LOCATION_ADDRESS,CITY_NAME,STATE_CODE",
     resultRecordCount: 200,
-  });
+  }, "brownfields");
   if(!isCurrent() || !map || !gj) return;
   gj.features.forEach(f=>{
     const coords = f.geometry && f.geometry.coordinates;
@@ -8088,7 +8120,7 @@ async function renderDemographicsLayer(map, bounds, isCurrent){
   if(!key) return; // the toggle's own change-handler prompts for a key — this just no-ops otherwise
   const tractsGj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.demographics.tractsQuery, bounds, {
     outFields: "GEOID,STATE,COUNTY,TRACT",
-  });
+  }, "demographics");
   if(!isCurrent() || !map || !tractsGj || !tractsGj.features.length) return;
 
   const byCounty = new Map(); // "STATE:COUNTY" -> true (just need the distinct set)
@@ -8150,7 +8182,7 @@ async function renderDemographicsLayer(map, bounds, isCurrent){
 async function renderWildfireLayer(map, bounds, isCurrent){
   const gj = await fetchArcGISGeoJSON(DATA_LAYER_SOURCES.wildfire.query, bounds, {
     outFields: "STATE,COUNTY,WFIR_AFREQ",
-  });
+  }, "wildfire");
   if(!isCurrent() || !map || !gj || !gj.features.length) return;
 
   const values = gj.features.map(f=>Number(f.properties && f.properties.WFIR_AFREQ)).filter(v=>!isNaN(v) && v>=0);
@@ -8207,7 +8239,26 @@ async function refreshVectorDataLayers(map, bounds, isCurrent, labelElId){
     if(!isCurrent()) return;
     if(activeDataLayers.demographics) await renderDemographicsLayer(map, bounds, isCurrent);
   } finally {
-    if(labelEl && isCurrent()) labelEl.textContent = "Data layers:";
+    if(labelEl && isCurrent()){
+      // Only ever call out a layer that's both (a) currently toggled on and (b) actually failed its
+      // fetch this pass — dataLayerFetchIssues is cleared per-layer on success, so a layer that's
+      // simply empty for this view (no flood zones in this county) never shows up here. This is what
+      // turns "doesn't seem to show up" into something Brendan can see the reason for on the map itself,
+      // instead of a toggle that quietly does nothing.
+      const failed = ["flood","oz","brownfields","wildfire","demographics"]
+        .filter(k=> activeDataLayers[k] && dataLayerFetchIssues.has(k))
+        .map(k=> DATA_LAYER_SOURCES[k].label);
+      if(failed.length){
+        labelEl.textContent = `Data layers (${failed.join(", ")} unavailable):`;
+        labelEl.title = failed.map(l=>{
+          const k = Object.keys(DATA_LAYER_SOURCES).find(kk=>DATA_LAYER_SOURCES[kk].label===l);
+          return `${l}: ${dataLayerFetchIssues.get(k)}`;
+        }).join(" · ");
+      } else {
+        labelEl.textContent = "Data layers:";
+        labelEl.title = "";
+      }
+    }
   }
 }
 
