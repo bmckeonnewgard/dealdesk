@@ -771,22 +771,51 @@
     color:var(--good); font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0;
   }
   .agenda-comment-body{ flex:1; min-width:0; }
-  .agenda-comment-text{ font-size:13px; color:var(--ink); white-space:pre-wrap; overflow-wrap:anywhere; }
+  .agenda-comment-title-row{ display:flex; align-items:center; gap:7px; margin-bottom:3px; }
+  .agenda-comment-title{ font-family:var(--font-display); font-weight:800; font-size:15px; color:var(--ink); margin-bottom:2px; }
+  .agenda-comment-carried-badge{
+    font-size:10.5px; font-weight:700; color:var(--warn); background:var(--warn-soft); border-radius:5px; padding:2px 7px;
+    white-space:nowrap;
+  }
+  .agenda-comment-row.is-carried{ border-color:var(--warn); }
+  .agenda-comment-text{ font-size:13px; color:var(--ink); overflow-wrap:anywhere; }
+  .agenda-comment-line{ margin:1px 0; }
+  .agenda-comment-bullets{ margin:3px 0 3px 18px; padding:0; }
+  .agenda-comment-bullets li{ font-size:13px; color:var(--ink); margin-bottom:2px; }
   .agenda-comment-owner{ font-size:11px; color:var(--ink-faint); margin-top:2px; }
-  .agenda-comment-remove{
+  .agenda-comment-remove, .agenda-comment-carry-btn{
     flex:none; border:none; background:transparent; color:var(--ink-faint); cursor:pointer; font-size:13px; padding:2px 4px;
   }
   .agenda-comment-remove:hover{ color:var(--bad); }
+  .agenda-comment-carry-btn:hover{ color:var(--warn); }
   .agenda-comment-add{ display:flex; flex-direction:column; gap:8px; }
-  .agenda-comment-add textarea{
+  .agenda-comment-add textarea, .agenda-comment-add > input{
     border:1px solid var(--border); background:var(--surface-2); color:var(--ink); border-radius:8px;
     padding:8px 10px; font-size:13px; font-family:var(--font-body); width:100%; box-sizing:border-box; resize:vertical;
   }
   .agenda-comment-add-row{ display:flex; gap:8px; align-items:center; }
-  .agenda-comment-add-row input{
+  .agenda-comment-add-row input, .agenda-comment-add-row select{
     flex:1; border:1px solid var(--border); background:var(--surface-2); color:var(--ink); border-radius:8px;
     padding:7px 10px; font-size:12.5px; font-family:var(--font-body);
   }
+  .agenda-comment-add-row select{ flex:none; max-width:160px; }
+  .agenda-comment-task-btn{
+    flex:none; border:1px solid var(--border-strong); background:var(--surface); color:var(--ink-soft); border-radius:6px;
+    padding:3px 8px; font-size:11px; cursor:pointer; white-space:nowrap;
+  }
+  .agenda-comment-task-btn:hover:not(:disabled){ border-color:var(--accent); color:var(--accent); }
+  .agenda-comment-task-btn:disabled{ opacity:.55; cursor:default; color:var(--good); border-color:var(--good); }
+  /* Per-deal notes sidecar — see agendaRowWithNotesHtml/agendaRowNotesBtnHtml. The wrapped row
+     (an .attn-row or .agenda-inmotion-row button) keeps its own layout; width:auto+flex:1 lets it
+     share the line with the sidecar button instead of fighting its own width:100%. */
+  .agenda-row-pair{ display:flex; align-items:stretch; gap:6px; }
+  .agenda-row-pair > .attn-row, .agenda-row-pair > .agenda-inmotion-row{ width:auto; flex:1; min-width:0; }
+  .agenda-row-notes-btn{
+    flex:none; align-self:center; border:1px solid var(--border); background:var(--surface); color:var(--ink-soft);
+    border-radius:7px; padding:4px 9px; font-size:11px; cursor:pointer; white-space:nowrap;
+  }
+  .agenda-row-notes-btn:hover{ border-color:var(--accent); color:var(--accent); }
+  .basics-td-notes{ text-align:center; white-space:nowrap; }
   .agenda-comment-row .agenda-reorder{ flex:none; margin-left:0; flex-direction:column; }
   .agenda-comment-row[draggable="true"]{ cursor:grab; }
   .agenda-comment-row[draggable="true"]:active{ cursor:grabbing; }
@@ -2183,6 +2212,9 @@ function saveDismissedSuggestions(){
 function saveDashboardGoal(){
   if(db) db.doc("settings/goals").set({closedDealsGoal: dashboardGoal.amount, closedDealsGoalLabel: dashboardGoal.label, goalStartDate: dashboardGoal.startDate});
 }
+function saveAgendaAttendees(){
+  if(db) db.doc("settings/agendaAttendees").set({value: agendaAttendees});
+}
 function rebuildCriteriaView(){
   criteriaViewBuilt = false;
   if(view==="criteria") renderCriteriaView();
@@ -3313,6 +3345,10 @@ let closedTrajectoryAsOfDate = null; // null = as of today
 let pipelineMapMode = "state"; // "state" or "market" — which layer of bubbles the pipeline map shows
 let agendaMeetingDate = null; // null = today — the Weekly Agenda's "as of" reference date
 let agendaItems = new Map(); // "Special comments" — ad hoc discussion items, synced like tasks/deals/brokers
+let meetingMinutes = new Map(); // immutable per-date snapshot created by "Close out this meeting" (see performMeetingCloseout) — the Weekly Agenda's permanent record, browsed via "Past meetings"
+let agendaAttendees = ""; // comma-separated attendee names/emails for the Weekly Agenda — prefills the pre-meeting share and the post-meeting minutes follow-up (see openAgendaShareModal / performMeetingCloseout)
+let dealAgendaNotes = new Map(); // dealId -> {notes:[{text,at,by}]} — per-deal note thread captured live from the Weekly Agenda's Urgent/Prospects/Deals in motion/Under contract rows (see openDealAgendaNotesModal), separate from agendaItems' own notes
+let openDealAgendaNotesId = null; // dealId whose notes modal is currently open, if any — lets a live db update re-render it in place
 let checklistCache = new Map();
 let workChecklistCache = new Map();
 let criteriaCache = new Map();
@@ -4130,6 +4166,18 @@ async function boot(){
       agendaItems = new Map(snap.docs.map(d=>[d.id, d.data()]));
       if(view==="agenda") renderAgendaView();
     }, ()=>{});
+    db.doc("settings/agendaAttendees").onSnapshot(snap=>{
+      const data = snap.data();
+      agendaAttendees = (data && typeof data.value==="string") ? data.value : "";
+    }, ()=>{});
+    db.collection("meetingMinutes").onSnapshot(snap=>{
+      meetingMinutes = new Map(snap.docs.map(d=>[d.id, d.data()]));
+    }, ()=>{});
+    db.collection("dealAgendaNotes").onSnapshot(snap=>{
+      dealAgendaNotes = new Map(snap.docs.map(d=>[d.id, d.data()]));
+      if(view==="agenda") renderAgendaView();
+      if(openDealAgendaNotesId) renderDealAgendaNotesModalBody();
+    }, ()=>{});
   } else {
     dot.classList.add("off");
     txt.textContent = "Not connected — changes stay in this browser tab only";
@@ -4258,7 +4306,7 @@ async function deleteBroker(id){
    carries `order` (manual priority — see agendaItemSortValue/moveAgendaItem below) and `notes` (a
    running thread of responses tracked against the item — see addAgendaItemNote). */
 async function createAgendaItem(data){
-  const full = Object.assign({status:"Open", owner:"", createdAt:new Date().toISOString(), order: Date.now(), notes: []}, data);
+  const full = Object.assign({status:"Open", owner:"", type:"discussion", title:"", createdAt:new Date().toISOString(), order: Date.now(), notes: [], carriedAt: null}, data);
   if(db){ await db.collection("agendaItems").add(full); }
   else{ const id = localId(); agendaItems.set(id, full); if(view==="agenda") renderAgendaView(); }
 }
@@ -4328,6 +4376,153 @@ async function removeAgendaItemNote(id, idx){
   if(idx<0 || idx>=notes.length) return;
   notes.splice(idx,1);
   await updateAgendaItem(id, {notes});
+}
+/* "→ Task" — Brendan's report: "one click during the meeting creates a linked Task on Deal Desk's
+   existing Tasks board instead of leaving the action item trapped in text." Mirrors the existing
+   Suggested-tasks "+ Add" flow (see renderSuggestedTasks) — same createTask shape, dropped into
+   Backlog. `taskCreated` is set on the comment afterward purely so the button can show it's already
+   been converted and not create a duplicate card on a second click. */
+async function convertAgendaItemToTask(id){
+  const item = agendaItems.get(id);
+  if(!item || item.taskCreated) return;
+  const title = item.title || String(item.text||"").split(/\r?\n/)[0].trim() || "Untitled action item";
+  await createTask({
+    title, notes: item.text||"", assignee: item.owner||whoName()||"", dueDate:"", priority:"medium",
+    column:"backlog", relatedDealId:"", order: Date.now(), createdAt: new Date().toISOString(), completedAt: null,
+    sourceAgendaItemId: id,
+  });
+  await updateAgendaItem(id, {taskCreated:true});
+  showToast(`Added "${title}" to Tasks`, "good");
+}
+/* Per-deal note thread for the Weekly Agenda's Urgent/Prospects/Deals in motion/Under contract rows
+   (Brendan's report: "add the same 'note' affordance to every section's rows, not just Special
+   comments"). Keyed by dealId rather than a generated id — one running thread per deal, added to
+   from whichever section it's currently showing up in, viewed via openDealAgendaNotesModal. Kept as
+   its own collection (not stored on the deal record itself) so it stays meeting-discussion context
+   rather than mixing into the deal's own fields. */
+async function addDealAgendaNote(dealId, text){
+  const rec = dealAgendaNotes.get(dealId);
+  const notes = Array.isArray(rec && rec.notes) ? rec.notes.slice() : [];
+  notes.push({text, at:new Date().toISOString(), by: whoName()||""});
+  const full = {notes};
+  if(db){ await db.doc("dealAgendaNotes/"+dealId).set(full); }
+  else{ dealAgendaNotes.set(dealId, full); if(view==="agenda") renderAgendaView(); if(openDealAgendaNotesId===dealId) renderDealAgendaNotesModalBody(); }
+}
+async function removeDealAgendaNote(dealId, idx){
+  const rec = dealAgendaNotes.get(dealId);
+  const notes = Array.isArray(rec && rec.notes) ? rec.notes.slice() : [];
+  if(idx<0 || idx>=notes.length) return;
+  notes.splice(idx,1);
+  const full = {notes};
+  if(db){ await db.doc("dealAgendaNotes/"+dealId).set(full); }
+  else{ dealAgendaNotes.set(dealId, full); if(view==="agenda") renderAgendaView(); if(openDealAgendaNotesId===dealId) renderDealAgendaNotesModalBody(); }
+}
+/* Small "💬 N" sidecar button dropped next to a deal row in the four agenda sections that carry
+   per-deal notes — see agendaRowWithNotesHtml (buttons) and basicsTableCardHtml's withNotes column
+   (table rows, which can't use the sidecar wrapper). */
+function agendaRowNotesBtnHtml(dealId){
+  const rec = dealAgendaNotes.get(dealId);
+  const count = rec && Array.isArray(rec.notes) ? rec.notes.length : 0;
+  return `<button type="button" class="agenda-row-notes-btn no-print" data-deal-notes="${escapeAttr(dealId)}" title="${count?`${count} note${count===1?"":"s"} — click to view/add`:"Add a note"}">💬${count?` ${count}`:""}</button>`;
+}
+/* Wraps an existing <button class="attn-row ..."> / <button class="agenda-inmotion-row ..."> row
+   with the notes sidecar as a sibling (never nested — these rows are themselves buttons, and a
+   button can't contain another button). Only used from the Weekly Agenda's own sectionData calls
+   (see renderAgendaView) via each card builder's opts.withNotes — every other caller of these same
+   card builders (the Dashboard) omits that flag and renders exactly as before. */
+function agendaRowWithNotesHtml(rowButtonHtml, dealId){
+  return `<div class="agenda-row-pair">${rowButtonHtml}${agendaRowNotesBtnHtml(dealId)}</div>`;
+}
+function openDealAgendaNotesModal(dealId, dealName){
+  openDealAgendaNotesId = dealId;
+  const root = document.getElementById("modalRoot");
+  root.innerHTML = `<div class="overlay" id="dealAgendaNotesOverlay">
+    <div class="modal" style="width:min(480px,94vw);">
+      <div class="modal-head"><h2>💬 ${escapeHtml(dealName)}</h2></div>
+      <div class="modal-body" id="dealAgendaNotesBody"></div>
+      <div class="modal-foot">
+        <button type="button" class="btn" id="dealAgendaNotesOpenDealBtn">Open deal</button>
+        <button type="button" class="btn btn-ghost" id="dealAgendaNotesCloseBtn" style="margin-left:auto;">Close</button>
+      </div>
+    </div>
+  </div>`;
+  renderDealAgendaNotesModalBody();
+  const close = ()=>{ openDealAgendaNotesId = null; root.innerHTML=""; };
+  document.getElementById("dealAgendaNotesOverlay").addEventListener("click", e=>{ if(e.target.id==="dealAgendaNotesOverlay") close(); });
+  document.getElementById("dealAgendaNotesCloseBtn").addEventListener("click", close);
+  document.getElementById("dealAgendaNotesOpenDealBtn").addEventListener("click", ()=>{ close(); openDealDetail(dealId); });
+}
+function renderDealAgendaNotesModalBody(){
+  const body = document.getElementById("dealAgendaNotesBody");
+  if(!body || !openDealAgendaNotesId) return;
+  const dealId = openDealAgendaNotesId;
+  const rec = dealAgendaNotes.get(dealId);
+  const notes = Array.isArray(rec && rec.notes) ? rec.notes : [];
+  body.innerHTML = `
+    ${notes.length ? `<div class="agenda-comment-notes" style="margin-top:0;padding-top:0;border-top:none;">
+      ${notes.map((n,ni)=>`<div class="agenda-comment-note">
+        <span class="agenda-comment-note-text">${escapeHtml(n.text||"")}</span>
+        <span class="agenda-comment-note-meta">${n.by?escapeHtml(n.by)+" · ":""}${fmtDate((n.at||"").slice(0,10))}</span>
+        <button type="button" class="agenda-comment-note-remove" data-idx="${ni}" title="Remove note">✕</button>
+      </div>`).join("")}
+    </div>` : `<div class="empty-hint">No notes yet on this deal from the Weekly Agenda — add one below.</div>`}
+    <div class="agenda-comment-note-add" style="margin-top:0;">
+      <input type="text" id="dealAgendaNoteInput" placeholder="Add a note or response…">
+      <button type="button" class="agenda-comment-note-add-btn" id="dealAgendaNoteAddBtn">Reply</button>
+    </div>`;
+  const submit = ()=>{
+    const input = document.getElementById("dealAgendaNoteInput");
+    const text = (input.value||"").trim();
+    if(!text) return;
+    addDealAgendaNote(dealId, text);
+    input.value = "";
+  };
+  document.getElementById("dealAgendaNoteAddBtn").addEventListener("click", submit);
+  document.getElementById("dealAgendaNoteInput").addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); submit(); } });
+  body.querySelectorAll(".agenda-comment-note-remove").forEach(btn=>{
+    btn.addEventListener("click", ()=> removeDealAgendaNote(dealId, Number(btn.getAttribute("data-idx"))));
+  });
+}
+/* Special comment "type" — the tag shown as a colored pill on each item (Brendan: "make it clear
+   what questions/decisions points are versus just summarizing current status"). Purely a label on
+   the item, same status/order/notes machinery underneath. */
+const AGENDA_ITEM_TYPES = [
+  {key:"decision",   label:"Decision needed", pill:"pill-bad"},
+  {key:"status",     label:"Status",          pill:"pill-neutral"},
+  {key:"discussion", label:"Discussion",      pill:"pill-accent"},
+  {key:"fyi",        label:"FYI",             pill:"pill-neutral"},
+];
+function agendaItemTypeMeta(type){ return AGENDA_ITEM_TYPES.find(t=>t.key===type) || AGENDA_ITEM_TYPES[2]; }
+/* Renders a Special comment's body text with `-`/`*`-prefixed lines as a real bulleted list
+   (Brendan: "allow bulletpoints for lists") — the underlying text field stays plain text, this is
+   a display-only transform, so nothing about storage/editing changes. */
+function agendaCommentBodyHtml(text){
+  const lines = String(text||"").split(/\r?\n/);
+  const out = [];
+  let listBuf = [];
+  const flushList = ()=>{
+    if(listBuf.length){ out.push(`<ul class="agenda-comment-bullets">${listBuf.map(l=>`<li>${escapeHtml(l)}</li>`).join("")}</ul>`); listBuf = []; }
+  };
+  lines.forEach(line=>{
+    const m = line.match(/^\s*[-*]\s+(.*)$/);
+    if(m){ listBuf.push(m[1]); }
+    else{ flushList(); if(line.trim()!=="") out.push(`<div class="agenda-comment-line">${escapeHtml(line)}</div>`); }
+  });
+  flushList();
+  return out.join("") || `<div class="agenda-comment-line"></div>`;
+}
+/* Meeting minutes archive — an immutable snapshot created by "Close out this meeting" (see
+   performMeetingCloseout). Its own collection, separate from the live agendaItems list, so a
+   minutes record from six weeks ago still reads the same even as live deals/comments move on. */
+async function createMeetingMinutes(data){
+  const full = Object.assign({date:"", attendees:"", closedAt:new Date().toISOString(), closedBy:whoName()||"", summaryText:"", comments:[]}, data);
+  if(db){ await db.collection("meetingMinutes").add(full); }
+  else{ const id = localId(); meetingMinutes.set(id, full); }
+  return full;
+}
+async function deleteMeetingMinutesRecord(id){
+  if(db){ await db.doc("meetingMinutes/"+id).delete(); }
+  else{ meetingMinutes.delete(id); }
 }
 
 async function setCriteriaItem(dealId, key, patch){
@@ -5453,6 +5648,7 @@ function openAlertDetail(kind, list){
    rather than needing to open each deal to find them. */
 function basicsTableCardHtml(dealEntries, opts){
   const inlineGaps = !!(opts && opts.inlineFinancingGaps);
+  const withNotes = !!(opts && opts.withNotes);
   const rows = dealEntries.slice().sort((a,b)=> (a[1].name||a[1].address||"").localeCompare(b[1].name||b[1].address||""));
   if(!rows.length){
     return `<div class="dash-card basics-card" style="margin-bottom:16px;">
@@ -5485,6 +5681,7 @@ function basicsTableCardHtml(dealEntries, opts){
       <td class="basics-td mono">${nextDep ? `<span class="basics-date-val ${stripPillPrefix(urgencyClass(nextDep.date))}">${fmtDate(nextDep.date)}${urgencySuffix(nextDep.date)}</span> ${fmtMoneyShort(nextDep.amount)}` : "—"}</td>
       <td class="basics-td mono">${inspectionCell}</td>
       <td class="basics-td mono">${d.closingDate ? `<span class="basics-date-val ${stripPillPrefix(urgencyClass(d.closingDate))}">${fmtDate(d.closingDate)}${urgencySuffix(d.closingDate)}</span>` : "—"}</td>
+      ${withNotes ? `<td class="basics-td basics-td-notes no-print">${agendaRowNotesBtnHtml(id)}</td>` : ""}
     </tr>`;
     if(!inlineGaps) return mainRow;
     // Financing gaps used to be their own separate card below this table, repeating each project's
@@ -5497,7 +5694,7 @@ function basicsTableCardHtml(dealEntries, opts){
     gapDealCount++; gapDebtTotal += debtGap; gapEquityTotal += equityGap;
     const gapDetail = [debtGap>0?`Debt ${fmtMoneyShort(debtGap)}`:"", equityGap>0?`Equity ${fmtMoneyShort(equityGap)}`:""].filter(Boolean).join(" · ");
     const gapRow = `<tr class="basics-row basics-gap-row" data-deal="${escapeAttr(id)}">
-      <td class="basics-td basics-gap-td" colspan="11"><span class="basics-gap-flag">⚠ Financing gap</span><span class="basics-gap-detail">${gapDetail}</span></td>
+      <td class="basics-td basics-gap-td" colspan="${withNotes?12:11}"><span class="basics-gap-flag">⚠ Financing gap</span><span class="basics-gap-detail">${gapDetail}</span></td>
     </tr>`;
     return mainRow + gapRow;
   };
@@ -5513,7 +5710,7 @@ function basicsTableCardHtml(dealEntries, opts){
         <thead><tr>
           <th>Project</th><th>Location</th><th>Status</th><th>PSA status</th><th>Lot size</th>
           <th>Purchase price</th><th>$/acre</th><th>Effective date</th><th>Next deposit due</th>
-          <th>Inspection end</th><th>Closing date</th>
+          <th>Inspection end</th><th>Closing date</th>${withNotes ? '<th class="no-print">Notes</th>' : ""}
         </tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>
@@ -5525,7 +5722,8 @@ function basicsTableCardHtml(dealEntries, opts){
 /* One plain-language panel at the top of the dashboard for a non-deal-team audience (leadership) —
    merges overdue dates + decisions-needed into an urgent tier, and upcoming/stalled into a
    lighter "coming up" tier below it, rather than the small icon chips + separate card used before. */
-function needsAttentionCardHtml(overdue, decisionEntries, upcoming, stalled){
+function needsAttentionCardHtml(overdue, decisionEntries, upcoming, stalled, opts){
+  const withNotes = !!(opts && opts.withNotes);
   const flaggedEntries = [...deals.entries()].filter(([id,d])=> d.icFlagged && (d.stage||"just_landed")!=="dead");
   const urgentCount = overdue.length + decisionEntries.length + flaggedEntries.length;
   const urgentRows = [
@@ -5546,10 +5744,13 @@ function needsAttentionCardHtml(overdue, decisionEntries, upcoming, stalled){
     }),
     ...stalled.map(s=> ({dealId:s.dealId, cls:"attn-row-neutral", name:s.name, text:`No update in ${s.days} days`})),
   ];
-  const rowHtml = r => `<button type="button" class="attn-row ${r.cls}" data-deal="${escapeAttr(r.dealId)}">
+  const rowHtml = r => {
+    const btnHtml = `<button type="button" class="attn-row ${r.cls}" data-deal="${escapeAttr(r.dealId)}">
       <span class="attn-row-name">${escapeHtml(r.name)}</span>
       <span class="attn-row-text">${escapeHtml(r.text)}</span>
     </button>`;
+    return withNotes ? agendaRowWithNotesHtml(btnHtml, r.dealId) : btnHtml;
+  };
   return `<div class="dash-card needs-attn-card" id="needsAttentionCard" style="margin-bottom:16px;">
     <h4 class="section-label">Needs your attention${urgentCount?` <span class="count-badge">${urgentCount}</span>`:""}</h4>
     ${urgentRows.length ? `<div class="attn-list">${urgentRows.map(rowHtml).join("")}</div>` : `<div class="attn-clear">✓ Nothing overdue and no decisions pending right now.</div>`}
@@ -5737,7 +5938,8 @@ function openKpiTargetsEditModal(){
    in motion running late) and the basics table (which only covers deals under contract). Titled
    "Prospects in underwriting" per Brendan — that's what these deals actually are to him, not
    generic "for review". */
-function prospectsForReviewCardHtml(dealEntries){
+function prospectsForReviewCardHtml(dealEntries, opts){
+  const withNotes = !!(opts && opts.withNotes);
   const rows = dealEntries.slice().sort((a,b)=>{
     const pr = dealPriorityCompare(a[1], b[1]);
     return pr!==0 ? pr : (b[1].createdAt||"").localeCompare(a[1].createdAt||"");
@@ -5754,11 +5956,12 @@ function prospectsForReviewCardHtml(dealEntries){
     const priority = dealPriority(d);
     const priorityCls = priority==="high" ? "attn-row-priority-high" : priority==="medium" ? "attn-row-priority-medium" : "attn-row-neutral";
     const factsLine = dealFactsLineHtml(d);
-    return `<button type="button" class="attn-row attn-row-wrap ${priorityCls}" data-deal="${escapeAttr(id)}">
+    const btnHtml = `<button type="button" class="attn-row attn-row-wrap ${priorityCls}" data-deal="${escapeAttr(id)}">
       <span class="attn-row-name">${escapeHtml(d.name||d.address||"Untitled deal")}</span>
       <span class="attn-row-text"><span class="pill ${PRIORITY_META[priority].cls}">${PRIORITY_META[priority].label}</span> ${screenScoreBadgeHtml(d)} ${icScoreBadgeHtml(d)} ${bits}</span>
       ${factsLine ? `<span class="attn-row-facts">${factsLine}</span>` : ""}
     </button>`;
+    return withNotes ? agendaRowWithNotesHtml(btnHtml, id) : btnHtml;
   };
   return `<div class="dash-card prospects-card" style="margin-bottom:16px;">
     <h4 class="section-label">Prospects in underwriting <span class="count-badge count-badge-neutral">${rows.length}</span></h4>
@@ -6508,13 +6711,14 @@ function agendaInMotionCardHtml(entries, asOfIso){
       const priority = dealPriority(d);
       const priorityRowCls = priority==="high" ? " agenda-inmotion-row-priority-high" : priority==="medium" ? " agenda-inmotion-row-priority-medium" : "";
       const factsLine = dealFactsLineHtml(d);
-      return `<button type="button" class="agenda-inmotion-row${priorityRowCls}" data-deal="${escapeAttr(id)}">
+      const btnHtml = `<button type="button" class="agenda-inmotion-row${priorityRowCls}" data-deal="${escapeAttr(id)}">
         <span class="agenda-inmotion-name">${escapeHtml(d.name||d.address||"Untitled deal")} <span class="pill ${PRIORITY_META[priority].cls}" style="margin-left:2px;">${PRIORITY_META[priority].label}</span> ${screenScoreBadgeHtml(d)}</span>
         <span class="pill pill-solid pill-${stage.color}">${escapeHtml(stage.title)}</span>
         <span class="agenda-inmotion-note">${note ? escapeHtml(note) : "—"}</span>
         <span class="agenda-inmotion-meta">${days!==null ? `${days}d since update${days>=21?" ⚠":""}` : ""}</span>
         ${factsLine ? `<span class="agenda-inmotion-facts">${factsLine}</span>` : ""}
       </button>`;
+      return agendaRowWithNotesHtml(btnHtml, id);
     }).join("")}
   </div>`;
 }
@@ -6621,13 +6825,13 @@ function renderAgendaView(){
       title: "Urgent this week",
       sub: `Overdue dates, decisions needed, IC flags, and anything due in the 7 days after ${fmtDate(meetingDate)}.`,
       count: null,
-      body: needsAttentionCardHtml(overdue, decisionEntries, upcoming7, stalled),
+      body: needsAttentionCardHtml(overdue, decisionEntries, upcoming7, stalled, {withNotes:true}),
     },
     prospects: {
       title: "Prospects under review",
       sub: "Underwriting-stage deals actively being evaluated.",
       count: prospectingEntries.length,
-      body: prospectsForReviewCardHtml(prospectingEntries),
+      body: prospectsForReviewCardHtml(prospectingEntries, {withNotes:true}),
     },
     inmotion: {
       title: "Deals in motion",
@@ -6639,7 +6843,7 @@ function renderAgendaView(){
       title: "Under contract — status check",
       sub: "Under contract — dates, DD progress, and financing gaps.",
       count: inContractEntries.length,
-      body: basicsTableCardHtml(inContractEntries, {inlineFinancingGaps:true}),
+      body: basicsTableCardHtml(inContractEntries, {inlineFinancingGaps:true, withNotes:true}),
     },
     capital: {
       title: "Capital needed",
@@ -6683,9 +6887,14 @@ function renderAgendaView(){
   wrap.innerHTML = `
     <div class="agenda-intro">
       <div><span class="agenda-step-title">Weekly Investment Committee Meeting</span></div>
-      <div style="display:flex;align-items:center;gap:12px;">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <div class="agenda-intro-date">${urgentTotal ? `${urgentTotal} item${urgentTotal===1?"":"s"} need${urgentTotal===1?"s":""} a look` : "nothing urgent"}</div>
-        <button type="button" class="btn-icon" id="agendaPrintTriggerBtn">🖨 Print / PDF</button>
+        <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="btn-icon" id="agendaShareTriggerBtn">📤 Share agenda</button>
+          <button type="button" class="btn-icon" id="agendaPrintTriggerBtn">🖨 Print / PDF</button>
+          <button type="button" class="btn-icon" id="agendaCloseoutTriggerBtn">✅ Close out meeting</button>
+          <button type="button" class="btn-icon" id="agendaPastMeetingsTriggerBtn">📚 Past meetings</button>
+        </div>
       </div>
     </div>
     <div class="agenda-meeting-date">
@@ -6703,6 +6912,12 @@ function renderAgendaView(){
   if(meetingTodayBtn) meetingTodayBtn.addEventListener("click", ()=> setAgendaMeetingDate(null));
   const printTriggerBtn = document.getElementById("agendaPrintTriggerBtn");
   if(printTriggerBtn) printTriggerBtn.addEventListener("click", openAgendaPrintModal);
+  const shareTriggerBtn = document.getElementById("agendaShareTriggerBtn");
+  if(shareTriggerBtn) shareTriggerBtn.addEventListener("click", openAgendaShareModal);
+  const closeoutTriggerBtn = document.getElementById("agendaCloseoutTriggerBtn");
+  if(closeoutTriggerBtn) closeoutTriggerBtn.addEventListener("click", openMeetingCloseoutModal);
+  const pastMeetingsTriggerBtn = document.getElementById("agendaPastMeetingsTriggerBtn");
+  if(pastMeetingsTriggerBtn) pastMeetingsTriggerBtn.addEventListener("click", openPastMeetingsModal);
 
   wrap.querySelectorAll(".agenda-reorder-btn").forEach(btn=>{
     btn.addEventListener("click", ()=> moveAgendaSection(btn.getAttribute("data-key"), btn.getAttribute("data-move")==="up"?-1:1));
@@ -6712,10 +6927,12 @@ function renderAgendaView(){
   if(commentAddBtn) commentAddBtn.addEventListener("click", ()=>{
     const textEl = document.getElementById("agendaCommentInput");
     const ownerEl = document.getElementById("agendaCommentOwnerInput");
+    const titleEl = document.getElementById("agendaCommentTitleInput");
+    const typeEl = document.getElementById("agendaCommentTypeInput");
     const text = (textEl.value||"").trim();
     if(!text) return;
-    createAgendaItem({text, owner:(ownerEl.value||"").trim()});
-    textEl.value = ""; ownerEl.value = "";
+    createAgendaItem({text, owner:(ownerEl.value||"").trim(), title:(titleEl.value||"").trim(), type:typeEl.value||"discussion"});
+    textEl.value = ""; ownerEl.value = ""; titleEl.value = ""; typeEl.value = "discussion";
   });
   wrap.querySelectorAll(".agenda-comment-toggle").forEach(btn=>{
     btn.addEventListener("click", ()=>{
@@ -6724,8 +6941,29 @@ function renderAgendaView(){
       updateAgendaItem(id, {status: (item && item.status==="Discussed") ? "Open" : "Discussed"});
     });
   });
+  wrap.querySelectorAll(".agenda-comment-carry-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const id = btn.getAttribute("data-id");
+      const item = agendaItems.get(id);
+      const isCarried = item && item.status==="Carried";
+      updateAgendaItem(id, isCarried
+        ? {status:"Open", carriedAt:null}
+        : {status:"Carried", carriedAt: agendaMeetingDate || new Date().toISOString().slice(0,10)});
+    });
+  });
   wrap.querySelectorAll(".agenda-comment-remove").forEach(btn=>{
     btn.addEventListener("click", ()=> deleteAgendaItem(btn.getAttribute("data-id")));
+  });
+  wrap.querySelectorAll(".agenda-comment-task-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=> convertAgendaItemToTask(btn.getAttribute("data-id")));
+  });
+  wrap.querySelectorAll(".agenda-row-notes-btn").forEach(btn=>{
+    btn.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      const dealId = btn.getAttribute("data-deal-notes");
+      const deal = deals.get(dealId);
+      openDealAgendaNotesModal(dealId, deal ? (deal.name||deal.address||"Untitled deal") : "Deal");
+    });
   });
   wrap.querySelectorAll(".agenda-comment-move-btn").forEach(btn=>{
     btn.addEventListener("click", ()=> moveAgendaItem(btn.getAttribute("data-id"), btn.getAttribute("data-move")==="up"?-1:1));
@@ -6825,8 +7063,10 @@ function agendaCommentsCardHtml(){
           <button type="button" class="agenda-comment-note-remove no-print" data-id="${escapeAttr(id)}" data-idx="${ni}" title="Remove note">✕</button>
         </div>`).join("")}
       </div>` : "";
+      const typeMeta = agendaItemTypeMeta(item.type);
+      const isCarried = item.status==="Carried";
       return `
-      <div class="agenda-comment-row${item.status==="Discussed"?" is-discussed":""}" draggable="true" data-id="${escapeAttr(id)}">
+      <div class="agenda-comment-row${item.status==="Discussed"?" is-discussed":""}${isCarried?" is-carried":""}" draggable="true" data-id="${escapeAttr(id)}">
         <span class="agenda-comment-drag-handle no-print" title="Drag to reorder">⠿</span>
         <span class="agenda-reorder no-print">
           <button type="button" class="agenda-reorder-btn agenda-comment-move-btn" data-move="up" data-id="${escapeAttr(id)}"${idx===0?" disabled":""} title="Move up in priority">▲</button>
@@ -6834,7 +7074,12 @@ function agendaCommentsCardHtml(){
         </span>
         <button type="button" class="agenda-comment-toggle no-print" data-id="${escapeAttr(id)}" title="${item.status==="Discussed"?"Mark open":"Mark discussed"}">${item.status==="Discussed"?"✓":"○"}</button>
         <div class="agenda-comment-body">
-          <div class="agenda-comment-text">${escapeHtml(item.text||"")}</div>
+          <div class="agenda-comment-title-row">
+            <span class="pill ${typeMeta.pill}">${escapeHtml(typeMeta.label)}</span>
+            ${isCarried ? `<span class="agenda-comment-carried-badge" title="Not resolved at the ${item.carriedAt?fmtDate(item.carriedAt):"previous"} meeting">↻ Carried${item.carriedAt?` from ${fmtDate(item.carriedAt)}`:""}</span>` : ""}
+          </div>
+          ${item.title ? `<div class="agenda-comment-title">${escapeHtml(item.title)}</div>` : ""}
+          <div class="agenda-comment-text">${agendaCommentBodyHtml(item.text)}</div>
           ${item.owner ? `<div class="agenda-comment-owner">— ${escapeHtml(item.owner)}</div>` : ""}
           ${notesHtml}
           <div class="agenda-comment-note-add no-print">
@@ -6842,7 +7087,9 @@ function agendaCommentsCardHtml(){
             <button type="button" class="agenda-comment-note-add-btn" data-id="${escapeAttr(id)}">Reply</button>
           </div>
         </div>
-        <span class="pill ${item.status==="Discussed"?"pill-good":"pill-neutral"}">${escapeHtml(item.status||"Open")}</span>
+        <span class="pill ${item.status==="Discussed"?"pill-good":isCarried?"pill-warn":"pill-neutral"}">${escapeHtml(item.status||"Open")}</span>
+        <button type="button" class="agenda-comment-task-btn no-print" data-id="${escapeAttr(id)}"${item.taskCreated?" disabled":""} title="${item.taskCreated?"Already added to Tasks":"Create a linked Task on the Tasks board"}">${item.taskCreated?"✓ Task":"→ Task"}</button>
+        <button type="button" class="agenda-comment-carry-btn no-print" data-id="${escapeAttr(id)}" title="${isCarried?"Un-carry":"Carry to next meeting"}">↻</button>
         <button type="button" class="agenda-comment-remove no-print" data-id="${escapeAttr(id)}" title="Remove">✕</button>
       </div>`;
     }).join("")
@@ -6850,8 +7097,12 @@ function agendaCommentsCardHtml(){
   return `<div class="dash-card">
     <div class="agenda-comment-list">${rowsHtml}</div>
     <div class="agenda-comment-add no-print">
-      <textarea id="agendaCommentInput" placeholder="Add something for discussion that isn't covered above…" rows="2"></textarea>
+      <input type="text" id="agendaCommentTitleInput" placeholder="Short title (optional, shown bold)">
+      <textarea id="agendaCommentInput" placeholder="Add something for discussion that isn't covered above… (start a line with - for a bullet)" rows="2"></textarea>
       <div class="agenda-comment-add-row">
+        <select id="agendaCommentTypeInput" title="Type">
+          ${AGENDA_ITEM_TYPES.map(t=>`<option value="${t.key}"${t.key==="discussion"?" selected":""}>${escapeHtml(t.label)}</option>`).join("")}
+        </select>
         <input type="text" id="agendaCommentOwnerInput" placeholder="Owner (optional)">
         <button type="button" class="btn-icon" id="agendaCommentAddBtn">+ Add item</button>
       </div>
@@ -6859,6 +7110,317 @@ function agendaCommentsCardHtml(){
   </div>`;
 }
 
+/* Plain-text export of the Weekly Agenda — the shared building block for "Share agenda" (before
+   the meeting, includeNotes=false since nothing's been discussed yet) and the meeting-minutes
+   record ("Close out this meeting", includeNotes=true, everything captured live is included). Kept
+   deliberately independent of renderAgendaView's own HTML-builders above (a little bit of filter
+   logic is duplicated) rather than refactored to share code with them, so this stays a small, easy-
+   to-read function and never risks the interactive HTML build breaking to accommodate a plain-text
+   need. Recipients don't have Deal Desk open, so this can't lean on any of the app's own HTML/CSS —
+   it has to be a clean, readable stand-alone document, which is exactly what mailto: bodies and
+   pasted emails need anyway. */
+function buildAgendaShareText(meetingDate, opts){
+  opts = opts || {};
+  const includeNotes = !!opts.includeNotes;
+  const activeEntries = [...deals.entries()].filter(([id,d])=> (d.stage||"just_landed")!=="dead");
+  const decisionEntries = activeEntries.filter(([id,d])=>(d.decisionRequired||"").trim());
+  const {overdue, upcoming, stalled} = getUrgentAlerts(deals, meetingDate);
+  const upcoming7 = upcoming.filter(e=>e.days<=7);
+  const prospectingEntries = activeEntries.filter(([id,d])=> (d.stage||"just_landed")==="underwriting");
+  const inMotionEntries = activeEntries.filter(([id,d])=> ["loi","psa"].includes(d.stage||"just_landed"));
+  const inContractEntries = activeEntries.filter(([id,d])=> CONTRACT_STAGES.has(d.stage||"just_landed"));
+  const weekAgo = addDaysIso(meetingDate, -7);
+  const closedThisWeek = [...deals.entries()].filter(([id,d])=>{ const days = d.actualCloseDate ? daysUntil(d.actualCloseDate, meetingDate) : null; return days!==null && days>=-7 && days<=0; });
+  const newProspectsThisWeek = [...deals.entries()].filter(([id,d])=>{
+    if(!d.createdAt) return false;
+    const days = daysUntil(d.createdAt.slice(0,10), meetingDate);
+    return days!==null && days>=-7 && days<=0;
+  });
+  const capNeedBuckets = bucketCapitalNeed(getCapitalNeedItems(deals), meetingDate);
+
+  const stageTitleOf = key => (DEAL_STAGES.find(s=>s.key===key)||{}).title || key;
+  const lines = [];
+  lines.push("WEEKLY INVESTMENT COMMITTEE MEETING");
+  lines.push(fmtDateFull(meetingDate));
+  if(agendaAttendees) lines.push(`Attendees: ${agendaAttendees}`);
+  lines.push("");
+
+  let num = 1;
+  getAgendaSectionOrder().forEach(key=>{
+    if(key==="urgent"){
+      const total = overdue.length + decisionEntries.length + upcoming7.length + stalled.length;
+      lines.push(`${num++}. URGENT THIS WEEK${total?` (${total})`:""}`);
+      overdue.forEach(e=>{ const meta = EVENT_TYPE_META[e.type]||{label:e.type}; lines.push(`   - OVERDUE — ${e.name}: ${meta.label}, ${Math.abs(e.days)}d overdue${e.amount?` (${fmtMoneyShort(e.amount)})`:""}`); });
+      decisionEntries.forEach(([id,d])=> lines.push(`   - DECISION NEEDED — ${d.name||d.address||"Untitled deal"}: ${d.decisionRequired}`));
+      upcoming7.forEach(e=>{ const meta = EVENT_TYPE_META[e.type]||{label:e.type}; lines.push(`   - Due soon — ${e.name}: ${meta.label}, in ${e.days}d${e.amount?` (${fmtMoneyShort(e.amount)})`:""}`); });
+      stalled.forEach(s=> lines.push(`   - Stalled — ${s.name}: no update in ${s.days}d`));
+      if(!total) lines.push("   Nothing urgent.");
+      lines.push("");
+    } else if(key==="prospects"){
+      lines.push(`${num++}. PROSPECTS UNDER REVIEW (${prospectingEntries.length})`);
+      prospectingEntries.forEach(([id,d])=> lines.push(`   - ${d.name||d.address||"Untitled deal"}${d.market?` — ${d.market}`:""}`));
+      if(!prospectingEntries.length) lines.push("   None.");
+      lines.push("");
+    } else if(key==="inmotion"){
+      lines.push(`${num++}. DEALS IN MOTION (${inMotionEntries.length})`);
+      inMotionEntries.forEach(([id,d])=> lines.push(`   - ${d.name||d.address||"Untitled deal"} — ${stageTitleOf(d.stage||"just_landed")}`));
+      if(!inMotionEntries.length) lines.push("   None.");
+      lines.push("");
+    } else if(key==="undercontract"){
+      lines.push(`${num++}. UNDER CONTRACT — STATUS CHECK (${inContractEntries.length})`);
+      inContractEntries.forEach(([id,d])=> lines.push(`   - ${d.name||d.address||"Untitled deal"}${d.closingDate?` — closing ${fmtDate(d.closingDate)}`:""}`));
+      if(!inContractEntries.length) lines.push("   None.");
+      lines.push("");
+    } else if(key==="capital"){
+      lines.push(`${num++}. CAPITAL NEEDED`);
+      if(capNeedBuckets.overdue.length) lines.push(`   - Overdue: ${fmtMoneyShort(capNeedSum(capNeedBuckets.overdue))} (${capNeedBuckets.overdue.length})`);
+      CAPNEED_WINDOWS.forEach(w=>{
+        const list = capNeedBuckets[w.key];
+        lines.push(`   - ${w.label}: ${fmtMoneyShort(capNeedSum(list))} (${list.length})`);
+      });
+      lines.push("");
+    } else if(key==="recap"){
+      lines.push(`${num++}. SINCE WE LAST MET (${fmtDate(weekAgo)} – ${fmtDate(meetingDate)})`);
+      closedThisWeek.forEach(([id,d])=> lines.push(`   - Closed: ${d.name||d.address||"Untitled deal"}`));
+      newProspectsThisWeek.forEach(([id,d])=> lines.push(`   - New prospect: ${d.name||d.address||"Untitled deal"}`));
+      if(!closedThisWeek.length && !newProspectsThisWeek.length) lines.push("   Nothing new.");
+      lines.push("");
+    } else if(key==="comments"){
+      const items = sortedAgendaItemEntries();
+      lines.push(`${num++}. SPECIAL COMMENTS (${items.length})`);
+      items.forEach(([id,item])=>{
+        const typeMeta = agendaItemTypeMeta(item.type);
+        const carried = item.status==="Carried" ? ` [CARRIED${item.carriedAt?` FROM ${fmtDate(item.carriedAt)}`:""}]` : "";
+        const heading = item.title || String(item.text||"").split(/\r?\n/)[0] || "(untitled)";
+        lines.push(`   - [${typeMeta.label.toUpperCase()}]${carried} ${heading}`);
+        if(item.title && item.text) String(item.text).split(/\r?\n/).forEach(l=> lines.push(`     ${l}`));
+        if(item.owner) lines.push(`     Owner: ${item.owner}`);
+        if(item.status==="Discussed") lines.push(`     Status: Discussed`);
+        if(includeNotes && Array.isArray(item.notes)){
+          item.notes.forEach(n=> lines.push(`     > ${n.text}${n.by?` — ${n.by}`:""}${n.at?` (${fmtDate((n.at||"").slice(0,10))})`:""}`));
+        }
+      });
+      if(!items.length) lines.push("   None.");
+      lines.push("");
+    }
+  });
+  return lines.join("\n").trim();
+}
+/* Clipboard helper shared by the Share/Close-out modals — navigator.clipboard is preferred, with
+   the older select+execCommand path as a fallback for contexts where it's unavailable. */
+function copyTextToClipboard(text){
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).catch(()=> legacyCopyFallback(text));
+  } else legacyCopyFallback(text);
+}
+function legacyCopyFallback(text){
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try{ document.execCommand("copy"); }catch(e){}
+  ta.remove();
+}
+/* "Share agenda" — Brendan: "share the meeting agenda easily prior to the meeting in an easy to
+   read way." Same plain-text builder as the minutes record, just without notes (nothing's been
+   discussed yet) — copy to clipboard, or a mailto: draft prefilled with the attendee list. No real
+   send: Brendan isn't connected to a Microsoft/email account in this app. */
+function openAgendaShareModal(){
+  const meetingDate = agendaMeetingDate || new Date().toISOString().slice(0,10);
+  const text = buildAgendaShareText(meetingDate, {includeNotes:false});
+  const root = document.getElementById("modalRoot");
+  root.innerHTML = `<div class="overlay" id="agendaShareOverlay">
+    <div class="modal" style="width:min(640px,94vw);">
+      <div class="modal-head"><h2>📤 Share agenda</h2></div>
+      <div class="modal-body">
+        <div class="field"><label for="agendaShareAttendees">Attendees (names/emails, comma-separated)</label><input type="text" id="agendaShareAttendees" value="${escapeAttr(agendaAttendees||"")}" placeholder="Harvey Hernandez &lt;harvey@newgardgroup.com&gt;, ..."></div>
+        <div class="field"><label for="agendaShareText">Preview — copy this, or open it in your mail client</label><textarea id="agendaShareText" rows="16" readonly style="font-family:var(--font-mono);font-size:11.5px;white-space:pre;">${escapeHtml(text)}</textarea></div>
+        <div class="empty-hint" style="text-align:left;">Very long agendas can get cut off by some mail clients' mailto: length limits — if that happens, use Copy and paste into a new email instead.</div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-primary" id="agendaShareCopyBtn">📋 Copy to clipboard</button>
+        <button type="button" class="btn" id="agendaShareEmailBtn">✉️ Open in email</button>
+        <button type="button" class="btn btn-ghost" id="agendaShareCloseBtn" style="margin-left:auto;">Close</button>
+      </div>
+    </div>
+  </div>`;
+  const close = ()=>{ root.innerHTML=""; };
+  document.getElementById("agendaShareOverlay").addEventListener("click", e=>{ if(e.target.id==="agendaShareOverlay") close(); });
+  document.getElementById("agendaShareCloseBtn").addEventListener("click", close);
+  document.getElementById("agendaShareAttendees").addEventListener("change", e=>{ agendaAttendees = e.target.value.trim(); saveAgendaAttendees(); });
+  document.getElementById("agendaShareCopyBtn").addEventListener("click", (e)=>{
+    copyTextToClipboard(document.getElementById("agendaShareText").value);
+    const btn = e.currentTarget; const orig = btn.textContent; btn.textContent = "✓ Copied"; setTimeout(()=>{ btn.textContent = orig; }, 1500);
+  });
+  document.getElementById("agendaShareEmailBtn").addEventListener("click", ()=>{
+    const attendees = document.getElementById("agendaShareAttendees").value.trim();
+    const subject = encodeURIComponent(`Weekly IC Meeting Agenda — ${fmtDateFull(meetingDate)}`);
+    const body = encodeURIComponent(document.getElementById("agendaShareText").value);
+    window.location.href = `mailto:${encodeURIComponent(attendees)}?subject=${subject}&body=${body}`;
+  });
+}
+/* "Close out this meeting" — Brendan: wants unresolved items to carry forward instead of
+   disappearing, and a real record of past meetings instead of printed PDFs being the only history.
+   Snapshots the current Special comments (with their notes/responses — the discussion record) and a
+   full text summary into meetingMinutes, an immutable per-date collection. Items already marked
+   Discussed are then archived out of the live list (their content lives on in the snapshot forever)
+   so next week's list only shows what's still open or carried — Open and Carried items are left
+   untouched for next time. */
+function openMeetingCloseoutModal(){
+  const meetingDate = agendaMeetingDate || new Date().toISOString().slice(0,10);
+  const items = sortedAgendaItemEntries();
+  const discussedCount = items.filter(([id,item])=> item.status==="Discussed").length;
+  const root = document.getElementById("modalRoot");
+  root.innerHTML = `<div class="overlay" id="agendaCloseoutOverlay">
+    <div class="modal" style="width:min(560px,94vw);">
+      <div class="modal-head"><h2>✅ Close out this meeting</h2></div>
+      <div class="modal-body">
+        <div class="field"><label for="agendaCloseoutAttendees">Attendees (names/emails, comma-separated)</label><input type="text" id="agendaCloseoutAttendees" value="${escapeAttr(agendaAttendees||"")}" placeholder="Harvey Hernandez &lt;harvey@newgardgroup.com&gt;, ..."></div>
+        <div class="empty-hint" style="text-align:left;">
+          Saves today's sections, decisions, and Special comments (with notes) as a permanent record for ${fmtDateFull(meetingDate)} under Past meetings.
+          ${discussedCount ? `${discussedCount} item${discussedCount===1?"":"s"} marked Discussed will be archived into that record and cleared from the live list.` : "Nothing is currently marked Discussed, so the live Special comments list won't change."}
+          Open and Carried items stay on the live list either way.
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-primary" id="agendaCloseoutConfirmBtn">Close out meeting</button>
+        <button type="button" class="btn btn-ghost" id="agendaCloseoutCancelBtn" style="margin-left:auto;">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+  const close = ()=>{ root.innerHTML=""; };
+  document.getElementById("agendaCloseoutOverlay").addEventListener("click", e=>{ if(e.target.id==="agendaCloseoutOverlay") close(); });
+  document.getElementById("agendaCloseoutCancelBtn").addEventListener("click", close);
+  document.getElementById("agendaCloseoutConfirmBtn").addEventListener("click", async ()=>{
+    const attendees = document.getElementById("agendaCloseoutAttendees").value.trim();
+    agendaAttendees = attendees; saveAgendaAttendees();
+    await performMeetingCloseout(meetingDate, attendees);
+    close();
+  });
+}
+async function performMeetingCloseout(meetingDate, attendees){
+  const summaryText = buildAgendaShareText(meetingDate, {includeNotes:true});
+  const items = sortedAgendaItemEntries();
+  const commentsSnapshot = items.map(([id,item])=> ({
+    title: item.title||"", text: item.text||"", type: item.type||"discussion",
+    status: item.status||"Open", owner: item.owner||"", notes: Array.isArray(item.notes) ? item.notes : [],
+  }));
+  await createMeetingMinutes({date: meetingDate, attendees, summaryText, comments: commentsSnapshot});
+  const discussedIds = items.filter(([id,item])=> item.status==="Discussed").map(([id])=>id);
+  for(const id of discussedIds){ await deleteAgendaItem(id); }
+  if(view==="agenda") renderAgendaView();
+  openMeetingMinutesFollowupModal(meetingDate, attendees, summaryText);
+}
+/* Post-close-out follow-up — tier 1 of the two-tier plan from the research report: works today with
+   no integration (copy + mailto:), real one-click send is tier 2, deferred until an email account
+   is connected as a tool here. */
+function openMeetingMinutesFollowupModal(meetingDate, attendees, summaryText){
+  const root = document.getElementById("modalRoot");
+  root.innerHTML = `<div class="overlay" id="agendaMinutesFollowupOverlay">
+    <div class="modal" style="width:min(640px,94vw);">
+      <div class="modal-head"><h2>✓ Meeting closed out — send minutes?</h2></div>
+      <div class="modal-body">
+        <div class="field"><label for="agendaMinutesText">Minutes — copy this, or open it in your mail client</label><textarea id="agendaMinutesText" rows="16" readonly style="font-family:var(--font-mono);font-size:11.5px;white-space:pre;">${escapeHtml(summaryText)}</textarea></div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-primary" id="agendaMinutesCopyBtn">📋 Copy minutes</button>
+        <button type="button" class="btn" id="agendaMinutesEmailBtn">✉️ Open in email</button>
+        <button type="button" class="btn btn-ghost" id="agendaMinutesCloseBtn" style="margin-left:auto;">Done</button>
+      </div>
+    </div>
+  </div>`;
+  const close = ()=>{ root.innerHTML=""; };
+  document.getElementById("agendaMinutesFollowupOverlay").addEventListener("click", e=>{ if(e.target.id==="agendaMinutesFollowupOverlay") close(); });
+  document.getElementById("agendaMinutesCloseBtn").addEventListener("click", close);
+  document.getElementById("agendaMinutesCopyBtn").addEventListener("click", (e)=>{
+    copyTextToClipboard(summaryText);
+    const btn = e.currentTarget; const orig = btn.textContent; btn.textContent = "✓ Copied"; setTimeout(()=>{ btn.textContent = orig; }, 1500);
+  });
+  document.getElementById("agendaMinutesEmailBtn").addEventListener("click", ()=>{
+    const subject = encodeURIComponent(`Weekly IC Meeting Minutes — ${fmtDateFull(meetingDate)}`);
+    const body = encodeURIComponent(summaryText);
+    window.location.href = `mailto:${encodeURIComponent(attendees||"")}?subject=${subject}&body=${body}`;
+  });
+}
+/* "Past meetings" — Brendan: "a record of meeting minutes would be helpful." A simple searchable
+   list of every closed-out meeting, each expandable to the same familiar comment-row look (read-
+   only) plus the full text summary and a copy button, so digging up "what did we decide about X
+   three meetings ago" happens inside Deal Desk instead of hunting through old printed PDFs. */
+function pastMeetingsSortedEntries(){
+  return [...meetingMinutes.entries()].sort((a,b)=> (b[1].date||"").localeCompare(a[1].date||"") || (b[1].closedAt||"").localeCompare(a[1].closedAt||""));
+}
+function openPastMeetingsModal(){
+  const root = document.getElementById("modalRoot");
+  const renderList = (filterText)=>{
+    const q = (filterText||"").trim().toLowerCase();
+    const entries = pastMeetingsSortedEntries().filter(([id,m])=> !q || (m.summaryText||"").toLowerCase().includes(q) || (m.date||"").includes(q));
+    if(!entries.length) return `<div class="empty-hint">${q ? "No past meetings match that search." : "No meetings closed out yet — use “✅ Close out meeting” after your next Weekly Agenda to start building this archive."}</div>`;
+    return entries.map(([id,m])=>{
+      const comments = Array.isArray(m.comments) ? m.comments : [];
+      return `<div class="dash-card" style="margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:10px;cursor:pointer;" class="past-meeting-head" data-id="${escapeAttr(id)}">
+          <span class="agenda-step-title" style="font-size:14px;">${fmtDateFull(m.date||"")}</span>
+          <span class="count-badge">${comments.length} comment${comments.length===1?"":"s"}</span>
+          ${m.attendees ? `<span class="agenda-comment-owner" style="margin:0;">${escapeHtml(m.attendees)}</span>` : ""}
+          <span style="margin-left:auto;" class="agenda-comment-note-meta">▸ expand</span>
+        </div>
+        <div class="past-meeting-body" data-id="${escapeAttr(id)}" style="display:none;margin-top:10px;">
+          <div class="agenda-comment-list">
+            ${comments.length ? comments.map(c=>{
+              const typeMeta = agendaItemTypeMeta(c.type);
+              return `<div class="agenda-comment-row${c.status==="Discussed"?" is-discussed":""}">
+                <div class="agenda-comment-body">
+                  <div class="agenda-comment-title-row"><span class="pill ${typeMeta.pill}">${escapeHtml(typeMeta.label)}</span></div>
+                  ${c.title ? `<div class="agenda-comment-title">${escapeHtml(c.title)}</div>` : ""}
+                  <div class="agenda-comment-text">${agendaCommentBodyHtml(c.text)}</div>
+                  ${c.owner ? `<div class="agenda-comment-owner">— ${escapeHtml(c.owner)}</div>` : ""}
+                  ${(c.notes||[]).length ? `<div class="agenda-comment-notes">${c.notes.map(n=>`<div class="agenda-comment-note"><span class="agenda-comment-note-text">${escapeHtml(n.text||"")}</span><span class="agenda-comment-note-meta">${n.by?escapeHtml(n.by)+" · ":""}${fmtDate((n.at||"").slice(0,10))}</span></div>`).join("")}</div>` : ""}
+                </div>
+                <span class="pill ${c.status==="Discussed"?"pill-good":"pill-neutral"}">${escapeHtml(c.status||"Open")}</span>
+              </div>`;
+            }).join("") : `<div class="empty-hint">No Special comments recorded at this meeting.</div>`}
+          </div>
+          <button type="button" class="btn-icon past-meeting-copy" data-id="${escapeAttr(id)}" style="margin-top:8px;">📋 Copy full minutes</button>
+        </div>
+      </div>`;
+    }).join("");
+  };
+  root.innerHTML = `<div class="overlay" id="pastMeetingsOverlay">
+    <div class="modal" style="width:min(680px,94vw);">
+      <div class="modal-head"><h2>📚 Past meetings</h2></div>
+      <div class="modal-body">
+        <div class="field"><input type="text" id="pastMeetingsSearch" placeholder="Search past meetings…"></div>
+        <div id="pastMeetingsList">${renderList("")}</div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-ghost" id="pastMeetingsCloseBtn" style="margin-left:auto;">Close</button>
+      </div>
+    </div>
+  </div>`;
+  const close = ()=>{ root.innerHTML=""; };
+  const wireList = ()=>{
+    const listEl = document.getElementById("pastMeetingsList");
+    listEl.querySelectorAll(".past-meeting-head").forEach(el=>{
+      el.addEventListener("click", ()=>{
+        const target = [...listEl.querySelectorAll(".past-meeting-body")].find(b=>b.getAttribute("data-id")===el.getAttribute("data-id"));
+        if(target) target.style.display = target.style.display==="none" ? "block" : "none";
+      });
+    });
+    listEl.querySelectorAll(".past-meeting-copy").forEach(btn=>{
+      btn.addEventListener("click", (e)=>{
+        const m = meetingMinutes.get(btn.getAttribute("data-id"));
+        if(m) copyTextToClipboard(m.summaryText||"");
+        const orig = e.currentTarget.textContent; e.currentTarget.textContent = "✓ Copied"; setTimeout(()=>{ e.currentTarget.textContent = orig; }, 1500);
+      });
+    });
+  };
+  wireList();
+  document.getElementById("pastMeetingsOverlay").addEventListener("click", e=>{ if(e.target.id==="pastMeetingsOverlay") close(); });
+  document.getElementById("pastMeetingsCloseBtn").addEventListener("click", close);
+  document.getElementById("pastMeetingsSearch").addEventListener("input", e=>{
+    document.getElementById("pastMeetingsList").innerHTML = renderList(e.target.value);
+    wireList();
+  });
+}
 function last6MonthKeys(){
   const out=[];
   const now = new Date();
