@@ -1745,9 +1745,6 @@
       <button class="tab-btn" id="tabBrokersBtn" role="tab" aria-selected="false" onclick="setView('brokers')">
         Brokers <span class="count" id="brokersCount">0</span>
       </button>
-      <button class="tab-btn" id="tabCriteriaBtn" role="tab" aria-selected="false" onclick="setView('criteria')">
-        Criteria
-      </button>
     </div>
     <input class="search-input" id="searchInput" type="text" placeholder="Filter tasks…" oninput="renderBoard()">
     <select class="mini-select" id="autoClearSelect" title="Auto-clear completed tasks after">
@@ -1778,7 +1775,6 @@
     <div class="suggested-tasks-wrap" id="suggestedTasksWrap" style="display:none"></div>
     <div class="dashboard-wrap" id="dashboardWrap"></div>
     <div class="dashboard-wrap" id="agendaWrap" style="display:none"></div>
-    <div class="criteria-wrap" id="criteriaWrap" style="display:none"></div>
     <div class="ddtasks-wrap" id="ddTasksWrap" style="display:none"></div>
     <div class="brokers-wrap" id="brokersWrap" style="display:none"></div>
     <div class="capital-wrap" id="capitalWrap" style="display:none">
@@ -2144,10 +2140,9 @@ function gradeForScreenScore(score){
 function isWeightedCriteriaList(list){
   return Array.isArray(list) && list.length>0 && list.every(c=> typeof c.weight==="number" && c.weight>0);
 }
-/* Prorates over whatever's actually been rated so far (same spirit as the existing 0–10 icScore
-   average, which also updates as ratings come in rather than waiting for every row) — a deal rated
-   on just the highest-weight categories already gets a meaningful in-progress screenScore, not null
-   until every last row is filled in. */
+/* Prorates over whatever's actually been rated so far — a deal rated on just the highest-weight
+   categories already gets a meaningful in-progress screenScore, not null until every last row is
+   filled in. */
 function computeWeightedScreenScore(list, cache){
   let weightedSum=0, ratedWeight=0;
   list.forEach(item=>{
@@ -2179,17 +2174,6 @@ function criteriaSourceFor(d){
   if(d.propertyType==="Auto Condo") return {type:"autoCondo"};
   return {type:"custom"};
 }
-function jumpToCriteriaLine(line){
-  criteriaViewSelectedLine = line;
-  rebuildCriteriaView();
-  if(dealUnsub){ dealUnsub(); dealUnsub=null; }
-  if(dealCriteriaUnsub){ dealCriteriaUnsub(); dealCriteriaUnsub=null; }
-  if(dealWorkChecklistUnsub){ dealWorkChecklistUnsub(); dealWorkChecklistUnsub=null; }
-  openDealId = null;
-  const slideRoot = document.getElementById("slideoverRoot");
-  if(slideRoot) slideRoot.innerHTML = "";
-  setView("criteria");
-}
 function saveCriteriaSets(){
   if(db) db.doc("settings/criteriaSets").set({sets: criteriaSets});
 }
@@ -2215,10 +2199,6 @@ function saveDashboardGoal(){
 }
 function saveAgendaAttendees(){
   if(db) db.doc("settings/agendaAttendees").set({value: agendaAttendees});
-}
-function rebuildCriteriaView(){
-  criteriaViewBuilt = false;
-  if(view==="criteria") renderCriteriaView();
 }
 function saveMasterIcCriteria(){
   if(db) db.doc("settings/icCriteria").set({criteria: masterIcCriteria});
@@ -2754,23 +2734,8 @@ function priorityBadgeHtml(d){
   const meta = PRIORITY_META[p];
   return `<span class="pill pill-solid ${meta.cls}" title="Priority: ${meta.label}">${p==="high"?"HIGH":"MED"}</span>`;
 }
-/* Overall screening-criteria quality score (0–10, tenths) — the average of every numeric
-   criterion rating entered for a deal (see setCriteriaItem's "rating" field, recomputed in
-   recomputeIcCriteria and denormalized onto the deal as icScore/icScoreCount so lists that
-   don't have the criteria subcollection loaded — e.g. the prospecting list — can still show it). */
-function icScoreBadgeHtml(d){
-  if(d.icScore==null || !d.icScoreCount) return "";
-  const cls = d.icScore>=7.5 ? "pill-good" : d.icScore>=5 ? "pill-warn" : "pill-bad";
-  return `<span class="pill ${cls}" title="Average of ${d.icScoreCount} rated screening criteria">★ ${d.icScore.toFixed(1)}/10</span>`;
-}
-function icScorePillHtml(d){
-  if(d.icScore==null || !d.icScoreCount) return "";
-  const cls = d.icScore>=7.5 ? "pill-good" : d.icScore>=5 ? "pill-warn" : "pill-bad";
-  return `<span class="pill pill-solid ${cls}" title="Average of ${d.icScoreCount} rated screening criteria">★ ${d.icScore.toFixed(1)}/10</span>`;
-}
-/* The CONCOURS 0–100 screenScore + letter grade (see gradeForScreenScore), as a small badge —
-   distinct from icScoreBadgeHtml/icScorePillHtml above, which are the older 0–10 average and stay
-   as-is. Works off d.screenScore directly, so it renders the same whether that number came from a
+/* The CONCOURS 0–100 screenScore + letter grade (see gradeForScreenScore), as a small badge.
+   Works off d.screenScore directly, so it renders the same whether that number came from a
    weighted rubric's auto-rollup or was typed straight into the deal's Screening result section.
    Reused everywhere a deal shows up as a row/card — the pipeline (both densities), the Dashboard's
    "Prospects in underwriting" card, and the Weekly Agenda's Prospects/Deals-in-motion dockets —
@@ -2948,7 +2913,6 @@ function openCategoryManagerModal(kind){
     if(isProduct) productLineOptions = next; else propertyTypeOptions = next;
     saveCategorySettings();
     refreshLiveCategorySelects(kind);
-    if(isProduct) rebuildCriteriaView();
     openCategoryManagerModal(kind);
   }
   overlay.querySelectorAll(".catmgr-remove").forEach(btn=>{
@@ -3368,8 +3332,6 @@ let omExtractedExtra = {};
 let omExtractedNotes = "";
 let omExtractedBroker = null;
 let criteriaSets = {}; // product line (string) -> array of {key,label,requirement}
-let criteriaViewSelectedLine = "";
-let criteriaViewBuilt = false;
 let dismissedSuggestions = new Set(); // sigKeys of Suggested Tasks the user has dismissed
 /* goalStartDate is the fixed anchor the "Closings vs goal" progress (both here and the matching
    KPI tile in acquisitionsKpiSectionHtml) counts from — deliberately separate from heroPeriodStart
@@ -3477,16 +3439,15 @@ let compareSelectedIds = new Set();
    is the better buy. perAcre (price/acre) and fmtAcres are defined further down, but JS function
    declarations hoist, so referencing them here is fine. */
 const SCORING_CRITERIA = [
-  {key:"price",    label:"Purchase price",        dir:"lower",  unit:"money",   get:(d,ctx)=> d.purchasePrice ?? null},
-  {key:"site",     label:"Site area",             dir:"higher", unit:"acres",   get:(d,ctx)=> d.lotSizeAcres ?? null},
-  {key:"perAcre",  label:"Price / acre",          dir:"lower",  unit:"money",   get:(d,ctx)=> perAcre(d)},
-  {key:"icscore",  label:"IC / criteria score",   dir:"higher", unit:"score10", get:(d,ctx)=> d.icScore ?? null},
-  {key:"margin",   label:"Est. margin",           dir:"higher", unit:"pct",     get:(d,ctx)=> (ctx.uw && ctx.uw.marginRevenue!=null && ctx.uw.marginRevenue!==undefined) ? ctx.uw.marginRevenue*100 : null},
-  {key:"capital",  label:"Equity required",       dir:"lower",  unit:"money",   get:(d,ctx)=> ctx.cap ? ctx.cap.equityAmount : null},
-  {key:"target",   label:"Meets target criteria", dir:"higher", unit:"bool",    get:(d,ctx)=> d.meetsTargetCriteria ? 100 : 0},
+  {key:"price",    label:"Purchase price",  dir:"lower",  unit:"money",   get:(d,ctx)=> d.purchasePrice ?? null},
+  {key:"site",     label:"Site area",       dir:"higher", unit:"acres",   get:(d,ctx)=> d.lotSizeAcres ?? null},
+  {key:"perAcre",  label:"Price / acre",    dir:"lower",  unit:"money",   get:(d,ctx)=> perAcre(d)},
+  // d.screenScore is the weighted 0-100 rubric score (computeWeightedScreenScore, "X/100" wherever
+  // it's badged elsewhere — screenScoreBadgeHtml, the slideover's "Screen score" field).
+  {key:"screenscore", label:"Screen score", dir:"higher", unit:"score100", get:(d,ctx)=> d.screenScore ?? null},
 ];
 let scoringWeights = (()=>{
-  const defaults = {price:2, site:1, perAcre:3, icscore:3, margin:3, capital:2, target:2};
+  const defaults = {price:2, site:1, perAcre:3, screenscore:3};
   try{
     const saved = JSON.parse(localStorage.getItem("dealdesk_scoring_weights")||"null");
     if(saved && typeof saved==="object") return Object.assign({}, defaults, saved);
@@ -4122,7 +4083,6 @@ async function boot(){
       if(data && Array.isArray(data.productLines)) productLineOptions = data.productLines;
       categorySettingsLoaded = true;
       migrateProductLineOptions();
-      rebuildCriteriaView();
     }, ()=>{});
     db.doc("settings/icCriteria").onSnapshot(snap=>{
       const data = snap.data();
@@ -4133,7 +4093,6 @@ async function boot(){
       const data = snap.data();
       if(data && data.sets && typeof data.sets==="object") criteriaSets = data.sets;
       migrateConcoursRubric();
-      rebuildCriteriaView();
       if(openDealId) renderIcCriteriaSection();
     }, ()=>{});
     db.doc("settings/dismissedSuggestions").onSnapshot(snap=>{
@@ -4551,21 +4510,18 @@ function recomputeIcCriteria(dealId){
   const d = deals.get(dealId) || {};
   const list = activeIcCriteria(d);
   let fit=0, watch=0, nofit=0;
-  let scoreSum=0, scoreCount=0;
   list.forEach(item=>{
     const v = cache.get(item.key);
     if(!v) return;
     if(v.status==="fit") fit++; else if(v.status==="watch") watch++; else if(v.status==="nofit") nofit++;
-    if(typeof v.rating==="number" && !isNaN(v.rating)){ scoreSum += v.rating; scoreCount++; }
   });
-  const icScore = scoreCount ? Math.round((scoreSum/scoreCount)*10)/10 : null;
-  const patch = {icFit:fit, icWatch:watch, icNoFit:nofit, icTotal:list.length, icScore, icScoreCount:scoreCount};
+  const patch = {icFit:fit, icWatch:watch, icNoFit:nofit, icTotal:list.length};
   // Weighted CONCOURS-style rubrics (every row carrying a `weight`, e.g. the Porsche Design
-  // Clubhouse sheet) additionally roll up into the 0–100 screenScore that the stage-model brief's
-  // Screening-stage entry requirement and Dashboard KPIs read from. Non-weighted sheets (the Auto
-  // Condo master sheet, per-deal custom criteria) leave screenScore untouched — averaging unweighted
-  // 0–10 ratings into a 0–100 number wouldn't mean anything, so screenScore there stays whatever a
-  // person typed directly into the deal's Screening result section.
+  // Clubhouse sheet) roll up into the 0–100 screenScore that the stage-model brief's Screening-stage
+  // entry requirement and Dashboard KPIs read from. Non-weighted sheets (the Auto Condo master sheet,
+  // per-deal custom criteria) leave screenScore untouched — there's no longer a 0–10 fallback score
+  // for those; screenScore there just stays whatever a person typed directly into the deal's
+  // Screening result section, or unset until that sheet gets weights.
   if(isWeightedCriteriaList(list)) patch.screenScore = computeWeightedScreenScore(list, cache);
   updateDeal(dealId, patch);
 }
@@ -4582,17 +4538,16 @@ function setView(v){
   document.getElementById("tabAgendaBtn").setAttribute("aria-selected", v==="agenda");
   document.getElementById("tabBrokersBtn").setAttribute("aria-selected", v==="brokers");
   document.getElementById("tabCapitalBtn").setAttribute("aria-selected", v==="capital");
-  document.getElementById("tabCriteriaBtn").setAttribute("aria-selected", v==="criteria");
-  document.getElementById("addBtn").style.display = (v==="dashboard"||v==="agenda"||v==="ddchecklist"||v==="capital"||v==="criteria") ? "none" : "";
+  document.getElementById("addBtn").style.display = (v==="dashboard"||v==="agenda"||v==="ddchecklist"||v==="capital") ? "none" : "";
   document.getElementById("addBtn").textContent = v==="tasks" ? "+ Add task" : v==="brokers" ? "+ Add broker" : "+ Add deal";
-  document.getElementById("searchInput").style.display = (v==="dashboard"||v==="agenda"||v==="capital"||v==="criteria") ? "none" : "";
+  document.getElementById("searchInput").style.display = (v==="dashboard"||v==="agenda"||v==="capital") ? "none" : "";
   document.getElementById("searchInput").value = "";
   document.getElementById("searchInput").placeholder = v==="tasks" ? "Filter tasks…" : v==="ddchecklist" ? "Filter projects…" : v==="brokers" ? "Filter brokers…" : "Filter deals…";
   document.getElementById("autoClearSelect").style.display = v==="tasks" ? "" : "none";
   document.getElementById("metaCrumb").textContent =
-    v==="tasks" ? "Deal Desk / Tasks" : v==="pipeline" ? "Deal Desk / Acquisitions Pipeline" : v==="ddchecklist" ? "Deal Desk / DD Checklist" : v==="brokers" ? "Deal Desk / Brokers" : v==="capital" ? "Deal Desk / Capital" : v==="criteria" ? "Deal Desk / Criteria" : v==="agenda" ? "Deal Desk / Weekly Agenda" : "Deal Desk / Dashboard";
+    v==="tasks" ? "Deal Desk / Tasks" : v==="pipeline" ? "Deal Desk / Acquisitions Pipeline" : v==="ddchecklist" ? "Deal Desk / DD Checklist" : v==="brokers" ? "Deal Desk / Brokers" : v==="capital" ? "Deal Desk / Capital" : v==="agenda" ? "Deal Desk / Weekly Agenda" : "Deal Desk / Dashboard";
   document.getElementById("viewHeroTitle").textContent =
-    v==="tasks" ? "Tasks" : v==="pipeline" ? "Acquisitions Pipeline" : v==="ddchecklist" ? "DD Checklist" : v==="brokers" ? "Brokers" : v==="capital" ? "Capital" : v==="criteria" ? "Screening Criteria" : v==="agenda" ? "Weekly Agenda" : "Dashboard";
+    v==="tasks" ? "Tasks" : v==="pipeline" ? "Acquisitions Pipeline" : v==="ddchecklist" ? "DD Checklist" : v==="brokers" ? "Brokers" : v==="capital" ? "Capital" : v==="agenda" ? "Weekly Agenda" : "Dashboard";
   document.getElementById("viewHeroSub").textContent = v==="tasks"
     ? "Every task on one board, organized by status."
     : v==="pipeline"
@@ -4603,15 +4558,12 @@ function setView(v){
     ? "Who's active, what they've sent us, and how it's going."
     : v==="capital"
     ? "Debt and equity financing status for every deal under contract — committed, in progress, or still missing."
-    : v==="criteria"
-    ? "What makes a fit, by product line — this drives each deal's investment-criteria scorecard."
     : v==="agenda"
     ? "Everything to walk Harvey and Jay through this week, urgent items first."
     : "Capital needed, deal mix, and where the pipeline sits nationally.";
-  document.getElementById("board").style.display = (v==="dashboard"||v==="agenda"||v==="ddchecklist"||v==="brokers"||v==="capital"||v==="criteria") ? "none" : "";
+  document.getElementById("board").style.display = (v==="dashboard"||v==="agenda"||v==="ddchecklist"||v==="brokers"||v==="capital") ? "none" : "";
   document.getElementById("dashboardWrap").style.display = v==="dashboard" ? "" : "none";
   document.getElementById("agendaWrap").style.display = v==="agenda" ? "" : "none";
-  document.getElementById("criteriaWrap").style.display = v==="criteria" ? "" : "none";
   document.getElementById("ddTasksWrap").style.display = v==="ddchecklist" ? "" : "none";
   document.getElementById("brokersWrap").style.display = v==="brokers" ? "" : "none";
   document.getElementById("capitalWrap").style.display = v==="capital" ? "" : "none";
@@ -4641,7 +4593,6 @@ function matchesFilter(text, q){ return text.toLowerCase().includes(q); }
 function renderBoard(){
   if(view==="dashboard"){ renderDashboard(); return; }
   if(view==="agenda"){ renderAgendaView(); return; }
-  if(view==="criteria"){ renderCriteriaView(); return; }
   if(view==="ddchecklist"){ renderDdTasksView(); return; }
   if(view==="brokers"){ renderBrokersView(); return; }
   if(view==="capital"){ renderCapitalView(); return; }
@@ -4905,9 +4856,7 @@ function stageHighlightFields(stageKey, d, extra){
   switch(stageKey){
     case "just_landed": {
       // Screen score / Recommendation are the Screening-group columns the Sept 2026 stage-model
-      // brief calls for — the score comes from the CONCOURS IC scorecard (screenScore, 0–100,
-      // distinct from the older 0–10 icScore "Criteria score" chip below, which stays as-is since
-      // it's still how the Criteria page scores today pending the weighted-rubric rebuild).
+      // brief calls for — the score comes from the CONCOURS IC scorecard (screenScore, 0–100).
       const recoMeta = {pursue:{label:"Pursue",cls:"good"}, watch:{label:"Watch",cls:"warn"}, pass:{label:"Pass",cls:"bad"}}[d.recommendation];
       fields = [
         {label:"Location", value: escapeHtml(d.address||"—")},
@@ -5060,7 +5009,7 @@ function buildStageDealRow(id, d, stage, allEvents){
         <button class="star-btn${d.meetsTargetCriteria?" active":""}" title="Meets target criteria">★</button>
         <select class="priority-select" title="Priority"></select>
         ${stale ? `<span class="stage-stale-badge" title="${escapeAttr(staleTooltipText(d))}">⚠ Stale</span>` : ""}
-        ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}${tierPillHtml(d)}${icSummaryPillHtml(d)}${icScorePillHtml(d)}${screenScoreBadgeHtml(d)}${icFlagBadgeHtml(d)}
+        ${productLineBadgeHtml(d)}${priorityBadgeHtml(d)}${tierPillHtml(d)}${icSummaryPillHtml(d)}${screenScoreBadgeHtml(d)}${icFlagBadgeHtml(d)}
       </div>
       ${d.address ? `<div class="stage-row-sub"></div>` : ""}
       ${dealProgressBarHtml(d, {size:"sm"})}
@@ -5406,7 +5355,7 @@ function renderCompareMatrix(){
     if(c.unit==="money") return fmtMoneyShort(v);
     if(c.unit==="bool") return v>=100 ? "Yes" : "No";
     if(c.unit==="acres") return fmtAcres(v);
-    if(c.unit==="score10") return v.toFixed(1)+"/10";
+    if(c.unit==="score100") return Math.round(v)+"/100";
     return v;
   };
   const scoreColor = (s)=>{
@@ -5971,7 +5920,7 @@ function prospectsForReviewCardHtml(dealEntries, opts){
     const factsLine = dealFactsLineHtml(d);
     const btnHtml = `<button type="button" class="attn-row attn-row-wrap ${priorityCls}" data-deal="${escapeAttr(id)}">
       <span class="attn-row-name">${escapeHtml(d.name||d.address||"Untitled deal")}</span>
-      <span class="attn-row-text"><span class="pill ${PRIORITY_META[priority].cls}">${PRIORITY_META[priority].label}</span> ${screenScoreBadgeHtml(d)} ${icScoreBadgeHtml(d)} ${bits}</span>
+      <span class="attn-row-text"><span class="pill ${PRIORITY_META[priority].cls}">${PRIORITY_META[priority].label}</span> ${screenScoreBadgeHtml(d)} ${bits}</span>
       ${factsLine ? `<span class="attn-row-facts">${factsLine}</span>` : ""}
     </button>`;
     return withNotes ? agendaRowWithNotesHtml(btnHtml, id) : btnHtml;
@@ -9800,190 +9749,6 @@ function openEditDealModal(){
   setTimeout(()=>document.getElementById("dName").focus(), 10);
 }
 
-/* =================== screening criteria (by product line) =================== */
-/* What makes a deal a fit, defined per product line (e.g. "Porsche Design Clubhouse" vs.
-   another line) rather than per property type — this is what the IC scorecard weighs each
-   deal against. Persisted to everyone via
-   settings/criteriaSets. Rebuilds only when the tab is opened or the underlying settings
-   change remotely (see rebuildCriteriaView), never on unrelated deal updates, so an in-
-   progress edit here doesn't get wiped by someone else's change elsewhere in the app. */
-function renderCriteriaView(){
-  const wrap = document.getElementById("criteriaWrap");
-  if(!wrap) return;
-  if(criteriaViewBuilt) return;
-  criteriaViewBuilt = true;
-
-  if(!productLineOptions.length){
-    wrap.innerHTML = `<div class="dash-card screen-card">
-      <p class="screen-section-label">Screening criteria</p>
-      <div class="empty-hint">No product lines yet. Add one (e.g. "Porsche Design Clubhouse") to start defining what makes a deal a fit for it.</div>
-      <div class="screen-actions"><button class="btn btn-primary" id="criteriaAddLineBtn" type="button">+ Add product line</button></div>
-    </div>`;
-    document.getElementById("criteriaAddLineBtn").addEventListener("click", ()=> openCategoryManagerModal("productLine"));
-    return;
-  }
-
-  if(!criteriaViewSelectedLine || !productLineOptions.includes(criteriaViewSelectedLine)){
-    criteriaViewSelectedLine = productLineOptions[0];
-  }
-  const selected = criteriaViewSelectedLine;
-  const rows = criteriaSets[selected] || [];
-
-  wrap.innerHTML = `
-    <div class="dash-card screen-card">
-      <p class="screen-section-label">Product line</p>
-      <div class="criteria-line-picker" id="criteriaLinePicker">
-        ${productLineOptions.map(line=>`<span class="criteria-line-chip-wrap">
-          <button type="button" class="criteria-line-chip${line===selected?" active":""}" data-line="${escapeAttr(line)}">${escapeHtml(line)}</button>
-          <button type="button" class="criteria-line-chip-del" data-line="${escapeAttr(line)}" title="Delete this product line">✕</button>
-        </span>`).join("")}
-        <button type="button" class="criteria-line-chip criteria-line-chip-add" id="criteriaAddLineBtn">+ Add / edit product lines</button>
-      </div>
-    </div>
-    <div class="dash-card screen-card" style="margin-top:14px;">
-      <div class="screen-actions" style="justify-content:space-between; margin-top:0;">
-        <p class="screen-section-label" style="margin:0;">Screening criteria — ${escapeHtml(selected)}</p>
-        <span style="display:flex;gap:8px;">
-          <button class="btn" id="criteriaLoadStarterBtn" type="button">Load Auto Condo starter set</button>
-          <button class="btn" id="criteriaLoadConcoursBtn" type="button">Load CONCOURS rubric</button>
-        </span>
-      </div>
-      <p class="locked-note" style="margin:6px 0 12px;">These are what the IC scorecard weighs a ${escapeHtml(selected)} deal against. Changes save immediately for everyone. Give every row a weight (summing to 100) to turn this into a weighted 0–100 screenScore sheet like CONCOURS — leave weight blank for a plain 0–10 average sheet instead.</p>
-      <div class="catmgr-list" id="criteriaRowsList" style="max-height:none;">
-        ${rows.length ? rows.map((c,i)=>`<div class="mc-row" data-idx="${i}">
-          <div class="field"><label>Label</label><input type="text" class="crit-label" data-idx="${i}" value="${escapeAttr(c.label)}"></div>
-          <div class="field"><label>Requirement</label><input type="text" class="crit-req" data-idx="${i}" value="${escapeAttr(c.requirement)}"></div>
-          <div class="field" style="max-width:90px;"><label>Weight %</label><input type="number" min="0" max="100" step="1" class="crit-weight" data-idx="${i}" value="${c.weight!=null?c.weight:""}" placeholder="—"></div>
-          <div class="field"><label>Rating type</label><select class="crit-type" data-idx="${i}">
-            <option value="scale"${c.type!=="binary"?" selected":""}>Scale 0–10</option>
-            <option value="binary"${c.type==="binary"?" selected":""}>Binary Yes/No</option>
-          </select></div>
-          <button type="button" class="btn-icon crit-remove" data-idx="${i}" title="Remove">✕</button>
-        </div>`).join("") : `<div class="empty-hint">No criteria yet for ${escapeHtml(selected)} — add one below, or load a starter set.</div>`}
-      </div>
-      ${rows.length && rows.some(c=>typeof c.weight==="number") ? (()=>{
-        const weightedCount = rows.filter(c=>typeof c.weight==="number").length;
-        const totalWeight = rows.reduce((s,c)=>s+(typeof c.weight==="number"?c.weight:0),0);
-        const allWeighted = weightedCount===rows.length;
-        if(!allWeighted){
-          return `<p class="locked-note" style="margin-top:8px;color:var(--warn);font-weight:700;">${weightedCount} of ${rows.length} rows have a weight (${totalWeight}% so far) — every row needs one before this sheet computes a screenScore. Rows without a weight are treated as a plain 0–10 sheet for now.</p>`;
-        }
-        return `<p class="locked-note" style="margin-top:8px;${totalWeight!==100?"color:var(--warn);font-weight:700;":""}">Weights total ${totalWeight}%${totalWeight!==100?" — should sum to 100% for screenScore to read as a true 0–100 (it still prorates over whatever's rated, so it isn't broken, just not on a clean 0–100 scale until this adds up)." : " ✓ — this sheet computes screenScore automatically"}</p>`;
-      })() : ""}
-      <div class="field-row" style="margin-top:10px;align-items:flex-end;">
-        <div class="field" style="flex:1;"><label for="critNewLabel">Add criterion — label</label><input type="text" id="critNewLabel" placeholder="e.g. Parking ratio"></div>
-        <div class="field" style="flex:2;"><label for="critNewReq">Requirement</label><input type="text" id="critNewReq" placeholder="What we're looking for…"></div>
-        <div class="field" style="max-width:90px;"><label for="critNewWeight">Weight %</label><input type="number" min="0" max="100" step="1" id="critNewWeight" placeholder="—"></div>
-        <div class="field"><label for="critNewType">Rating type</label><select id="critNewType"><option value="scale">Scale 0–10</option><option value="binary">Binary Yes/No</option></select></div>
-        <button type="button" class="btn btn-primary" id="critAddBtn" type="button">+ Add</button>
-      </div>
-    </div>
-  `;
-
-  wrap.querySelectorAll(".criteria-line-chip[data-line]").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      criteriaViewSelectedLine = btn.getAttribute("data-line");
-      rebuildCriteriaView();
-    });
-  });
-  wrap.querySelectorAll(".criteria-line-chip-del").forEach(btn=>{
-    btn.addEventListener("click", (e)=>{
-      e.stopPropagation();
-      const line = btn.getAttribute("data-line");
-      const refCount = [...deals.values()].filter(d=>(d.productLine||"").trim()===line).length;
-      const critCount = (criteriaSets[line]||[]).length;
-      const parts = [];
-      if(critCount) parts.push(`its ${critCount} screening criterion${critCount===1?"":"a"}`);
-      if(refCount) parts.push(`${refCount} deal${refCount===1?"":"s"} tagged with it (they'll fall back to master or custom criteria)`);
-      openConfirm(
-        `Delete the product line "${escapeHtml(line)}"${parts.length ? ` — this also removes ${parts.join(" and ")}.` : "."} This can't be undone.`,
-        ()=>{
-          productLineOptions = productLineOptions.filter(l=>l!==line);
-          delete criteriaSets[line];
-          if(criteriaViewSelectedLine===line) criteriaViewSelectedLine = "";
-          saveCategorySettings();
-          saveCriteriaSets();
-          rebuildCriteriaView();
-        },
-        "Delete product line"
-      );
-    });
-  });
-  document.getElementById("criteriaAddLineBtn").addEventListener("click", ()=> openCategoryManagerModal("productLine"));
-  document.getElementById("criteriaLoadStarterBtn").addEventListener("click", ()=>{
-    const doLoad = ()=>{
-      criteriaSets[selected] = masterIcCriteria.map(c=> Object.assign({}, c));
-      saveCriteriaSets();
-      rebuildCriteriaView();
-    };
-    if(rows.length){
-      openConfirm(`Replace the ${rows.length} existing criteria for "${escapeHtml(selected)}" with the Auto Condo starter set? This can't be undone.`, doLoad, "Replace");
-    } else {
-      doLoad();
-    }
-  });
-  document.getElementById("criteriaLoadConcoursBtn").addEventListener("click", ()=>{
-    const doLoad = ()=>{
-      criteriaSets[selected] = CONCOURS_RUBRIC.map(c=> Object.assign({}, c));
-      saveCriteriaSets();
-      rebuildCriteriaView();
-    };
-    if(rows.length){
-      openConfirm(`Replace the ${rows.length} existing criteria for "${escapeHtml(selected)}" with the CONCOURS rubric (8 weighted categories)? This can't be undone.`, doLoad, "Replace");
-    } else {
-      doLoad();
-    }
-  });
-  wrap.querySelectorAll(".crit-label, .crit-req, .crit-type, .crit-weight").forEach(inp=>{
-    inp.addEventListener("change", ()=>{
-      const idx = Number(inp.getAttribute("data-idx"));
-      const list = (criteriaSets[selected] || []).slice();
-      const item = list[idx];
-      if(!item) return;
-      const isWeight = inp.classList.contains("crit-weight");
-      if(inp.classList.contains("crit-label")) item.label = inp.value.trim() || item.label;
-      else if(inp.classList.contains("crit-type")) item.type = inp.value;
-      else if(isWeight){
-        const n = inp.value===""? null : Math.max(0, Math.min(100, Math.round(Number(inp.value))));
-        if(n==null) delete item.weight; else item.weight = n;
-      }
-      else item.requirement = inp.value.trim();
-      criteriaSets[selected] = list;
-      saveCriteriaSets();
-      // Weight is the only field whose change affects other on-screen text (the "weights total X%"
-      // footer) — label/requirement/type edits stay a plain save so the user isn't kicked out of
-      // whichever field they're mid-edit on by an unrelated rebuild.
-      if(isWeight) rebuildCriteriaView();
-    });
-  });
-  wrap.querySelectorAll(".crit-remove").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const idx = Number(btn.getAttribute("data-idx"));
-      const list = (criteriaSets[selected] || []).slice();
-      list.splice(idx,1);
-      criteriaSets[selected] = list;
-      saveCriteriaSets();
-      rebuildCriteriaView();
-    });
-  });
-  document.getElementById("critAddBtn").addEventListener("click", ()=>{
-    const labelInput = document.getElementById("critNewLabel");
-    const reqInput = document.getElementById("critNewReq");
-    const weightInput = document.getElementById("critNewWeight");
-    const typeInput = document.getElementById("critNewType");
-    const label = labelInput.value.trim();
-    if(!label) return;
-    const list = (criteriaSets[selected] || []).slice();
-    const key = slugifyCriterionKey(label, list.map(c=>c.key));
-    const newItem = {key, label, requirement: reqInput.value.trim(), type: typeInput.value};
-    const w = weightInput.value===""? null : Math.max(0, Math.min(100, Math.round(Number(weightInput.value))));
-    if(w!=null) newItem.weight = w;
-    list.push(newItem);
-    criteriaSets[selected] = list;
-    saveCriteriaSets();
-    rebuildCriteriaView();
-  });
-}
 
 /* =================== deal detail slideover =================== */
 /* Drag-to-resize for the deal detail slideover's left edge. Re-wired every time openDealDetail
@@ -10801,20 +10566,12 @@ function buildIcCriteriaList(dealId){
   return {wrap, fit, watch, nofit, tbd, total:list.length, isAutoCondo, source};
 }
 
-/* Shared by renderIcScoreCard and renderIcCriteriaSection: when a deal's active sheet is a
-   weighted rubric (CONCOURS today), show the 0–100 screenScore + letter grade + the grade's
-   suggested recommendation (see SCREEN_GRADE_BANDS) instead of the plain 0–10 "Quality score" —
-   the weighted number is the one that actually means something for that sheet. */
-function screenScoreBlockHtml(d, weighted, align){
+/* The CONCOURS 0–100 screenScore + letter grade + the grade's suggested recommendation (see
+   SCREEN_GRADE_BANDS). Every criteria sheet reads through this same block now — there's no more
+   separate 0–10 "Quality score" fallback for a non-weighted sheet, just this, showing "Not rated"
+   until screenScore has something to show. */
+function screenScoreBlockHtml(d, align){
   const alignCss = align||"flex-end";
-  if(!weighted){
-    const scoreText = (d.icScore!=null && d.icScoreCount) ? `${d.icScore.toFixed(1)}/10` : "Not rated";
-    const scoreColor = d.icScore==null ? "var(--ink-faint)" : d.icScore>=7.5 ? "var(--good)" : d.icScore>=5 ? "var(--warn)" : "var(--bad)";
-    return `<div style="display:flex;flex-direction:column;align-items:${alignCss};gap:1px;flex:none;">
-      <span class="uw-label">Quality score</span>
-      <span class="num" style="color:${scoreColor};">${scoreText}</span>
-    </div>`;
-  }
   const grade = gradeForScreenScore(d.screenScore);
   const gradeColor = !grade ? "var(--ink-faint)" : (grade.reco==="pursue" ? "var(--good)" : grade.reco==="watch" ? "var(--warn)" : "var(--bad)");
   return `<div style="display:flex;flex-direction:column;align-items:${alignCss};gap:1px;flex:none;">
@@ -10823,54 +10580,22 @@ function screenScoreBlockHtml(d, weighted, align){
     ${grade ? `<span class="ic-criteria-source" style="margin-top:1px;">Suggested: ${escapeHtml(grade.recoLabel)}</span>` : ""}
   </div>`;
 }
-/* The main deal card only ever shows the single aggregate score, plus a link to the full
-   scorecard modal (openIcScorecardModal below) — this keeps that score pill in sync every time
-   the criteria change, regardless of whether the modal happens to be open. */
-function renderIcScoreCard(){
-  if(!openDealId) return;
-  const cardWrap = document.getElementById("icScoreCardWrap");
-  if(!cardWrap) return;
-  const scoredDeal = deals.get(openDealId) || {};
-  const weighted = isWeightedCriteriaList(activeIcCriteria(scoredDeal));
-  cardWrap.innerHTML = `
-    <div class="dd-summary">
-      ${screenScoreBlockHtml(scoredDeal, weighted, "flex-start")}
-      <button type="button" class="btn-icon" id="icScorecardLinkBtn" style="margin-left:auto;">📋 View full scorecard →</button>
-    </div>`;
-  document.getElementById("icScorecardLinkBtn").addEventListener("click", ()=> openIcScorecardModal(openDealId));
-}
 
-/* Investment-criteria scorecard modal — the per-criterion rating rows used to sit directly on the
-   deal card; they now live here instead, off a "View full scorecard" link, so the card itself only
-   shows the single aggregate score. Everything below is unchanged from the old inline section —
-   still editable here, still the same buildIcCriteriaList() rows. */
-function openIcScorecardModal(id){
-  const existing = document.getElementById("icScorecardOverlay");
-  if(existing) existing.remove();
-  const d = deals.get(id) || {};
-  const overlay = document.createElement("div");
-  overlay.className = "overlay";
-  overlay.id = "icScorecardOverlay";
-  overlay.innerHTML = `<div class="modal" style="width:min(720px,94vw);">
-    <div class="modal-head"><h2>Investment criteria scorecard — ${escapeHtml(d.name||"Deal")}</h2><button type="button" class="btn-icon" id="icScorecardCloseBtn" style="margin-left:auto;">✕ Close</button></div>
-    <div class="modal-body" id="icCriteriaSection" style="max-height:min(70vh,640px);overflow:auto;"></div>
-    <div class="modal-foot"><button type="button" class="btn" id="icScorecardDoneBtn">Done</button></div>
-  </div>`;
-  document.body.appendChild(overlay);
-  overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
-  document.getElementById("icScorecardCloseBtn").addEventListener("click", ()=> overlay.remove());
-  document.getElementById("icScorecardDoneBtn").addEventListener("click", ()=> overlay.remove());
-  renderIcCriteriaSection();
-}
-
+/* The full screening scorecard — CONCOURS score, fit/watch/nofit tally, and every per-criterion
+   rating row — rendered directly into the deal card's own icScoreCardWrap (see openDealDetail's
+   "Deal screening" section). This used to be a compact score-and-link that opened a separate modal
+   (or, before that, a separate top-level "Criteria" tab to edit the underlying sheet) — both of
+   those are gone now; this is the one place the scorecard lives, and it's always visible on the
+   card itself. Editing the SHEET a product line scores against (labels/weights/requirement text)
+   still exists for the Auto Condo master sheet via openMasterCriteriaModal below; a product-line
+   sheet like CONCOURS itself no longer has an in-app editor — ask for that rubric to be adjusted in
+   the code (CONCOURS_RUBRIC) instead. */
 function renderIcCriteriaSection(){
   if(!openDealId) return;
-  renderIcScoreCard();
-  const wrap = document.getElementById("icCriteriaSection");
+  const wrap = document.getElementById("icScoreCardWrap");
   if(!wrap) return;
   const {wrap: listEl, fit, watch, nofit, tbd, total, isAutoCondo, source} = buildIcCriteriaList(openDealId);
   const scoredDeal = deals.get(openDealId) || {};
-  const weighted = isWeightedCriteriaList(activeIcCriteria(scoredDeal));
 
   const summary = document.createElement("div");
   summary.className = "dd-summary";
@@ -10881,22 +10606,20 @@ function renderIcCriteriaSection(){
       <span class="pill pill-bad">${nofit} Doesn't fit</span>
       <span class="pill pill-neutral">${tbd} Not assessed</span>
     </div>
-    ${screenScoreBlockHtml(scoredDeal, weighted)}`;
-  if(weighted){
-    const grade = gradeForScreenScore(scoredDeal.screenScore);
-    if(grade && scoredDeal.recommendation!==grade.reco){
-      const applyBtn = document.createElement("button");
-      applyBtn.type = "button";
-      applyBtn.className = "btn-icon";
-      applyBtn.style.marginLeft = "8px";
-      applyBtn.textContent = `Apply "${grade.recoLabel}" to Recommendation`;
-      applyBtn.addEventListener("click", ()=>{
-        updateDeal(openDealId, {recommendation: grade.reco});
-        scoredDeal.recommendation = grade.reco;
-        renderIcCriteriaSection();
-      });
-      summary.appendChild(applyBtn);
-    }
+    ${screenScoreBlockHtml(scoredDeal)}`;
+  const grade = gradeForScreenScore(scoredDeal.screenScore);
+  if(grade && scoredDeal.recommendation!==grade.reco){
+    const applyBtn = document.createElement("button");
+    applyBtn.type = "button";
+    applyBtn.className = "btn-icon";
+    applyBtn.style.marginLeft = "8px";
+    applyBtn.textContent = `Apply "${grade.recoLabel}" to Recommendation`;
+    applyBtn.addEventListener("click", ()=>{
+      updateDeal(openDealId, {recommendation: grade.reco});
+      scoredDeal.recommendation = grade.reco;
+      renderIcCriteriaSection();
+    });
+    summary.appendChild(applyBtn);
   }
 
   const box = document.createElement("div");
@@ -10910,13 +10633,13 @@ function renderIcCriteriaSection(){
   head.innerHTML = `<span>Screening criteria ${sourceLabel}</span>
     <span style="display:flex;align-items:center;gap:8px;margin-left:auto;">
       <span class="cat-count" style="margin-left:0;">${fit+watch+nofit} of ${total} assessed</span>
-      ${source.type==="productLine" ? `<button type="button" class="btn-icon" id="editMasterSheetBtn">✏️ Edit in Criteria tab</button>` : source.type==="autoCondo" ? `<button type="button" class="btn-icon" id="editMasterSheetBtn">✏️ Edit master sheet</button>` : ""}
+      ${source.type==="autoCondo" ? `<button type="button" class="btn-icon" id="editMasterSheetBtn">✏️ Edit master sheet</button>` : ""}
     </span>`;
   box.appendChild(head);
   box.appendChild(listEl);
-  if(source.type!=="custom"){
+  if(source.type==="autoCondo"){
     const btn = head.querySelector("#editMasterSheetBtn");
-    if(btn) btn.addEventListener("click", ()=> source.type==="productLine" ? jumpToCriteriaLine(source.line) : openMasterCriteriaModal());
+    if(btn) btn.addEventListener("click", ()=> openMasterCriteriaModal());
   }
 
   wrap.innerHTML = "";
