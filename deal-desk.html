@@ -3468,15 +3468,25 @@ function setHeroPeriodStart(dateStr){
 }
 let dashboardDealsFiltered = new Map();
 let compareSelectedIds = new Set();
+/* Deliberately property-fundamentals, not deal-process — this feeds the "compare 2-6 deals"
+   matrix (renderCompareMatrix below), which Brendan uses to weigh multiple sites against each
+   other within a market (an actual comp grid), not to track how far along any one of them is
+   toward closing. "Deal readiness" and "DD completion" used to live here and got pulled for
+   exactly that reason — they're real facts about a deal, but they measure the same thing the
+   Kanban board and DD checklist already show, and told you nothing about whether the SITE itself
+   is the better buy. perAcre (price/acre) and fmtAcres are defined further down, but JS function
+   declarations hoist, so referencing them here is fine. */
 const SCORING_CRITERIA = [
-  {key:"margin",   label:"Est. margin",           dir:"higher", unit:"pct",   get:(d,ctx)=> (ctx.uw && ctx.uw.marginRevenue!=null && ctx.uw.marginRevenue!==undefined) ? ctx.uw.marginRevenue*100 : null},
-  {key:"capital",  label:"Equity required",       dir:"lower",  unit:"money", get:(d,ctx)=> ctx.cap ? ctx.cap.equityAmount : null},
-  {key:"progress", label:"Deal readiness",        dir:"higher", unit:"pct",   get:(d,ctx)=> dealStageProgressPct(d).pct},
-  {key:"dd",       label:"DD completion",         dir:"higher", unit:"pct",   get:(d,ctx)=> ctx.applicable>0 ? Math.round((ctx.complete/ctx.applicable)*100) : null},
-  {key:"target",   label:"Meets target criteria", dir:"higher", unit:"bool",  get:(d,ctx)=> d.meetsTargetCriteria ? 100 : 0},
+  {key:"price",    label:"Purchase price",        dir:"lower",  unit:"money",   get:(d,ctx)=> d.purchasePrice ?? null},
+  {key:"site",     label:"Site area",             dir:"higher", unit:"acres",   get:(d,ctx)=> d.lotSizeAcres ?? null},
+  {key:"perAcre",  label:"Price / acre",          dir:"lower",  unit:"money",   get:(d,ctx)=> perAcre(d)},
+  {key:"icscore",  label:"IC / criteria score",   dir:"higher", unit:"score10", get:(d,ctx)=> d.icScore ?? null},
+  {key:"margin",   label:"Est. margin",           dir:"higher", unit:"pct",     get:(d,ctx)=> (ctx.uw && ctx.uw.marginRevenue!=null && ctx.uw.marginRevenue!==undefined) ? ctx.uw.marginRevenue*100 : null},
+  {key:"capital",  label:"Equity required",       dir:"lower",  unit:"money",   get:(d,ctx)=> ctx.cap ? ctx.cap.equityAmount : null},
+  {key:"target",   label:"Meets target criteria", dir:"higher", unit:"bool",    get:(d,ctx)=> d.meetsTargetCriteria ? 100 : 0},
 ];
 let scoringWeights = (()=>{
-  const defaults = {margin:3, capital:2, progress:2, dd:1, target:2};
+  const defaults = {price:2, site:1, perAcre:3, icscore:3, margin:3, capital:2, target:2};
   try{
     const saved = JSON.parse(localStorage.getItem("dealdesk_scoring_weights")||"null");
     if(saved && typeof saved==="object") return Object.assign({}, defaults, saved);
@@ -5395,6 +5405,8 @@ function renderCompareMatrix(){
     if(c.unit==="pct") return Math.round(v)+"%";
     if(c.unit==="money") return fmtMoneyShort(v);
     if(c.unit==="bool") return v>=100 ? "Yes" : "No";
+    if(c.unit==="acres") return fmtAcres(v);
+    if(c.unit==="score10") return v.toFixed(1)+"/10";
     return v;
   };
   const scoreColor = (s)=>{
