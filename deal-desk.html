@@ -2245,6 +2245,7 @@ function icFlagBadgeHtml(d){
 
 const TASK_COLUMNS = [
   {key:"doing",    title:"Doing",    color:"good"},
+  {key:"waiting",  title:"Waiting on reply", color:"brass", hint:"On the other side's court"},
   {key:"todo",     title:"To Do",    color:"warn"},
   {key:"backlog",  title:"Backlog",  color:"bad"},
   {key:"complete", title:"Complete", color:"good"},
@@ -4192,10 +4193,31 @@ async function deleteTask(id){
   if(db){ await db.doc("tasks/"+id).delete(); }
   else{ tasks.delete(id); renderBoard(); renderCounts(); }
 }
-function taskColumnPatch(newCol){
+/* oldCol is optional (falls back to "not already waiting", so a caller that doesn't know the
+   previous column just gets today's date stamped on every move into Waiting — harmless, since the
+   only real risk of omitting it is re-stamping a task that was already waiting). Passing it lets a
+   same-column re-save (e.g. editing notes without changing the column) skip re-stamping the clock,
+   and lets moving OUT of Waiting clear waitingSince so it doesn't linger on a task that's since
+   moved on. */
+function taskColumnPatch(newCol, oldCol){
   const patch = {column:newCol, order:Date.now()};
   patch.completedAt = newCol==="complete" ? new Date().toISOString() : null;
+  if(newCol==="waiting" && oldCol!=="waiting") patch.waitingSince = new Date().toISOString().slice(0,10);
+  else if(newCol!=="waiting" && oldCol==="waiting") patch.waitingSince = null;
   return patch;
+}
+/* Whole days elapsed since a task entered the Waiting column — daysUntil(iso) is negative for a
+   past date, so this just flips the sign into an intuitive "how many days has this been waiting" count. */
+function daysWaiting(iso){
+  const days = daysUntil(iso);
+  return days===null ? null : -days;
+}
+function waitingClass(iso){
+  const days = daysWaiting(iso);
+  if(days===null) return "pill-neutral";
+  if(days>=14) return "pill-bad";
+  if(days>=5) return "pill-warn";
+  return "pill-neutral";
 }
 
 /* Curated set of deal fields worth surfacing in the "What changed" weekly digest — deliberately
@@ -4615,7 +4637,7 @@ function renderBoard(){
 
     colEl.innerHTML = `<div class="column-head">
         <span class="dot dot-${col.color}"></span>
-        <span class="column-title">${col.title}</span>
+        <span class="column-title"${col.hint?` title="${escapeAttr(col.hint)}"`:""}>${col.title}</span>
         <span class="column-count mono">${list.length}</span>
         <button class="column-add" type="button" title="Add task to ${col.title}" aria-label="Add task to ${col.title}">+</button>
       </div>`;
@@ -4628,7 +4650,8 @@ function renderBoard(){
     body.addEventListener("drop", e=>{
       e.preventDefault(); body.classList.remove("drag-over");
       if(!dragCard) return;
-      updateTask(dragCard.id, taskColumnPatch(col.key));
+      const dragged = tasks.get(dragCard.id);
+      updateTask(dragCard.id, taskColumnPatch(col.key, dragged && dragged.column));
       dragCard = null;
     });
 
@@ -9251,11 +9274,14 @@ function buildTaskCard(id, d){
   const pr = PRIORITY_META[d.priority]||PRIORITY_META.medium;
   const deal = d.relatedDealId ? deals.get(d.relatedDealId) : null;
 
+  const waiting = d.column==="waiting" && d.waitingSince;
+
   card.innerHTML = `
     <div class="card-title"></div>
     <div class="card-meta">
       ${d.hjReview ? `<span class="pill pill-hj">🎯 Harvey/Jay review</span>` : ""}
       <span class="pill pill-priority ${pr.cls}"></span>
+      ${waiting ? `<span class="pill pill-waiting ${waitingClass(d.waitingSince)} mono"></span>` : ""}
       ${d.dueDate ? `<span class="pill pill-due ${urgencyClass(d.dueDate)} mono"></span>` : ""}
       ${d.assignee ? `<span class="pill pill-assignee pill-accent"></span>` : ""}
     </div>
@@ -9265,6 +9291,11 @@ function buildTaskCard(id, d){
     </div>`;
   card.querySelector(".card-title").textContent = d.title || "Untitled task";
   card.querySelector(".pill-priority").textContent = pr.label;
+  if(waiting){
+    const days = daysWaiting(d.waitingSince);
+    card.querySelector(".pill-waiting").textContent = days<=0 ? "Since today" : `${days}d waiting`;
+    card.querySelector(".pill-waiting").title = "Waiting since "+fmtDate(d.waitingSince);
+  }
   if(d.dueDate){ card.querySelector(".pill-due").textContent = fmtDate(d.dueDate)+urgencySuffix(d.dueDate); }
   if(d.assignee){ card.querySelector(".pill-assignee").textContent = d.assignee; }
   if(deal){ card.querySelector(".link-tag span").textContent = deal.name || deal.address || "Deal"; }
@@ -9275,7 +9306,7 @@ function buildTaskCard(id, d){
     sel.appendChild(o);
   });
   sel.addEventListener("click", e=>e.stopPropagation());
-  sel.addEventListener("change", ()=> updateTask(id, taskColumnPatch(sel.value)));
+  sel.addEventListener("change", ()=> updateTask(id, taskColumnPatch(sel.value, d.column)));
   return card;
 }
 
@@ -9312,6 +9343,13 @@ function openEditTaskModal(id, defaultColumn){
             </div>
             <div class="field"><label for="tColumn">Column</label><select id="tColumn">${columnOptions}</select></div>
           </div>
+          <div class="field-row" id="tWaitingSinceRow" style="display:none">
+            <div class="field">
+              <label for="tWaitingSince">Waiting since</label>
+              <input id="tWaitingSince" type="date">
+              <span class="field-tool-note" id="tWaitingSinceHint"></span>
+            </div>
+          </div>
           <div class="field"><label for="tDeal">Related deal</label><select id="tDeal">${dealOptions}</select></div>
           <div class="field"><label for="tNotes">Notes</label><textarea id="tNotes" placeholder="Details…"></textarea></div>
           <label class="hj-flag-toggle" for="tHjReview">
@@ -9338,12 +9376,33 @@ function openEditTaskModal(id, defaultColumn){
     if(o.value){ const dd = deals.get(o.value); o.textContent = dd ? (dd.name||dd.address||"Deal") : "Deal"; }
   });
 
+  /* "Waiting since" only makes sense once the task is actually sitting in the Waiting column, so
+     the row stays hidden otherwise. Defaults to today the moment the column is switched to Waiting
+     (mirroring taskColumnPatch's own auto-stamp), but is a plain date input from there — Brendan can
+     drag it earlier or later to correct the start date, and the "Xd waiting" hint below it updates
+     live so he can see what a given date will read as before saving. */
+  const waitingSinceInput = document.getElementById("tWaitingSince");
+  const waitingSinceRow = document.getElementById("tWaitingSinceRow");
+  const waitingSinceHint = document.getElementById("tWaitingSinceHint");
+  waitingSinceInput.value = d.waitingSince || "";
+  function refreshWaitingSinceUI(){
+    const isWaiting = document.getElementById("tColumn").value==="waiting";
+    waitingSinceRow.style.display = isWaiting ? "" : "none";
+    if(isWaiting && !waitingSinceInput.value) waitingSinceInput.value = new Date().toISOString().slice(0,10);
+    const days = isWaiting ? daysWaiting(waitingSinceInput.value) : null;
+    waitingSinceHint.textContent = days===null ? "" : days<=0 ? "Since today" : `${days} day${days===1?"":"s"} so far`;
+  }
+  document.getElementById("tColumn").addEventListener("change", refreshWaitingSinceUI);
+  waitingSinceInput.addEventListener("input", refreshWaitingSinceUI);
+  refreshWaitingSinceUI();
+
   const close = ()=>{ root.innerHTML=""; };
   document.getElementById("taskOverlay").addEventListener("click", e=>{ if(e.target.id==="taskOverlay") close(); });
   document.getElementById("tCancel").addEventListener("click", close);
   document.getElementById("tSave").addEventListener("click", ()=>{
     const title = document.getElementById("tTitle").value.trim();
     if(!title){ document.getElementById("tTitle").focus(); return; }
+    const newCol = document.getElementById("tColumn").value || "backlog";
     const patch = {
       title,
       assignee: document.getElementById("tAssignee").value.trim(),
@@ -9354,13 +9413,19 @@ function openEditTaskModal(id, defaultColumn){
       hjReview: document.getElementById("tHjReview").checked,
     };
     if(editing){
-      const newCol = document.getElementById("tColumn").value;
-      if(newCol !== (d.column||"backlog")) Object.assign(patch, taskColumnPatch(newCol));
+      const oldCol = d.column||"backlog";
+      if(newCol !== oldCol) Object.assign(patch, taskColumnPatch(newCol, oldCol));
+      else patch.column = newCol;
+      // The date field wins over the auto-stamp whenever the task is (or is becoming) Waiting —
+      // that's what lets Brendan hand-adjust the start date instead of always getting "today."
+      if(newCol==="waiting") patch.waitingSince = waitingSinceInput.value || new Date().toISOString().slice(0,10);
       updateTask(id, patch);
     }
     else{
-      patch.column = document.getElementById("tColumn").value || "backlog";
-      patch.order = Date.now(); patch.createdAt = new Date().toISOString(); patch.completedAt = null; createTask(patch);
+      patch.column = newCol;
+      patch.order = Date.now(); patch.createdAt = new Date().toISOString(); patch.completedAt = null;
+      if(newCol==="waiting") patch.waitingSince = waitingSinceInput.value || new Date().toISOString().slice(0,10);
+      createTask(patch);
     }
     close();
   });
